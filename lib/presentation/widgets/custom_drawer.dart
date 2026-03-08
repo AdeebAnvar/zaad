@@ -57,6 +57,11 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
       title: "Recent Sales",
       route: "/recent_sales",
     ),
+    DrawerMenuItem(
+      icon: Icons.settings,
+      title: "Settings",
+      route: "/settings",
+    ),
   ];
 
   @override

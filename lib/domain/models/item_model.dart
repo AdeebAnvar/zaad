@@ -14,6 +14,8 @@ class ItemModel {
   final String imagePath;
   String localImagePath;
   final int categoryId;
+  final int? kitchenId;
+  final String? kitchenName;
   final List<ItemVariant> variants;
   final List<ItemTopping> toppings;
 
@@ -30,6 +32,8 @@ class ItemModel {
     required this.categoryName,
     required this.categoryOtherName,
     required this.barcode,
+    this.kitchenId,
+    this.kitchenName,
     this.variants = const [],
     this.toppings = const [],
   });
@@ -48,6 +52,8 @@ class ItemModel {
       categoryName: json['category_name'] as String,
       categoryOtherName: json['category_other_name'] as String? ?? '',
       barcode: json['barcode'] as String? ?? '',
+      kitchenId: json['kitchen_id'] as int?,
+      kitchenName: json['kitchen_name'] as String?,
       variants: (json['variants'] as List<dynamic>?)?.map((e) => ItemVariant.fromJson(e)).toList() ?? [],
       toppings: (json['toppings'] as List<dynamic>?)?.map((e) => ItemTopping.fromJson(e)).toList() ?? [],
     );
@@ -67,6 +73,8 @@ class ItemModel {
       'category_name': categoryName,
       'category_other_name': categoryOtherName,
       'barcode': barcode,
+      'kitchen_id': kitchenId,
+      'kitchen_name': kitchenName,
       'variants': variants.map((e) => e.toJson()).toList(),
       'toppings': toppings.map((e) => e.toJson()).toList(),
     };

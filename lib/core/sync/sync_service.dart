@@ -85,11 +85,37 @@ class SyncService {
 
       currentPhase = 20; // Categories completed (20% total)
 
-      // ---------- CUSTOMERS ---------- (10% of total, from 20% to 30%)
+      // ---------- KITCHENS ---------- (3% of total, from 20% to 23%)
+      int kitchenIndex = 0;
+      final kitchenTotal = payload.kitchens.length;
+      for (final k in payload.kitchens) {
+        kitchenIndex++;
+        final kitchenProgress = (kitchenIndex / kitchenTotal) * 3;
+
+        _emit(SyncStatus(
+          phase: SyncPhase.categories,
+          message: 'Syncing kitchens ($kitchenIndex / $kitchenTotal)',
+          current: (20 + kitchenProgress).toInt(),
+          total: totalPhases,
+        ));
+
+        await db.itemDao.upsertKitchen(
+          KitchensCompanion.insert(
+            id: Value(k.id),
+            name: k.name,
+            printerIp: k.printerIp != null ? Value(k.printerIp!) : const Value.absent(),
+            printerPort: Value(k.printerPort),
+          ),
+        );
+      }
+
+      currentPhase = 23; // Kitchens completed (23% total)
+
+      // ---------- CUSTOMERS ---------- (7% of total, from 23% to 30%)
       _emit(SyncStatus(
         phase: SyncPhase.items,
         message: 'Also fetching customers...',
-        current: 20,
+        current: 23,
         total: totalPhases,
       ));
 
@@ -100,7 +126,7 @@ class SyncService {
       final customerTotal = customers.length;
       for (final c in customers) {
         customerIndex++;
-        final customerProgress = (customerIndex / customerTotal) * 5; // 5% for all customers
+        final customerProgress = (customerIndex / customerTotal) * 5; // 5% for all customers (25-30%)
 
         _emit(SyncStatus(
           phase: SyncPhase.items,
@@ -166,6 +192,8 @@ class SyncService {
             categoryOtherName: i.categoryOtherName,
             imagePath: Value(i.imagePath),
             categoryId: i.categoryId,
+            kitchenId: Value(i.kitchenId),
+            kitchenName: Value(i.kitchenName),
           ),
         );
         await Future.wait([

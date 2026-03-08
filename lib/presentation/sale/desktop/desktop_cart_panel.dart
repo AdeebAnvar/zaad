@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/repository/customer_repository.dart';
 import 'package:pos/domain/models/customer_model.dart';
@@ -138,11 +139,14 @@ class CartPanel extends StatelessWidget {
                                     ? () {}
                                     : () async {
                                         if (isOpenedForEdit) {
-                                          // Edit: save with existing ref, no ref popup
                                           final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
                                           if (hasRef) {
-                                            await cartCubit.saveKOTWithExistingReference();
-                                            if (context.mounted) Navigator.pop(context);
+                                            try {
+                                              await cartCubit.saveKOTWithExistingReference();
+                                              if (context.mounted) Navigator.pop(context);
+                                            } catch (e) {
+                                              if (context.mounted) showErrorDialog(context, e);
+                                            }
                                           }
                                         } else {
                                           showKOTDialog(context);
@@ -248,11 +252,17 @@ class CartPanel extends StatelessWidget {
                           CustomButton(
                             width: 120,
                             text: 'Save',
-                            onPressed: () {
+                            onPressed: () async {
                               final value = referenceController.text.trim();
                               if (value.isNotEmpty) {
-                                cartCubit.saveKOT(value);
-                                Navigator.pop(context);
+                                try {
+                                  await cartCubit.saveKOT(value);
+                                  if (context.mounted) Navigator.pop(context);
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    showErrorDialog(context, e);
+                                  }
+                                }
                               }
                             },
                           ),
@@ -275,26 +285,30 @@ class CartPanel extends StatelessWidget {
       builder: (dialogContext) => PaymentDialog(
         totalAmount: totalAmount,
         onSave: (customerDetails, discount, payments) async {
-          final cartCubit = context.read<CartCubit>();
-          if (isEditing) {
-            // Update existing order with new payment details
-            await cartCubit.updateOrderWithPayment(
-              customerDetails: customerDetails,
-              discount: discount,
-              payments: payments,
-            );
-          } else {
-            // Create new order
-            await cartCubit.placeOrderWithPayment(
-              customerDetails: customerDetails,
-              discount: discount,
-              payments: payments,
-            );
-          }
-          if (dialogContext.mounted) {
-            Navigator.pop(dialogContext);
-            if (isEditing && context.mounted) {
-              Navigator.pop(context);
+          try {
+            final cartCubit = context.read<CartCubit>();
+            if (isEditing) {
+              await cartCubit.updateOrderWithPayment(
+                customerDetails: customerDetails,
+                discount: discount,
+                payments: payments,
+              );
+            } else {
+              await cartCubit.placeOrderWithPayment(
+                customerDetails: customerDetails,
+                discount: discount,
+                payments: payments,
+              );
+            }
+            if (dialogContext.mounted) {
+              Navigator.pop(dialogContext);
+              if (isEditing && context.mounted) {
+                Navigator.pop(context);
+              }
+            }
+          } catch (e) {
+            if (dialogContext.mounted) {
+              showErrorDialog(dialogContext, e);
             }
           }
         },

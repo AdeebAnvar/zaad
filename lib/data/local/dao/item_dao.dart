@@ -1,5 +1,23 @@
 part of '../drift_database.dart';
 
+class Kitchens extends Table {
+  IntColumn get id => integer()();
+  TextColumn get name => text()();
+  TextColumn get printerIp => text().nullable()();
+  IntColumn get printerPort => integer().withDefault(const Constant(9100))();
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// Local config: printer IP/port per kitchen. kitchen_id=0 means default bill printer.
+class KitchenPrinters extends Table {
+  IntColumn get kitchenId => integer()();
+  TextColumn get printerIp => text()();
+  IntColumn get printerPort => integer().withDefault(const Constant(9100))();
+  @override
+  Set<Column> get primaryKey => {kitchenId};
+}
+
 class Items extends Table {
   IntColumn get id => integer()();
   TextColumn get name => text()();
@@ -13,6 +31,8 @@ class Items extends Table {
   TextColumn get categoryOtherName => text()();
   TextColumn get barcode => text()();
   IntColumn get categoryId => integer()();
+  IntColumn get kitchenId => integer().nullable()();
+  TextColumn get kitchenName => text().nullable()();
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -55,6 +75,8 @@ class ToppingGroups extends Table {
 }
 
 @DriftAccessor(tables: [
+  Kitchens,
+  KitchenPrinters,
   Items,
   ItemVariants,
   ItemToppings,
@@ -62,6 +84,50 @@ class ToppingGroups extends Table {
 ])
 class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
   ItemDao(AppDatabase db) : super(db);
+
+  /// ───────────── KITCHENS ─────────────
+
+  Future<void> upsertKitchen(KitchensCompanion data) async {
+    await into(kitchens).insertOnConflictUpdate(data);
+  }
+
+  Future<List<Kitchen>> getAllKitchens() => select(kitchens).get();
+
+  Future<Kitchen?> getKitchenById(int kitchenId) {
+    return (select(kitchens)..where((k) => k.id.equals(kitchenId))).getSingleOrNull();
+  }
+
+  /// Update printer IP/port for a kitchen (connects device to printer).
+  Future<void> updateKitchenPrinter({
+    required int kitchenId,
+    required String printerIp,
+    int printerPort = 9100,
+  }) async {
+    await (update(kitchens)..where((k) => k.id.equals(kitchenId))).write(
+      KitchensCompanion(
+        printerIp: Value(printerIp),
+        printerPort: Value(printerPort),
+      ),
+    );
+  }
+
+  /// ───────────── KITCHEN PRINTERS (local config) ─────────────
+
+  Future<void> upsertKitchenPrinter(KitchenPrintersCompanion data) async {
+    await into(kitchenPrinters).insertOnConflictUpdate(data);
+  }
+
+  Future<KitchenPrinter?> getPrinterByKitchenId(int kitchenId) {
+    return (select(kitchenPrinters)..where((k) => k.kitchenId.equals(kitchenId)))
+        .getSingleOrNull();
+  }
+
+  Future<List<KitchenPrinter>> getAllKitchenPrinters() => select(kitchenPrinters).get();
+
+  /// kitchen_id=0 is the default bill printer
+  Future<KitchenPrinter?> getBillPrinter() => getPrinterByKitchenId(0);
+
+  /// ───────────── ITEMS ─────────────
 
   /// Insert OR update stock if SKU exists
   Future<void> upsertItem(ItemsCompanion data) async {

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/data/local/drift_database.dart';
-import 'package:pos/data/repository_impl/cart_repository_impl.dart';
+import 'package:pos/data/repository/cart_repository.dart';
+import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/data/repository_impl/item_repository_impl.dart';
+import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/sync/auto_sync_screen.dart';
 import 'package:pos/presentation/dashboard/dashboard_screen.dart';
 import 'package:pos/presentation/login/login_screen.dart';
@@ -16,6 +18,7 @@ import 'package:pos/presentation/crm/crm_screen.dart';
 import 'package:pos/presentation/crm/crm_customer_details_screen.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_ui.dart';
+import 'package:pos/presentation/settings/settings_screen.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class Routes {
@@ -28,6 +31,7 @@ class Routes {
   static const recentSales = "/recent_sales";
   static const crm = "/crm";
   static const crmCustomerDetails = "/crm/customer_details";
+  static const settings = "/settings";
 
   static Map<String, WidgetBuilder> map = {
     login: (_) => const LoginScreen(),
@@ -37,6 +41,7 @@ class Routes {
     recentSales: (_) => const RecentSalesScreen(),
     crm: (_) => const CrmScreen(),
     crmCustomerDetails: (_) => const CrmCustomerDetailsScreen(),
+    settings: (_) => const SettingsScreen(),
     counter: (context) {
       final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       final orderId = args?['orderId'] as int?;
@@ -45,10 +50,11 @@ class Routes {
         create: (context) {
           final db = locator<AppDatabase>();
           final cubit = CartCubit(
-            CartRepositoryImpl(db),
-            ItemRepositoryImpl(db),
+            locator<CartRepository>(),
+            locator<ItemRepository>(),
             locator<OrderRepository>(),
             db.sessionDao,
+            locator<PrintService>(),
           );
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (orderId != null) {

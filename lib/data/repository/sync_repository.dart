@@ -4,8 +4,21 @@ import 'package:pos/domain/models/item_variant_model.dart';
 import '../../domain/models/item_model.dart';
 import '../../domain/models/category_model.dart';
 import '../../domain/models/customer_model.dart';
+import '../../domain/models/kitchen_model.dart';
 
 class SyncRepository {
+  Future<List<KitchenModel>> fetchKitchens() async {
+    await Future.delayed(const Duration(milliseconds: 500));
+    return [
+      KitchenModel(id: 1, name: "Drinks"),
+      KitchenModel(id: 2, name: "Arabian"),
+      KitchenModel(id: 3, name: "Bread"),
+      KitchenModel(id: 4, name: "Rolls"),
+      KitchenModel(id: 5, name: "Grill"),
+      KitchenModel(id: 6, name: "Desserts"),
+    ];
+  }
+
   Future<List<CategoryModel>> fetchCategories() async {
     await Future.delayed(const Duration(seconds: 1));
     return [
@@ -39,6 +52,8 @@ class SyncRepository {
         categoryName: "Beverages",
         categoryOtherName: "Drinks",
         barcode: "1001",
+        kitchenId: 1,
+        kitchenName: "Drinks",
         variants: [
           ItemVariant(id: 1, name: "Small", price: 30),
           ItemVariant(id: 2, name: "Medium", price: 40),
@@ -58,6 +73,8 @@ class SyncRepository {
         categoryName: "Beverages",
         categoryOtherName: "Drinks",
         barcode: "1002",
+        kitchenId: 1,
+        kitchenName: "Drinks",
         variants: [
           ItemVariant(id: 1, name: "Small", price: 30),
           ItemVariant(id: 2, name: "Medium", price: 40),
@@ -77,6 +94,8 @@ class SyncRepository {
         categoryName: "Beverages",
         categoryOtherName: "Drinks",
         barcode: "1003",
+        kitchenId: 1,
+        kitchenName: "Drinks",
         variants: [
           ItemVariant(id: 1, name: "Small", price: 30),
           ItemVariant(id: 2, name: "Medium", price: 40),
@@ -95,6 +114,8 @@ class SyncRepository {
         categoryName: "Beverages",
         categoryOtherName: "Drinks",
         barcode: "1002",
+        kitchenId: 1,
+        kitchenName: "Drinks",
         variants: [
           ItemVariant(id: 1, name: "Small", price: 40),
           ItemVariant(id: 2, name: "Medium", price: 50),
@@ -116,6 +137,8 @@ class SyncRepository {
         categoryName: "Snacks",
         categoryOtherName: "Fast Food",
         barcode: "2001",
+        kitchenId: 2,
+        kitchenName: "Arabian",
       ),
       ItemModel(
         id: 6,
@@ -130,6 +153,8 @@ class SyncRepository {
         categoryName: "Snacks",
         categoryOtherName: "Fast Food",
         barcode: "2002",
+        kitchenId: 2,
+        kitchenName: "Arabian",
       ),
 
       /// ---------- Bakery ----------
@@ -146,6 +171,8 @@ class SyncRepository {
         categoryName: "Bakery",
         categoryOtherName: "Bread",
         barcode: "3001",
+        kitchenId: 3,
+        kitchenName: "Bread",
       ),
       ItemModel(
         id: 8,
@@ -160,6 +187,8 @@ class SyncRepository {
         categoryName: "Bakery",
         categoryOtherName: "Bread",
         barcode: "3002",
+        kitchenId: 3,
+        kitchenName: "Bread",
       ),
 
       /// ---------- Desserts ----------
@@ -176,6 +205,8 @@ class SyncRepository {
         categoryName: "Desserts",
         categoryOtherName: "Sweets",
         barcode: "4001",
+        kitchenId: 6,
+        kitchenName: "Desserts",
       ),
       ItemModel(
         id: 10,
@@ -189,6 +220,8 @@ class SyncRepository {
         categoryName: "Desserts",
         categoryOtherName: "Sweets",
         barcode: "4002",
+        kitchenId: 6,
+        kitchenName: "Desserts",
         toppings: [
           ItemTopping(id: 4, name: "Chocolate Chips", price: 15, maxQty: 3),
           ItemTopping(id: 5, name: "Sprinkles", price: 10, maxQty: 3),
@@ -210,6 +243,8 @@ class SyncRepository {
         categoryName: "Pizza",
         categoryOtherName: "Italian",
         barcode: "5001",
+        kitchenId: 2,
+        kitchenName: "Arabian",
       ),
       ItemModel(
         id: 12,
@@ -224,6 +259,8 @@ class SyncRepository {
         categoryName: "Pizza",
         categoryOtherName: "Italian",
         barcode: "5002",
+        kitchenId: 2,
+        kitchenName: "Arabian",
       ),
 
       /// ---------- Burgers ----------
@@ -240,6 +277,8 @@ class SyncRepository {
         categoryName: "Burgers",
         categoryOtherName: "Grill",
         barcode: "6001",
+        kitchenId: 5,
+        kitchenName: "Grill",
       ),
       ItemModel(
         id: 14,
@@ -254,6 +293,8 @@ class SyncRepository {
         categoryName: "Burgers",
         categoryOtherName: "Grill",
         barcode: "6002",
+        kitchenId: 5,
+        kitchenName: "Grill",
       ),
 
       /// ---------- Sandwiches ----------
@@ -270,6 +311,8 @@ class SyncRepository {
         categoryName: "Sandwiches",
         categoryOtherName: "Subs",
         barcode: "7001",
+        kitchenId: 4,
+        kitchenName: "Rolls",
       ),
 
       /// ---------- Rice Meals ----------
@@ -286,6 +329,8 @@ class SyncRepository {
         categoryName: "Rice Meals",
         categoryOtherName: "Meals",
         barcode: "8001",
+        kitchenId: 2,
+        kitchenName: "Arabian",
       ),
 
       /// ---------- Sea Food ----------
@@ -302,6 +347,8 @@ class SyncRepository {
         categoryName: "Sea Food",
         categoryOtherName: "Fish",
         barcode: "9001",
+        kitchenId: 5,
+        kitchenName: "Grill",
       ),
 
       /// ---------- Combos ----------
@@ -318,6 +365,8 @@ class SyncRepository {
         categoryName: "Combos",
         categoryOtherName: "Offers",
         barcode: "10001",
+        kitchenId: 5,
+        kitchenName: "Grill",
         variants: [
           ItemVariant(id: 9, name: "Veg", price: 160),
           ItemVariant(id: 10, name: "Chicken", price: 180),

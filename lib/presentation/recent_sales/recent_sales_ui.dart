@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/print/print_service.dart';
+import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
@@ -626,7 +628,11 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
           tooltip: 'View',
           onTap: () => _handleView(context, order),
         ),
-        _icon(Icons.print_outlined, tooltip: 'Print'),
+        _icon(
+          Icons.print_outlined,
+          tooltip: 'Print',
+          onTap: () => _handlePrint(context, order),
+        ),
         _icon(
           Icons.edit_outlined,
           tooltip: 'Edit',
@@ -661,6 +667,32 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
         ),
       ),
     );
+  }
+
+  Future<void> _handlePrint(BuildContext context, Order order) async {
+    final cartRepo = locator<CartRepository>();
+    final printService = locator<PrintService>();
+    final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
+    if (cartItems == null || cartItems.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No items to print')),
+        );
+      }
+      return;
+    }
+    try {
+      await printService.printFinalBill(order: order, cartItems: cartItems);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bill sent to printer')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        showErrorDialog(context, e);
+      }
+    }
   }
 
   void _handleView(BuildContext context, Order order) async {

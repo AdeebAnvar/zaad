@@ -18,11 +18,13 @@ part 'dao/customers_dao.dart';
   tables: [
     Users,
     Categories,
+    Kitchens,
+    KitchenPrinters,
     Items,
     ItemVariants,
     ItemToppings,
     ToppingGroups,
-    Sessions, // ✅ ADD
+    Sessions,
     Carts,
     CartItems,
     Orders,
@@ -33,7 +35,7 @@ part 'dao/customers_dao.dart';
     CategoryDao,
     CartsDao,
     ItemDao,
-    SessionDao, // ✅ ADD
+    SessionDao,
     OrdersDao,
     CustomersDao,
   ],
@@ -42,7 +44,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration {
@@ -81,6 +83,21 @@ class AppDatabase extends _$AppDatabase {
         if (from < 7) {
           // Persist active cart id in session (so cart survives navigation/reload)
           await m.addColumn(sessions, sessions.activeCartId);
+        }
+        if (from < 8) {
+          // Add Kitchens table and kitchen columns to Items
+          await m.createTable(kitchens);
+          await m.addColumn(items, items.kitchenId);
+          await m.addColumn(items, items.kitchenName);
+        }
+        if (from < 9) {
+          // Add KitchenPrinters table for printer IP/port per kitchen (kitchen_id=0 = bill printer)
+          await m.createTable(kitchenPrinters);
+        }
+        if (from < 10) {
+          // Add printer IP/port to Kitchens table for device–printer connection
+          await m.addColumn(kitchens, kitchens.printerIp);
+          await m.addColumn(kitchens, kitchens.printerPort);
         }
       },
     );

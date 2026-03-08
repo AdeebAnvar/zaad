@@ -761,6 +761,486 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
   }
 }
 
+class $KitchensTable extends Kitchens with TableInfo<$KitchensTable, Kitchen> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $KitchensTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _printerIpMeta =
+      const VerificationMeta('printerIp');
+  @override
+  late final GeneratedColumn<String> printerIp = GeneratedColumn<String>(
+      'printer_ip', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _printerPortMeta =
+      const VerificationMeta('printerPort');
+  @override
+  late final GeneratedColumn<int> printerPort = GeneratedColumn<int>(
+      'printer_port', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(9100));
+  @override
+  List<GeneratedColumn> get $columns => [id, name, printerIp, printerPort];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'kitchens';
+  @override
+  VerificationContext validateIntegrity(Insertable<Kitchen> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('printer_ip')) {
+      context.handle(_printerIpMeta,
+          printerIp.isAcceptableOrUnknown(data['printer_ip']!, _printerIpMeta));
+    }
+    if (data.containsKey('printer_port')) {
+      context.handle(
+          _printerPortMeta,
+          printerPort.isAcceptableOrUnknown(
+              data['printer_port']!, _printerPortMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Kitchen map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Kitchen(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      printerIp: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}printer_ip']),
+      printerPort: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}printer_port'])!,
+    );
+  }
+
+  @override
+  $KitchensTable createAlias(String alias) {
+    return $KitchensTable(attachedDatabase, alias);
+  }
+}
+
+class Kitchen extends DataClass implements Insertable<Kitchen> {
+  final int id;
+  final String name;
+  final String? printerIp;
+  final int printerPort;
+  const Kitchen(
+      {required this.id,
+      required this.name,
+      this.printerIp,
+      required this.printerPort});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || printerIp != null) {
+      map['printer_ip'] = Variable<String>(printerIp);
+    }
+    map['printer_port'] = Variable<int>(printerPort);
+    return map;
+  }
+
+  KitchensCompanion toCompanion(bool nullToAbsent) {
+    return KitchensCompanion(
+      id: Value(id),
+      name: Value(name),
+      printerIp: printerIp == null && nullToAbsent
+          ? const Value.absent()
+          : Value(printerIp),
+      printerPort: Value(printerPort),
+    );
+  }
+
+  factory Kitchen.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Kitchen(
+      id: serializer.fromJson<int>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      printerIp: serializer.fromJson<String?>(json['printerIp']),
+      printerPort: serializer.fromJson<int>(json['printerPort']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+      'printerIp': serializer.toJson<String?>(printerIp),
+      'printerPort': serializer.toJson<int>(printerPort),
+    };
+  }
+
+  Kitchen copyWith(
+          {int? id,
+          String? name,
+          Value<String?> printerIp = const Value.absent(),
+          int? printerPort}) =>
+      Kitchen(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        printerIp: printerIp.present ? printerIp.value : this.printerIp,
+        printerPort: printerPort ?? this.printerPort,
+      );
+  Kitchen copyWithCompanion(KitchensCompanion data) {
+    return Kitchen(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      printerIp: data.printerIp.present ? data.printerIp.value : this.printerIp,
+      printerPort:
+          data.printerPort.present ? data.printerPort.value : this.printerPort,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Kitchen(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('printerIp: $printerIp, ')
+          ..write('printerPort: $printerPort')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, name, printerIp, printerPort);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Kitchen &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.printerIp == this.printerIp &&
+          other.printerPort == this.printerPort);
+}
+
+class KitchensCompanion extends UpdateCompanion<Kitchen> {
+  final Value<int> id;
+  final Value<String> name;
+  final Value<String?> printerIp;
+  final Value<int> printerPort;
+  const KitchensCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.printerIp = const Value.absent(),
+    this.printerPort = const Value.absent(),
+  });
+  KitchensCompanion.insert({
+    this.id = const Value.absent(),
+    required String name,
+    this.printerIp = const Value.absent(),
+    this.printerPort = const Value.absent(),
+  }) : name = Value(name);
+  static Insertable<Kitchen> custom({
+    Expression<int>? id,
+    Expression<String>? name,
+    Expression<String>? printerIp,
+    Expression<int>? printerPort,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (printerIp != null) 'printer_ip': printerIp,
+      if (printerPort != null) 'printer_port': printerPort,
+    });
+  }
+
+  KitchensCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? name,
+      Value<String?>? printerIp,
+      Value<int>? printerPort}) {
+    return KitchensCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      printerIp: printerIp ?? this.printerIp,
+      printerPort: printerPort ?? this.printerPort,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (printerIp.present) {
+      map['printer_ip'] = Variable<String>(printerIp.value);
+    }
+    if (printerPort.present) {
+      map['printer_port'] = Variable<int>(printerPort.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KitchensCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('printerIp: $printerIp, ')
+          ..write('printerPort: $printerPort')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $KitchenPrintersTable extends KitchenPrinters
+    with TableInfo<$KitchenPrintersTable, KitchenPrinter> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $KitchenPrintersTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _kitchenIdMeta =
+      const VerificationMeta('kitchenId');
+  @override
+  late final GeneratedColumn<int> kitchenId = GeneratedColumn<int>(
+      'kitchen_id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _printerIpMeta =
+      const VerificationMeta('printerIp');
+  @override
+  late final GeneratedColumn<String> printerIp = GeneratedColumn<String>(
+      'printer_ip', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _printerPortMeta =
+      const VerificationMeta('printerPort');
+  @override
+  late final GeneratedColumn<int> printerPort = GeneratedColumn<int>(
+      'printer_port', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(9100));
+  @override
+  List<GeneratedColumn> get $columns => [kitchenId, printerIp, printerPort];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'kitchen_printers';
+  @override
+  VerificationContext validateIntegrity(Insertable<KitchenPrinter> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('kitchen_id')) {
+      context.handle(_kitchenIdMeta,
+          kitchenId.isAcceptableOrUnknown(data['kitchen_id']!, _kitchenIdMeta));
+    }
+    if (data.containsKey('printer_ip')) {
+      context.handle(_printerIpMeta,
+          printerIp.isAcceptableOrUnknown(data['printer_ip']!, _printerIpMeta));
+    } else if (isInserting) {
+      context.missing(_printerIpMeta);
+    }
+    if (data.containsKey('printer_port')) {
+      context.handle(
+          _printerPortMeta,
+          printerPort.isAcceptableOrUnknown(
+              data['printer_port']!, _printerPortMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {kitchenId};
+  @override
+  KitchenPrinter map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return KitchenPrinter(
+      kitchenId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}kitchen_id'])!,
+      printerIp: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}printer_ip'])!,
+      printerPort: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}printer_port'])!,
+    );
+  }
+
+  @override
+  $KitchenPrintersTable createAlias(String alias) {
+    return $KitchenPrintersTable(attachedDatabase, alias);
+  }
+}
+
+class KitchenPrinter extends DataClass implements Insertable<KitchenPrinter> {
+  final int kitchenId;
+  final String printerIp;
+  final int printerPort;
+  const KitchenPrinter(
+      {required this.kitchenId,
+      required this.printerIp,
+      required this.printerPort});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['kitchen_id'] = Variable<int>(kitchenId);
+    map['printer_ip'] = Variable<String>(printerIp);
+    map['printer_port'] = Variable<int>(printerPort);
+    return map;
+  }
+
+  KitchenPrintersCompanion toCompanion(bool nullToAbsent) {
+    return KitchenPrintersCompanion(
+      kitchenId: Value(kitchenId),
+      printerIp: Value(printerIp),
+      printerPort: Value(printerPort),
+    );
+  }
+
+  factory KitchenPrinter.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return KitchenPrinter(
+      kitchenId: serializer.fromJson<int>(json['kitchenId']),
+      printerIp: serializer.fromJson<String>(json['printerIp']),
+      printerPort: serializer.fromJson<int>(json['printerPort']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'kitchenId': serializer.toJson<int>(kitchenId),
+      'printerIp': serializer.toJson<String>(printerIp),
+      'printerPort': serializer.toJson<int>(printerPort),
+    };
+  }
+
+  KitchenPrinter copyWith(
+          {int? kitchenId, String? printerIp, int? printerPort}) =>
+      KitchenPrinter(
+        kitchenId: kitchenId ?? this.kitchenId,
+        printerIp: printerIp ?? this.printerIp,
+        printerPort: printerPort ?? this.printerPort,
+      );
+  KitchenPrinter copyWithCompanion(KitchenPrintersCompanion data) {
+    return KitchenPrinter(
+      kitchenId: data.kitchenId.present ? data.kitchenId.value : this.kitchenId,
+      printerIp: data.printerIp.present ? data.printerIp.value : this.printerIp,
+      printerPort:
+          data.printerPort.present ? data.printerPort.value : this.printerPort,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KitchenPrinter(')
+          ..write('kitchenId: $kitchenId, ')
+          ..write('printerIp: $printerIp, ')
+          ..write('printerPort: $printerPort')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(kitchenId, printerIp, printerPort);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is KitchenPrinter &&
+          other.kitchenId == this.kitchenId &&
+          other.printerIp == this.printerIp &&
+          other.printerPort == this.printerPort);
+}
+
+class KitchenPrintersCompanion extends UpdateCompanion<KitchenPrinter> {
+  final Value<int> kitchenId;
+  final Value<String> printerIp;
+  final Value<int> printerPort;
+  const KitchenPrintersCompanion({
+    this.kitchenId = const Value.absent(),
+    this.printerIp = const Value.absent(),
+    this.printerPort = const Value.absent(),
+  });
+  KitchenPrintersCompanion.insert({
+    this.kitchenId = const Value.absent(),
+    required String printerIp,
+    this.printerPort = const Value.absent(),
+  }) : printerIp = Value(printerIp);
+  static Insertable<KitchenPrinter> custom({
+    Expression<int>? kitchenId,
+    Expression<String>? printerIp,
+    Expression<int>? printerPort,
+  }) {
+    return RawValuesInsertable({
+      if (kitchenId != null) 'kitchen_id': kitchenId,
+      if (printerIp != null) 'printer_ip': printerIp,
+      if (printerPort != null) 'printer_port': printerPort,
+    });
+  }
+
+  KitchenPrintersCompanion copyWith(
+      {Value<int>? kitchenId,
+      Value<String>? printerIp,
+      Value<int>? printerPort}) {
+    return KitchenPrintersCompanion(
+      kitchenId: kitchenId ?? this.kitchenId,
+      printerIp: printerIp ?? this.printerIp,
+      printerPort: printerPort ?? this.printerPort,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (kitchenId.present) {
+      map['kitchen_id'] = Variable<int>(kitchenId.value);
+    }
+    if (printerIp.present) {
+      map['printer_ip'] = Variable<String>(printerIp.value);
+    }
+    if (printerPort.present) {
+      map['printer_port'] = Variable<int>(printerPort.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KitchenPrintersCompanion(')
+          ..write('kitchenId: $kitchenId, ')
+          ..write('printerIp: $printerIp, ')
+          ..write('printerPort: $printerPort')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
   @override
   final GeneratedDatabase attachedDatabase;
@@ -833,6 +1313,18 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
   late final GeneratedColumn<int> categoryId = GeneratedColumn<int>(
       'category_id', aliasedName, false,
       type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _kitchenIdMeta =
+      const VerificationMeta('kitchenId');
+  @override
+  late final GeneratedColumn<int> kitchenId = GeneratedColumn<int>(
+      'kitchen_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _kitchenNameMeta =
+      const VerificationMeta('kitchenName');
+  @override
+  late final GeneratedColumn<String> kitchenName = GeneratedColumn<String>(
+      'kitchen_name', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -846,7 +1338,9 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         categoryName,
         categoryOtherName,
         barcode,
-        categoryId
+        categoryId,
+        kitchenId,
+        kitchenName
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -931,6 +1425,16 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     } else if (isInserting) {
       context.missing(_categoryIdMeta);
     }
+    if (data.containsKey('kitchen_id')) {
+      context.handle(_kitchenIdMeta,
+          kitchenId.isAcceptableOrUnknown(data['kitchen_id']!, _kitchenIdMeta));
+    }
+    if (data.containsKey('kitchen_name')) {
+      context.handle(
+          _kitchenNameMeta,
+          kitchenName.isAcceptableOrUnknown(
+              data['kitchen_name']!, _kitchenNameMeta));
+    }
     return context;
   }
 
@@ -964,6 +1468,10 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
           .read(DriftSqlType.string, data['${effectivePrefix}barcode'])!,
       categoryId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}category_id'])!,
+      kitchenId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}kitchen_id']),
+      kitchenName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}kitchen_name']),
     );
   }
 
@@ -986,6 +1494,8 @@ class Item extends DataClass implements Insertable<Item> {
   final String categoryOtherName;
   final String barcode;
   final int categoryId;
+  final int? kitchenId;
+  final String? kitchenName;
   const Item(
       {required this.id,
       required this.name,
@@ -998,7 +1508,9 @@ class Item extends DataClass implements Insertable<Item> {
       required this.categoryName,
       required this.categoryOtherName,
       required this.barcode,
-      required this.categoryId});
+      required this.categoryId,
+      this.kitchenId,
+      this.kitchenName});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1018,6 +1530,12 @@ class Item extends DataClass implements Insertable<Item> {
     map['category_other_name'] = Variable<String>(categoryOtherName);
     map['barcode'] = Variable<String>(barcode);
     map['category_id'] = Variable<int>(categoryId);
+    if (!nullToAbsent || kitchenId != null) {
+      map['kitchen_id'] = Variable<int>(kitchenId);
+    }
+    if (!nullToAbsent || kitchenName != null) {
+      map['kitchen_name'] = Variable<String>(kitchenName);
+    }
     return map;
   }
 
@@ -1039,6 +1557,12 @@ class Item extends DataClass implements Insertable<Item> {
       categoryOtherName: Value(categoryOtherName),
       barcode: Value(barcode),
       categoryId: Value(categoryId),
+      kitchenId: kitchenId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(kitchenId),
+      kitchenName: kitchenName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(kitchenName),
     );
   }
 
@@ -1058,6 +1582,8 @@ class Item extends DataClass implements Insertable<Item> {
       categoryOtherName: serializer.fromJson<String>(json['categoryOtherName']),
       barcode: serializer.fromJson<String>(json['barcode']),
       categoryId: serializer.fromJson<int>(json['categoryId']),
+      kitchenId: serializer.fromJson<int?>(json['kitchenId']),
+      kitchenName: serializer.fromJson<String?>(json['kitchenName']),
     );
   }
   @override
@@ -1076,6 +1602,8 @@ class Item extends DataClass implements Insertable<Item> {
       'categoryOtherName': serializer.toJson<String>(categoryOtherName),
       'barcode': serializer.toJson<String>(barcode),
       'categoryId': serializer.toJson<int>(categoryId),
+      'kitchenId': serializer.toJson<int?>(kitchenId),
+      'kitchenName': serializer.toJson<String?>(kitchenName),
     };
   }
 
@@ -1091,7 +1619,9 @@ class Item extends DataClass implements Insertable<Item> {
           String? categoryName,
           String? categoryOtherName,
           String? barcode,
-          int? categoryId}) =>
+          int? categoryId,
+          Value<int?> kitchenId = const Value.absent(),
+          Value<String?> kitchenName = const Value.absent()}) =>
       Item(
         id: id ?? this.id,
         name: name ?? this.name,
@@ -1106,6 +1636,8 @@ class Item extends DataClass implements Insertable<Item> {
         categoryOtherName: categoryOtherName ?? this.categoryOtherName,
         barcode: barcode ?? this.barcode,
         categoryId: categoryId ?? this.categoryId,
+        kitchenId: kitchenId.present ? kitchenId.value : this.kitchenId,
+        kitchenName: kitchenName.present ? kitchenName.value : this.kitchenName,
       );
   Item copyWithCompanion(ItemsCompanion data) {
     return Item(
@@ -1128,6 +1660,9 @@ class Item extends DataClass implements Insertable<Item> {
       barcode: data.barcode.present ? data.barcode.value : this.barcode,
       categoryId:
           data.categoryId.present ? data.categoryId.value : this.categoryId,
+      kitchenId: data.kitchenId.present ? data.kitchenId.value : this.kitchenId,
+      kitchenName:
+          data.kitchenName.present ? data.kitchenName.value : this.kitchenName,
     );
   }
 
@@ -1145,7 +1680,9 @@ class Item extends DataClass implements Insertable<Item> {
           ..write('categoryName: $categoryName, ')
           ..write('categoryOtherName: $categoryOtherName, ')
           ..write('barcode: $barcode, ')
-          ..write('categoryId: $categoryId')
+          ..write('categoryId: $categoryId, ')
+          ..write('kitchenId: $kitchenId, ')
+          ..write('kitchenName: $kitchenName')
           ..write(')'))
         .toString();
   }
@@ -1163,7 +1700,9 @@ class Item extends DataClass implements Insertable<Item> {
       categoryName,
       categoryOtherName,
       barcode,
-      categoryId);
+      categoryId,
+      kitchenId,
+      kitchenName);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1179,7 +1718,9 @@ class Item extends DataClass implements Insertable<Item> {
           other.categoryName == this.categoryName &&
           other.categoryOtherName == this.categoryOtherName &&
           other.barcode == this.barcode &&
-          other.categoryId == this.categoryId);
+          other.categoryId == this.categoryId &&
+          other.kitchenId == this.kitchenId &&
+          other.kitchenName == this.kitchenName);
 }
 
 class ItemsCompanion extends UpdateCompanion<Item> {
@@ -1195,6 +1736,8 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   final Value<String> categoryOtherName;
   final Value<String> barcode;
   final Value<int> categoryId;
+  final Value<int?> kitchenId;
+  final Value<String?> kitchenName;
   const ItemsCompanion({
     this.id = const Value.absent(),
     this.name = const Value.absent(),
@@ -1208,6 +1751,8 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.categoryOtherName = const Value.absent(),
     this.barcode = const Value.absent(),
     this.categoryId = const Value.absent(),
+    this.kitchenId = const Value.absent(),
+    this.kitchenName = const Value.absent(),
   });
   ItemsCompanion.insert({
     this.id = const Value.absent(),
@@ -1222,6 +1767,8 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     required String categoryOtherName,
     required String barcode,
     required int categoryId,
+    this.kitchenId = const Value.absent(),
+    this.kitchenName = const Value.absent(),
   })  : name = Value(name),
         otherName = Value(otherName),
         sku = Value(sku),
@@ -1244,6 +1791,8 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Expression<String>? categoryOtherName,
     Expression<String>? barcode,
     Expression<int>? categoryId,
+    Expression<int>? kitchenId,
+    Expression<String>? kitchenName,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1258,6 +1807,8 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       if (categoryOtherName != null) 'category_other_name': categoryOtherName,
       if (barcode != null) 'barcode': barcode,
       if (categoryId != null) 'category_id': categoryId,
+      if (kitchenId != null) 'kitchen_id': kitchenId,
+      if (kitchenName != null) 'kitchen_name': kitchenName,
     });
   }
 
@@ -1273,7 +1824,9 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       Value<String>? categoryName,
       Value<String>? categoryOtherName,
       Value<String>? barcode,
-      Value<int>? categoryId}) {
+      Value<int>? categoryId,
+      Value<int?>? kitchenId,
+      Value<String?>? kitchenName}) {
     return ItemsCompanion(
       id: id ?? this.id,
       name: name ?? this.name,
@@ -1287,6 +1840,8 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       categoryOtherName: categoryOtherName ?? this.categoryOtherName,
       barcode: barcode ?? this.barcode,
       categoryId: categoryId ?? this.categoryId,
+      kitchenId: kitchenId ?? this.kitchenId,
+      kitchenName: kitchenName ?? this.kitchenName,
     );
   }
 
@@ -1329,6 +1884,12 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     if (categoryId.present) {
       map['category_id'] = Variable<int>(categoryId.value);
     }
+    if (kitchenId.present) {
+      map['kitchen_id'] = Variable<int>(kitchenId.value);
+    }
+    if (kitchenName.present) {
+      map['kitchen_name'] = Variable<String>(kitchenName.value);
+    }
     return map;
   }
 
@@ -1346,7 +1907,9 @@ class ItemsCompanion extends UpdateCompanion<Item> {
           ..write('categoryName: $categoryName, ')
           ..write('categoryOtherName: $categoryOtherName, ')
           ..write('barcode: $barcode, ')
-          ..write('categoryId: $categoryId')
+          ..write('categoryId: $categoryId, ')
+          ..write('kitchenId: $kitchenId, ')
+          ..write('kitchenName: $kitchenName')
           ..write(')'))
         .toString();
   }
@@ -4519,6 +5082,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $UsersTable users = $UsersTable(this);
   late final $CategoriesTable categories = $CategoriesTable(this);
+  late final $KitchensTable kitchens = $KitchensTable(this);
+  late final $KitchenPrintersTable kitchenPrinters =
+      $KitchenPrintersTable(this);
   late final $ItemsTable items = $ItemsTable(this);
   late final $ItemVariantsTable itemVariants = $ItemVariantsTable(this);
   late final $ItemToppingsTable itemToppings = $ItemToppingsTable(this);
@@ -4542,6 +5108,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   List<DatabaseSchemaEntity> get allSchemaEntities => [
         users,
         categories,
+        kitchens,
+        kitchenPrinters,
         items,
         itemVariants,
         itemToppings,
@@ -4933,6 +5501,288 @@ typedef $$CategoriesTableProcessedTableManager = ProcessedTableManager<
     (Category, BaseReferences<_$AppDatabase, $CategoriesTable, Category>),
     Category,
     PrefetchHooks Function()>;
+typedef $$KitchensTableCreateCompanionBuilder = KitchensCompanion Function({
+  Value<int> id,
+  required String name,
+  Value<String?> printerIp,
+  Value<int> printerPort,
+});
+typedef $$KitchensTableUpdateCompanionBuilder = KitchensCompanion Function({
+  Value<int> id,
+  Value<String> name,
+  Value<String?> printerIp,
+  Value<int> printerPort,
+});
+
+class $$KitchensTableFilterComposer
+    extends Composer<_$AppDatabase, $KitchensTable> {
+  $$KitchensTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get printerIp => $composableBuilder(
+      column: $table.printerIp, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get printerPort => $composableBuilder(
+      column: $table.printerPort, builder: (column) => ColumnFilters(column));
+}
+
+class $$KitchensTableOrderingComposer
+    extends Composer<_$AppDatabase, $KitchensTable> {
+  $$KitchensTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get printerIp => $composableBuilder(
+      column: $table.printerIp, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get printerPort => $composableBuilder(
+      column: $table.printerPort, builder: (column) => ColumnOrderings(column));
+}
+
+class $$KitchensTableAnnotationComposer
+    extends Composer<_$AppDatabase, $KitchensTable> {
+  $$KitchensTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get printerIp =>
+      $composableBuilder(column: $table.printerIp, builder: (column) => column);
+
+  GeneratedColumn<int> get printerPort => $composableBuilder(
+      column: $table.printerPort, builder: (column) => column);
+}
+
+class $$KitchensTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $KitchensTable,
+    Kitchen,
+    $$KitchensTableFilterComposer,
+    $$KitchensTableOrderingComposer,
+    $$KitchensTableAnnotationComposer,
+    $$KitchensTableCreateCompanionBuilder,
+    $$KitchensTableUpdateCompanionBuilder,
+    (Kitchen, BaseReferences<_$AppDatabase, $KitchensTable, Kitchen>),
+    Kitchen,
+    PrefetchHooks Function()> {
+  $$KitchensTableTableManager(_$AppDatabase db, $KitchensTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$KitchensTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$KitchensTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$KitchensTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> name = const Value.absent(),
+            Value<String?> printerIp = const Value.absent(),
+            Value<int> printerPort = const Value.absent(),
+          }) =>
+              KitchensCompanion(
+            id: id,
+            name: name,
+            printerIp: printerIp,
+            printerPort: printerPort,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String name,
+            Value<String?> printerIp = const Value.absent(),
+            Value<int> printerPort = const Value.absent(),
+          }) =>
+              KitchensCompanion.insert(
+            id: id,
+            name: name,
+            printerIp: printerIp,
+            printerPort: printerPort,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$KitchensTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $KitchensTable,
+    Kitchen,
+    $$KitchensTableFilterComposer,
+    $$KitchensTableOrderingComposer,
+    $$KitchensTableAnnotationComposer,
+    $$KitchensTableCreateCompanionBuilder,
+    $$KitchensTableUpdateCompanionBuilder,
+    (Kitchen, BaseReferences<_$AppDatabase, $KitchensTable, Kitchen>),
+    Kitchen,
+    PrefetchHooks Function()>;
+typedef $$KitchenPrintersTableCreateCompanionBuilder = KitchenPrintersCompanion
+    Function({
+  Value<int> kitchenId,
+  required String printerIp,
+  Value<int> printerPort,
+});
+typedef $$KitchenPrintersTableUpdateCompanionBuilder = KitchenPrintersCompanion
+    Function({
+  Value<int> kitchenId,
+  Value<String> printerIp,
+  Value<int> printerPort,
+});
+
+class $$KitchenPrintersTableFilterComposer
+    extends Composer<_$AppDatabase, $KitchenPrintersTable> {
+  $$KitchenPrintersTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get kitchenId => $composableBuilder(
+      column: $table.kitchenId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get printerIp => $composableBuilder(
+      column: $table.printerIp, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get printerPort => $composableBuilder(
+      column: $table.printerPort, builder: (column) => ColumnFilters(column));
+}
+
+class $$KitchenPrintersTableOrderingComposer
+    extends Composer<_$AppDatabase, $KitchenPrintersTable> {
+  $$KitchenPrintersTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get kitchenId => $composableBuilder(
+      column: $table.kitchenId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get printerIp => $composableBuilder(
+      column: $table.printerIp, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get printerPort => $composableBuilder(
+      column: $table.printerPort, builder: (column) => ColumnOrderings(column));
+}
+
+class $$KitchenPrintersTableAnnotationComposer
+    extends Composer<_$AppDatabase, $KitchenPrintersTable> {
+  $$KitchenPrintersTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get kitchenId =>
+      $composableBuilder(column: $table.kitchenId, builder: (column) => column);
+
+  GeneratedColumn<String> get printerIp =>
+      $composableBuilder(column: $table.printerIp, builder: (column) => column);
+
+  GeneratedColumn<int> get printerPort => $composableBuilder(
+      column: $table.printerPort, builder: (column) => column);
+}
+
+class $$KitchenPrintersTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $KitchenPrintersTable,
+    KitchenPrinter,
+    $$KitchenPrintersTableFilterComposer,
+    $$KitchenPrintersTableOrderingComposer,
+    $$KitchenPrintersTableAnnotationComposer,
+    $$KitchenPrintersTableCreateCompanionBuilder,
+    $$KitchenPrintersTableUpdateCompanionBuilder,
+    (
+      KitchenPrinter,
+      BaseReferences<_$AppDatabase, $KitchenPrintersTable, KitchenPrinter>
+    ),
+    KitchenPrinter,
+    PrefetchHooks Function()> {
+  $$KitchenPrintersTableTableManager(
+      _$AppDatabase db, $KitchenPrintersTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$KitchenPrintersTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$KitchenPrintersTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$KitchenPrintersTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> kitchenId = const Value.absent(),
+            Value<String> printerIp = const Value.absent(),
+            Value<int> printerPort = const Value.absent(),
+          }) =>
+              KitchenPrintersCompanion(
+            kitchenId: kitchenId,
+            printerIp: printerIp,
+            printerPort: printerPort,
+          ),
+          createCompanionCallback: ({
+            Value<int> kitchenId = const Value.absent(),
+            required String printerIp,
+            Value<int> printerPort = const Value.absent(),
+          }) =>
+              KitchenPrintersCompanion.insert(
+            kitchenId: kitchenId,
+            printerIp: printerIp,
+            printerPort: printerPort,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$KitchenPrintersTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $KitchenPrintersTable,
+    KitchenPrinter,
+    $$KitchenPrintersTableFilterComposer,
+    $$KitchenPrintersTableOrderingComposer,
+    $$KitchenPrintersTableAnnotationComposer,
+    $$KitchenPrintersTableCreateCompanionBuilder,
+    $$KitchenPrintersTableUpdateCompanionBuilder,
+    (
+      KitchenPrinter,
+      BaseReferences<_$AppDatabase, $KitchenPrintersTable, KitchenPrinter>
+    ),
+    KitchenPrinter,
+    PrefetchHooks Function()>;
 typedef $$ItemsTableCreateCompanionBuilder = ItemsCompanion Function({
   Value<int> id,
   required String name,
@@ -4946,6 +5796,8 @@ typedef $$ItemsTableCreateCompanionBuilder = ItemsCompanion Function({
   required String categoryOtherName,
   required String barcode,
   required int categoryId,
+  Value<int?> kitchenId,
+  Value<String?> kitchenName,
 });
 typedef $$ItemsTableUpdateCompanionBuilder = ItemsCompanion Function({
   Value<int> id,
@@ -4960,6 +5812,8 @@ typedef $$ItemsTableUpdateCompanionBuilder = ItemsCompanion Function({
   Value<String> categoryOtherName,
   Value<String> barcode,
   Value<int> categoryId,
+  Value<int?> kitchenId,
+  Value<String?> kitchenName,
 });
 
 final class $$ItemsTableReferences
@@ -5026,6 +5880,12 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
 
   ColumnFilters<int> get categoryId => $composableBuilder(
       column: $table.categoryId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get kitchenId => $composableBuilder(
+      column: $table.kitchenId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get kitchenName => $composableBuilder(
+      column: $table.kitchenName, builder: (column) => ColumnFilters(column));
 
   Expression<bool> cartItemsRefs(
       Expression<bool> Function($$CartItemsTableFilterComposer f) f) {
@@ -5096,6 +5956,12 @@ class $$ItemsTableOrderingComposer
 
   ColumnOrderings<int> get categoryId => $composableBuilder(
       column: $table.categoryId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get kitchenId => $composableBuilder(
+      column: $table.kitchenId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get kitchenName => $composableBuilder(
+      column: $table.kitchenName, builder: (column) => ColumnOrderings(column));
 }
 
 class $$ItemsTableAnnotationComposer
@@ -5142,6 +6008,12 @@ class $$ItemsTableAnnotationComposer
 
   GeneratedColumn<int> get categoryId => $composableBuilder(
       column: $table.categoryId, builder: (column) => column);
+
+  GeneratedColumn<int> get kitchenId =>
+      $composableBuilder(column: $table.kitchenId, builder: (column) => column);
+
+  GeneratedColumn<String> get kitchenName => $composableBuilder(
+      column: $table.kitchenName, builder: (column) => column);
 
   Expression<T> cartItemsRefs<T extends Object>(
       Expression<T> Function($$CartItemsTableAnnotationComposer a) f) {
@@ -5200,6 +6072,8 @@ class $$ItemsTableTableManager extends RootTableManager<
             Value<String> categoryOtherName = const Value.absent(),
             Value<String> barcode = const Value.absent(),
             Value<int> categoryId = const Value.absent(),
+            Value<int?> kitchenId = const Value.absent(),
+            Value<String?> kitchenName = const Value.absent(),
           }) =>
               ItemsCompanion(
             id: id,
@@ -5214,6 +6088,8 @@ class $$ItemsTableTableManager extends RootTableManager<
             categoryOtherName: categoryOtherName,
             barcode: barcode,
             categoryId: categoryId,
+            kitchenId: kitchenId,
+            kitchenName: kitchenName,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -5228,6 +6104,8 @@ class $$ItemsTableTableManager extends RootTableManager<
             required String categoryOtherName,
             required String barcode,
             required int categoryId,
+            Value<int?> kitchenId = const Value.absent(),
+            Value<String?> kitchenName = const Value.absent(),
           }) =>
               ItemsCompanion.insert(
             id: id,
@@ -5242,6 +6120,8 @@ class $$ItemsTableTableManager extends RootTableManager<
             categoryOtherName: categoryOtherName,
             barcode: barcode,
             categoryId: categoryId,
+            kitchenId: kitchenId,
+            kitchenName: kitchenName,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>
@@ -7633,6 +8513,10 @@ class $AppDatabaseManager {
       $$UsersTableTableManager(_db, _db.users);
   $$CategoriesTableTableManager get categories =>
       $$CategoriesTableTableManager(_db, _db.categories);
+  $$KitchensTableTableManager get kitchens =>
+      $$KitchensTableTableManager(_db, _db.kitchens);
+  $$KitchenPrintersTableTableManager get kitchenPrinters =>
+      $$KitchenPrintersTableTableManager(_db, _db.kitchenPrinters);
   $$ItemsTableTableManager get items =>
       $$ItemsTableTableManager(_db, _db.items);
   $$ItemVariantsTableTableManager get itemVariants =>
@@ -7667,6 +8551,8 @@ mixin _$CartsDaoMixin on DatabaseAccessor<AppDatabase> {
   $CartItemsTable get cartItems => attachedDatabase.cartItems;
 }
 mixin _$ItemDaoMixin on DatabaseAccessor<AppDatabase> {
+  $KitchensTable get kitchens => attachedDatabase.kitchens;
+  $KitchenPrintersTable get kitchenPrinters => attachedDatabase.kitchenPrinters;
   $ItemsTable get items => attachedDatabase.items;
   $ItemVariantsTable get itemVariants => attachedDatabase.itemVariants;
   $ItemToppingsTable get itemToppings => attachedDatabase.itemToppings;

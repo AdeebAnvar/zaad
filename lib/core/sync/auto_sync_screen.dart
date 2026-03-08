@@ -11,6 +11,7 @@ import 'package:pos/data/repository/sync_repository.dart';
 import 'package:pos/domain/models/category_model.dart';
 import 'package:pos/domain/models/item_model.dart';
 import 'package:pos/domain/models/customer_model.dart';
+import 'package:pos/domain/models/kitchen_model.dart';
 
 import 'dart:math';
 
@@ -146,17 +147,19 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProvid
 Future<SyncPayload> fetchSyncData() async {
   final repo = SyncRepository();
   final categories = await repo.fetchCategories();
+  final kitchens = await repo.fetchKitchens();
   final items = await repo.fetchItems();
   final customers = await repo.fetchCustomers();
-  return SyncPayload(categories, items, customers);
+  return SyncPayload(categories, kitchens, items, customers);
 }
 
 class SyncPayload {
   final List<CategoryModel> categories;
+  final List<KitchenModel> kitchens;
   final List<ItemModel> items;
   final List<CustomerModel> customers;
 
-  SyncPayload(this.categories, this.items, this.customers);
+  SyncPayload(this.categories, this.kitchens, this.items, this.customers);
 }
 
 class PosReceiptLoader extends StatefulWidget {

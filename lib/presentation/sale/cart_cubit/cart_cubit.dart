@@ -3,10 +3,11 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/print/print_service.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
-import 'package:pos/data/repository_impl/item_repository_impl.dart';
+import 'package:pos/data/repository/item_repository.dart';
 
 part 'cart_state.dart';
 
@@ -16,11 +17,13 @@ class CartCubit extends Cubit<CartState> {
     this.itemRepo,
     this.orderRepo,
     this.sessionDao,
+    this.printService,
   ) : super(CartState([]));
   final CartRepository cartRepo;
-  final ItemRepositoryImpl itemRepo;
+  final ItemRepository itemRepo;
   final OrderRepository orderRepo;
   final SessionDao sessionDao;
+  final PrintService printService;
   int? _activeCartId;
   String? _invoiceNumber;
   String? _currentKOTReference;
@@ -285,6 +288,12 @@ class CartCubit extends Cubit<CartState> {
 
     _currentKOTReference = referenceNumber;
 
+    // Print KOT to each kitchen's printer (before clearing cart)
+    await printService.printKOTPerKitchen(
+      cartItems: state.items,
+      referenceNumber: referenceNumber,
+    );
+
     // Clear the cart state but keep cart in DB for editing
     _activeCartId = null;
     _invoiceNumber = null;
@@ -421,6 +430,9 @@ class CartCubit extends Cubit<CartState> {
     // Save order to database
     await orderRepo.createOrder(order);
 
+    // Print final bill to bill printer
+    await printService.printFinalBill(order: order, cartItems: state.items);
+
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)
     await _clearCartStateOnly();
   }
@@ -533,6 +545,9 @@ class CartCubit extends Cubit<CartState> {
 
     // Update order in database
     await orderRepo.updateOrder(updatedOrder);
+
+    // Print final bill (updated order)
+    await printService.printFinalBill(order: updatedOrder, cartItems: state.items);
 
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)
     _editingOrderId = null;
