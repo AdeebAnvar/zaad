@@ -1,9 +1,10 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
-import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_esc_pos_network/flutter_esc_pos_network.dart';
+import 'package:flutter_thermal_printer/flutter_thermal_printer.dart';
+import 'package:flutter_thermal_printer/network/network_print_result.dart';
+import 'package:flutter_thermal_printer/utils/printer.dart';
 import 'package:intl/intl.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/item_repository.dart';
@@ -16,6 +17,13 @@ class PrintService {
   final ItemRepository _itemRepo;
 
   static const int _defaultPort = 9100;
+  static const Duration _connectionTimeout = Duration(seconds: 15);
+
+  /// Use ASCII "Rs" on receipts; thermal printers often don't support Unicode ₹.
+  static const String _currency = 'Rs ';
+
+  /// Strip ₹ from any string (item names, notes, etc.) so printer receives ASCII-only.
+  static String _sanitize(String s) => s.replaceAll('₹', 'Rs');
 
   /// Groups cart items by kitchen and prints KOT to each kitchen's printer.
   /// [referenceNumber] e.g. table number or order ref.
@@ -73,10 +81,15 @@ class PrintService {
         referenceNumber: referenceNumber,
         kitchenName: kitchenName,
       );
+      final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
       await _sendToPrinter(
-        ip: printerIp,
+        address: address,
         port: printerPort,
         bytes: bytes,
+        printerLabel: 'Kitchen "$kitchenName" printer',
+        connectionType: connType,
+        vendorId: vendorId,
+        productId: productId,
       );
     }
   }
@@ -98,10 +111,15 @@ class PrintService {
       order: order,
       lines: lines,
     );
+    final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
     await _sendToPrinter(
-      ip: billPrinter.printerIp,
+      address: address,
       port: billPrinter.printerPort,
       bytes: bytes,
+      printerLabel: 'Bill printer',
+      connectionType: connType,
+      vendorId: vendorId,
+      productId: productId,
     );
   }
 
@@ -125,13 +143,13 @@ class PrintService {
             .map((t) => '${t['name'] ?? ''} x${t['qty'] ?? 1}')
             .join(', ');
       } else if (topping != null) {
-        toppingInfo = '${topping.name} (+₹${topping.price.toStringAsFixed(0)})';
+        toppingInfo = '${topping.name} (+$_currency${topping.price.toStringAsFixed(0)})';
       }
 
       lines.add(_PrintLine(
-        itemName: item?.name ?? 'Unknown',
-        variantName: variant?.name,
-        toppingInfo: toppingInfo?.isNotEmpty == true ? toppingInfo : null,
+        itemName: _sanitize(item?.name ?? 'Unknown'),
+        variantName: variant?.name != null ? _sanitize(variant!.name) : null,
+        toppingInfo: toppingInfo?.isNotEmpty == true ? _sanitize(toppingInfo!) : null,
         quantity: ci.quantity,
         unitPrice: (variant?.price ?? item?.price ?? 0),
         total: ci.total,
@@ -171,11 +189,11 @@ class PrintService {
     );
     bytes += generator.feed(1);
     bytes += generator.text(
-      kitchenName.toUpperCase(),
+      _sanitize(kitchenName).toUpperCase(),
       styles: const PosStyles(align: PosAlign.center, bold: true),
     );
     bytes += generator.text(
-      'Ref: $referenceNumber',
+      _sanitize('Ref: $referenceNumber'),
       styles: const PosStyles(align: PosAlign.center),
     );
     bytes += generator.text(
@@ -188,11 +206,11 @@ class PrintService {
     for (final line in items) {
       String name = line.itemName;
       if (line.variantName != null) name += ' (${line.variantName})';
-      if (line.toppingInfo != null) name += ' + $line.toppingInfo';
+      if (line.toppingInfo != null) name += ' + ${line.toppingInfo}';
 
       bytes += generator.row([
-        PosColumn(text: '${line.quantity}x $name', width: 8),
-        PosColumn(text: '₹${line.total.toStringAsFixed(0)}', width: 4),
+        PosColumn(text: _sanitize('${line.quantity}x $name'), width: 8),
+        PosColumn(text: '$_currency${line.total.toStringAsFixed(0)}', width: 4),
       ]);
       // Show free-text note only if notes is not JSON (toppings stored as JSON)
       if (line.notes != null && line.notes!.isNotEmpty) {
@@ -200,7 +218,7 @@ class PrintService {
           jsonDecode(line.notes!);
           // It's JSON (toppings), already shown in toppingInfo
         } catch (_) {
-          bytes += generator.text('  Note: ${line.notes}');
+          bytes += generator.text('  Note: ${_sanitize(line.notes!)}');
         }
       }
     }
@@ -223,11 +241,11 @@ class PrintService {
       styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2),
     );
     bytes += generator.text(
-      order.invoiceNumber,
+      _sanitize(order.invoiceNumber),
       styles: const PosStyles(align: PosAlign.center),
     );
     bytes += generator.text(
-      order.referenceNumber ?? '',
+      _sanitize(order.referenceNumber ?? ''),
       styles: const PosStyles(align: PosAlign.center),
     );
     bytes += generator.text(
@@ -243,8 +261,8 @@ class PrintService {
       if (line.toppingInfo != null) name += ' + ${line.toppingInfo}';
 
       bytes += generator.row([
-        PosColumn(text: '${line.quantity}x $name', width: 8),
-        PosColumn(text: '₹${line.total.toStringAsFixed(0)}', width: 4),
+        PosColumn(text: _sanitize('${line.quantity}x $name'), width: 8),
+        PosColumn(text: '$_currency${line.total.toStringAsFixed(0)}', width: 4),
       ]);
     }
 
@@ -252,17 +270,17 @@ class PrintService {
     if (order.discountAmount > 0) {
       bytes += generator.row([
         PosColumn(text: 'Subtotal', width: 8),
-        PosColumn(text: '₹${order.totalAmount.toStringAsFixed(2)}', width: 4),
+        PosColumn(text: '$_currency${order.totalAmount.toStringAsFixed(2)}', width: 4),
       ]);
       bytes += generator.row([
         PosColumn(text: 'Discount', width: 8),
-        PosColumn(text: '-₹${order.discountAmount.toStringAsFixed(2)}', width: 4),
+        PosColumn(text: '-$_currency${order.discountAmount.toStringAsFixed(2)}', width: 4),
       ]);
     }
     bytes += generator.row([
       PosColumn(text: 'TOTAL', width: 8, styles: const PosStyles(bold: true)),
       PosColumn(
-        text: '₹${(order.finalAmount > 0 ? order.finalAmount : order.totalAmount).toStringAsFixed(2)}',
+        text: '$_currency${(order.finalAmount > 0 ? order.finalAmount : order.totalAmount).toStringAsFixed(2)}',
         width: 4,
         styles: const PosStyles(bold: true),
       ),
@@ -276,18 +294,65 @@ class PrintService {
   }
 
   Future<void> _sendToPrinter({
-    required String ip,
+    required String address,
     required int port,
     required List<int> bytes,
+    String printerLabel = 'Printer',
+    required String connectionType,
+    String? vendorId,
+    String? productId,
   }) async {
-    final printer = PrinterNetworkManager(ip, port: port);
-    final result = await printer.connect();
-    if (result == PosPrintResult.success) {
-      await printer.printTicket(bytes);
-      printer.disconnect();
+    final connType = connectionType;
+    final plugin = FlutterThermalPrinter.instance;
+
+    if (connType == 'network') {
+      // Network: address=IP, port=port
+      final service = FlutterThermalPrinterNetwork(
+        address,
+        port: port,
+        timeout: _connectionTimeout,
+      );
+      final connectResult = await service.connect();
+      if (connectResult != NetworkPrintResult.success) {
+        throw Exception('$printerLabel not found. Ensure the printer is on and connected (IP: $address:$port).');
+      }
+      final printResult = await service.printTicket(bytes);
+      await service.disconnect();
+      if (printResult != NetworkPrintResult.success) {
+        throw Exception('$printerLabel failed to print. Check connection (IP: $address:$port).');
+      }
     } else {
-      throw Exception('Printer connection failed: ${result.msg}');
+      // USB or BLE: build Printer from stored address/vendorId/productId
+      final printer = Printer(
+        address: address.isEmpty ? null : address,
+        connectionType: connType == 'usb' ? ConnectionType.USB : ConnectionType.BLE,
+        vendorId: vendorId,
+        productId: productId,
+      );
+      final connected = await plugin.connect(printer);
+      if (!connected) {
+        throw Exception('$printerLabel not found. Ensure the printer is on and paired.');
+      }
+      try {
+        await plugin.printData(printer, bytes, longData: true);
+      } finally {
+        await plugin.disconnect(printer);
+      }
     }
+  }
+
+  /// Decode stored address: "ble|ADDR", "usb|vid|pid", or plain IP for network
+  /// Returns (address, vendorId, productId, connectionType)
+  (String address, String? vendorId, String? productId, String connectionType) _decodeAddress(String raw) {
+    if (raw.startsWith('ble|')) return (raw.substring(4), null, null, 'ble');
+    if (raw.startsWith('usb|')) {
+      final parts = raw.substring(4).split('|');
+      final vid = parts.isNotEmpty ? parts[0] : null;
+      final pid = parts.length > 1 ? parts[1] : null;
+      // For USB, address is unused; vendorId/productId identify the device
+      return ('', vid, pid, 'usb');
+    }
+    return (raw, null, null, 'network');
   }
 
   /// Save printer config for a kitchen. kitchenId=0 for bill printer.

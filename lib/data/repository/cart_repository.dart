@@ -11,9 +11,11 @@ abstract class CartRepository {
   Future<Cart?> getCartByCartId(int cartId);
   Future<List<CartItem>?> getCartItemsByCartId(int cartId);
 
-  Future<void> addItemToCart(int cartId, CartItem item);
+  Future<int> addItemToCart(int cartId, CartItem item);
 
   Future<void> updateCartItem(CartItem item);
+
+  Future<void> updateCartItemTotal(int cartItemId, double total);
 
   Future<void> removeCartItem(int cartItemId);
 }

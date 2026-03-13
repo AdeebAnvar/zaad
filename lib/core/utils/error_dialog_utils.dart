@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 
 /// Shows an error dialog with the given message or exception.
 void showErrorDialog(BuildContext context, Object error) {
-  final message = error is Exception ? error.toString() : error.toString();
+  String message = error.toString();
+  // Strip "Exception: " prefix for cleaner display
+  if (message.startsWith('Exception: ')) {
+    message = message.substring(11);
+  }
   if (!context.mounted) return;
   showDialog(
     context: context,

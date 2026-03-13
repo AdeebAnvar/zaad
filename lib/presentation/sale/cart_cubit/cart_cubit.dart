@@ -32,6 +32,12 @@ class CartCubit extends Cubit<CartState> {
   String? _editingOrderStatus; // Track order status when editing
   bool _openedForEdit = false; // True when screen was opened from Take Away Log (edit order)
 
+  /// IDs of cart items added in this session. Used to skip delete/reason popup for newly added items.
+  final Set<int> _newlyAddedCartItemIds = {};
+
+  /// True if the cart item was newly added in this session (no delete/reason popup).
+  bool isNewlyAddedCartItem(int cartItemId) => _newlyAddedCartItemIds.contains(cartItemId);
+
   // Cart-level discount (mutually exclusive with item discounts)
   double _cartDiscountAmount = 0.0;
   String? _cartDiscountType; // 'amount' or 'percentage'
@@ -69,7 +75,8 @@ class CartCubit extends Cubit<CartState> {
     );
 
     // 4️⃣ Save to DB
-    await cartRepo.addItemToCart(_activeCartId!, cartItem);
+    final newId = await cartRepo.addItemToCart(_activeCartId!, cartItem);
+    _newlyAddedCartItemIds.add(newId);
 
     // 5️⃣ Reload cart items
     await _loadCartItems();
@@ -200,7 +207,21 @@ class CartCubit extends Cubit<CartState> {
   }
 
   Future<void> removeItemByCartItemId(int cartItemId) async {
+    _newlyAddedCartItemIds.remove(cartItemId);
     await cartRepo.removeCartItem(cartItemId);
+    await _loadCartItems();
+    await _updateKOTIfExists();
+  }
+
+  /// Update unit price for a cart item. Recalculates total: newTotal = newUnitPrice * quantity - discount.
+  Future<void> updateUnitPrice(int cartItemId, double newUnitPrice) async {
+    if (newUnitPrice < 0) return;
+    final cartItem = state.items.firstWhere(
+      (item) => item.id == cartItemId,
+      orElse: () => throw StateError('Cart item not found'),
+    );
+    final newTotal = (newUnitPrice * cartItem.quantity - cartItem.discount).clamp(0.0, double.infinity);
+    await cartRepo.updateCartItemTotal(cartItemId, newTotal);
     await _loadCartItems();
     await _updateKOTIfExists();
   }
@@ -217,6 +238,7 @@ class CartCubit extends Cubit<CartState> {
     _editingOrderId = null;
     _editingOrderStatus = null;
     _openedForEdit = false;
+    _newlyAddedCartItemIds.clear();
     _cartDiscountAmount = 0.0;
     _cartDiscountType = null;
     emit(CartState([]));
@@ -235,6 +257,7 @@ class CartCubit extends Cubit<CartState> {
     _editingOrderId = null;
     _editingOrderStatus = null;
     _openedForEdit = false;
+    _newlyAddedCartItemIds.clear();
     _cartDiscountAmount = 0.0;
     _cartDiscountType = null;
     emit(CartState([]));
@@ -742,7 +765,8 @@ class CartCubit extends Cubit<CartState> {
     );
 
     // 6️⃣ Save to DB
-    await cartRepo.addItemToCart(_activeCartId!, cartItem);
+    final newId = await cartRepo.addItemToCart(_activeCartId!, cartItem);
+    _newlyAddedCartItemIds.add(newId);
 
     // 7️⃣ Reload cart items
     await _loadCartItems();

@@ -53,7 +53,7 @@ class CartRepositoryImpl implements CartRepository {
   /* ───────── CART ITEMS ───────── */
 
   @override
-  Future<void> addItemToCart(int cartId, CartItem item) {
+  Future<int> addItemToCart(int cartId, CartItem item) {
     return db.cartsDao.addCartItem(
       CartItemsCompanion.insert(
         cartId: cartId,
@@ -85,6 +85,11 @@ class CartRepositoryImpl implements CartRepository {
         total: Value(item.total),
       ),
     );
+  }
+
+  @override
+  Future<void> updateCartItemTotal(int cartItemId, double total) {
+    return db.cartsDao.updateCartItemTotal(cartItemId, total);
   }
 
   @override

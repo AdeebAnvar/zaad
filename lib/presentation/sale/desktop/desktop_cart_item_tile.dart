@@ -104,14 +104,17 @@ class _CartItemContentState extends State<_CartItemContent> {
       );
     }
 
-    // Use variant price when loaded; otherwise derive from stored total so cart never shows base price (e.g. 50) when item was added with variant (e.g. 90).
-    final double unitPrice =
-        _variant?.price ?? (widget.cartItem.itemVariantId != null ? (widget.cartItem.total + widget.cartItem.discount) / widget.cartItem.quantity : _item!.price);
+    // Always derive unit price from cart data so manual edits are reflected. effective unit = (total + discount) / quantity.
+    final double unitPrice = (widget.cartItem.total + widget.cartItem.discount) / widget.cartItem.quantity;
+
+    final cartCubit = context.read<CartCubit>();
+    final isNewlyAdded = cartCubit.isNewlyAddedCartItem(widget.cartItem.id);
 
     return Dismissible(
       key: ValueKey(widget.cartItem.id),
       direction: DismissDirection.endToStart,
       confirmDismiss: (_) async {
+        if (isNewlyAdded) return true;
         final isDeleted = await _showDeleteDialog(context);
         return isDeleted; // true = dismiss, false = cancel
       },
@@ -243,12 +246,22 @@ class _CartItemContentState extends State<_CartItemContent> {
                               ),
                             ),
                           const SizedBox(height: 4),
-                          // Unit price and total for this variant
+                          // Unit price (editable) and total for this variant
                           Row(
                             children: [
-                              Text(
-                                "Unit: ₹${unitPrice.toStringAsFixed(2)} × ${widget.cartItem.quantity}${toppingsTotal > 0 ? ' + toppings' : ''}",
-                                style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
+                              GestureDetector(
+                                onTap: () => _showUnitPriceEditDialog(context, (widget.cartItem.total + widget.cartItem.discount) / widget.cartItem.quantity),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      "Unit: ₹${unitPrice.toStringAsFixed(2)} × ${widget.cartItem.quantity}${toppingsTotal > 0 ? ' + toppings' : ''}",
+                                      style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(Icons.edit, size: 12, color: Colors.grey.shade500),
+                                  ],
+                                ),
                               ),
                               const Spacer(),
                               Text(
@@ -269,7 +282,16 @@ class _CartItemContentState extends State<_CartItemContent> {
                     children: [
                       QtyButton(
                         icon: Icons.remove,
-                        onTap: () => context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id),
+                        onTap: () async {
+                          if (isNewlyAdded) {
+                            context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
+                          } else {
+                            final proceed = await _showDeleteDialog(context);
+                            if (proceed && context.mounted) {
+                              context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
+                            }
+                          }
+                        },
                       ),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -294,9 +316,13 @@ class _CartItemContentState extends State<_CartItemContent> {
                       IconButton(
                         icon: const Icon(Icons.delete_outline, size: 18),
                         onPressed: () async {
-                          bool isDeleted = await _showDeleteDialog(context);
-                          if (isDeleted) {
+                          if (isNewlyAdded) {
                             context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
+                          } else {
+                            final isDeleted = await _showDeleteDialog(context);
+                            if (isDeleted && context.mounted) {
+                              context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
+                            }
                           }
                         },
                       ),
@@ -453,9 +479,7 @@ class _CartItemContentState extends State<_CartItemContent> {
             (t) => t.id == toppingId,
             orElse: () => throw StateError('Topping not found'),
           );
-          if (topping != null) {
-            initialSelectedToppings[topping] = toppingQty;
-          }
+          initialSelectedToppings[topping] = toppingQty;
         }
       }
     }
@@ -478,6 +502,37 @@ class _CartItemContentState extends State<_CartItemContent> {
         ),
       );
     }
+  }
+
+  void _showUnitPriceEditDialog(BuildContext context, double currentUnitPrice) {
+    final controller = TextEditingController(text: currentUnitPrice.toStringAsFixed(2));
+    final cartCubit = context.read<CartCubit>();
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Edit Unit Price'),
+          content: CustomTextField(
+            controller: controller,
+            labelText: 'Unit price (₹)',
+            keyBoardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            CustomButton(
+              text: 'Save',
+              onPressed: () async {
+                final value = double.tryParse(controller.text);
+                if (value != null && value >= 0) {
+                  await cartCubit.updateUnitPrice(widget.cartItem.id, value);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void showDiscountDialog(BuildContext context, CartItem cartItem) {

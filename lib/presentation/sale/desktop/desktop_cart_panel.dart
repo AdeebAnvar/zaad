@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:multi_expansion_card/multi_expansion_card.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
@@ -56,7 +57,7 @@ class CartPanel extends StatelessWidget {
                               final cartItem = state.items[index];
                               return CartItemTile(
                                 index: index,
-                                key: ValueKey('cart_item_${cartItem.id}_${cartItem.itemId}_${cartItem.itemVariantId}'),
+                                key: ValueKey('cart_item_${cartItem.id}_${cartItem.total}_${cartItem.quantity}'),
                                 cartItem: cartItem,
                               );
                             },
@@ -558,7 +559,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     );
   }
 
-  /* ───────── CONTENT (layout like image) ───────── */
+  /* ───────── CONTENT (expandable cards) ───────── */
 
   Widget _content() {
     return SingleChildScrollView(
@@ -566,19 +567,59 @@ class _PaymentDialogState extends State<PaymentDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _customerFields(),
-          const SizedBox(height: 20),
-          _discountFields(),
-          const SizedBox(height: 20),
-          _paymentFields(),
-          if (!_validatePayments() && (_cashController.text.isNotEmpty || _creditController.text.isNotEmpty || _cardController.text.isNotEmpty))
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                'Payment total must match payable amount',
-                style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red.shade700),
+          MultipleExpansionCard(
+            titles: [
+              Row(
+                children: [
+                  Icon(Icons.person_outline, size: 20, color: AppColors.primaryColor),
+                  const SizedBox(width: 10),
+                  Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
+                ],
               ),
-            ),
+              Row(
+                children: [
+                  Icon(Icons.discount_outlined, size: 20, color: AppColors.primaryColor),
+                  const SizedBox(width: 10),
+                  Text('Discount', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
+                ],
+              ),
+              Row(
+                children: [
+                  Icon(Icons.payment, size: 20, color: AppColors.primaryColor),
+                  const SizedBox(width: 10),
+                  Text('Payment Methods', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
+                ],
+              ),
+            ],
+            childrens: [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: _customerFields(),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: _discountFields(),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _paymentFields(),
+                    if (!_validatePayments() && (_cashController.text.isNotEmpty || _creditController.text.isNotEmpty || _cardController.text.isNotEmpty))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          'Payment total must match payable amount',
+                          style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red.shade700),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+            initialExpanded: const {0: true, 1: true, 2: true},
+          ),
         ],
       ),
     );

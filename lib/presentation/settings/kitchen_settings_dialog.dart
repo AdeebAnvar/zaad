@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_thermal_printer/flutter_thermal_printer.dart';
+import 'package:flutter_thermal_printer/utils/printer.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/print/print_service.dart';
@@ -6,6 +10,8 @@ import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
+
+enum _ConnectionType { network, usb, ble }
 
 class KitchenSettingsDialog extends StatefulWidget {
   const KitchenSettingsDialog({super.key});
@@ -17,8 +23,24 @@ class KitchenSettingsDialog extends StatefulWidget {
 class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
   final _db = locator<AppDatabase>();
   final _printService = locator<PrintService>();
+  final _printerPlugin = FlutterThermalPrinter.instance;
   List<_KitchenRow> _rows = [];
   bool _loading = true;
+  StreamSubscription<List<Printer>>? _scanSubscription;
+
+  _ConnectionType _parseConnectionType(String? printerIp) {
+    if (printerIp == null || printerIp.isEmpty) return _ConnectionType.network;
+    if (printerIp.startsWith('ble|')) return _ConnectionType.ble;
+    if (printerIp.startsWith('usb|')) return _ConnectionType.usb;
+    return _ConnectionType.network;
+  }
+
+  String _networkAddress(String? printerIp) {
+    if (printerIp == null || printerIp.isEmpty) return '';
+    if (printerIp.startsWith('ble|')) return printerIp.substring(4);
+    if (printerIp.startsWith('usb|')) return '';
+    return printerIp;
+  }
 
   @override
   void initState() {
@@ -36,19 +58,30 @@ class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
         _KitchenRow(
           kitchenId: 0,
           name: 'Bill Printer',
-          ipController: TextEditingController(text: billPrinter?.printerIp ?? ''),
+          connectionType: _parseConnectionType(billPrinter?.printerIp),
+          ipController: TextEditingController(
+            text: billPrinter != null ? _networkAddress(billPrinter.printerIp) : '',
+          ),
           portController: TextEditingController(
             text: billPrinter != null ? '${billPrinter.printerPort}' : '9100',
           ),
+          selectedAddress: billPrinter?.printerIp,
         ),
-        ...kitchens.map((k) => _KitchenRow(
-              kitchenId: k.id,
-              name: k.name,
-              ipController: TextEditingController(text: k.printerIp ?? ''),
-              portController: TextEditingController(
-                text: k.printerIp != null ? '${k.printerPort}' : '9100',
-              ),
-            )),
+        ...kitchens.map((k) {
+          final connType = _parseConnectionType(k.printerIp);
+          return _KitchenRow(
+            kitchenId: k.id,
+            name: k.name,
+            connectionType: connType,
+            ipController: TextEditingController(
+              text: k.printerIp != null ? _networkAddress(k.printerIp) : '',
+            ),
+            portController: TextEditingController(
+              text: k.printerIp != null ? '${k.printerPort}' : '9100',
+            ),
+            selectedAddress: (connType == _ConnectionType.network) ? null : k.printerIp,
+          );
+        }),
       ];
       setState(() {
         _rows = rows;
@@ -61,20 +94,36 @@ class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
   }
 
   Future<void> _saveKitchen(_KitchenRow row) async {
-    final ip = row.ipController.text.trim();
-    if (ip.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter IP address')),
-      );
-      return;
+    String address;
+    int port;
+    if (row.connectionType == _ConnectionType.network) {
+      address = row.ipController.text.trim();
+      if (address.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter IP address')),
+        );
+        return;
+      }
+      port = int.tryParse(row.portController.text.trim()) ?? 9100;
+    } else {
+      address = row.selectedAddress ?? '';
+      if (address.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Please scan and select a ${row.connectionType == _ConnectionType.usb ? "USB" : "Bluetooth"} printer',
+            ),
+          ),
+        );
+        return;
+      }
+      port = 0;
     }
-    final portStr = row.portController.text.trim();
-    final port = int.tryParse(portStr) ?? 9100;
 
     try {
       await _printService.setKitchenPrinter(
         kitchenId: row.kitchenId,
-        ip: ip,
+        ip: address,
         port: port,
       );
       if (mounted) {
@@ -87,8 +136,30 @@ class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
     }
   }
 
+  void _startScan(void Function(List<Printer>) onResults) {
+    _scanSubscription?.cancel();
+    _printerPlugin.getPrinters(
+      connectionTypes: [ConnectionType.USB, ConnectionType.BLE],
+      refreshDuration: const Duration(seconds: 5),
+    );
+    _scanSubscription = _printerPlugin.devicesStream.listen((list) {
+      final filtered = list.where((p) =>
+          (p.name != null && p.name!.isNotEmpty) &&
+          (p.connectionType == ConnectionType.USB ||
+              p.connectionType == ConnectionType.BLE)).toList();
+      onResults(filtered);
+    });
+  }
+
+  void _stopScan() {
+    _scanSubscription?.cancel();
+    _scanSubscription = null;
+    _printerPlugin.stopScan();
+  }
+
   @override
   void dispose() {
+    _stopScan();
     for (final row in _rows) {
       row.ipController.dispose();
       row.portController.dispose();
@@ -104,8 +175,8 @@ class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 500,
-          maxHeight: MediaQuery.of(context).size.height * 0.8,
+          maxWidth: 520,
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
         ),
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -139,6 +210,14 @@ class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
                           return _KitchenRowWidget(
                             row: row,
                             onSave: () => _saveKitchen(row),
+                            onConnectionTypeChanged: (t) {
+                              setState(() => row.connectionType = t);
+                            },
+                            onSelectedAddressChanged: (a) {
+                              setState(() => row.selectedAddress = a);
+                            },
+                            onStartScan: _startScan,
+                            onStopScan: _stopScan,
                           );
                         },
                       ),
@@ -154,25 +233,88 @@ class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
 class _KitchenRow {
   final int kitchenId;
   final String name;
+  _ConnectionType connectionType;
   final TextEditingController ipController;
   final TextEditingController portController;
+  String? selectedAddress;
 
   _KitchenRow({
     required this.kitchenId,
     required this.name,
+    required this.connectionType,
     required this.ipController,
     required this.portController,
+    this.selectedAddress,
   });
 }
 
-class _KitchenRowWidget extends StatelessWidget {
+class _KitchenRowWidget extends StatefulWidget {
   final _KitchenRow row;
   final VoidCallback onSave;
+  final void Function(_ConnectionType) onConnectionTypeChanged;
+  final void Function(String?) onSelectedAddressChanged;
+  final void Function(void Function(List<Printer>) onResults) onStartScan;
+  final VoidCallback onStopScan;
 
-  const _KitchenRowWidget({required this.row, required this.onSave});
+  const _KitchenRowWidget({
+    required this.row,
+    required this.onSave,
+    required this.onConnectionTypeChanged,
+    required this.onSelectedAddressChanged,
+    required this.onStartScan,
+    required this.onStopScan,
+  });
+
+  @override
+  State<_KitchenRowWidget> createState() => _KitchenRowWidgetState();
+}
+
+class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
+  List<Printer> _discoveredPrinters = [];
+  bool _scanning = false;
+
+  static String _encodePrinter(Printer p) {
+    if (p.connectionType == ConnectionType.USB &&
+        p.vendorId != null &&
+        p.productId != null) {
+      return 'usb|${p.vendorId}|${p.productId}';
+    }
+    if (p.connectionType == ConnectionType.BLE && p.address != null) {
+      return 'ble|${p.address}';
+    }
+    return '';
+  }
+
+  void _handleScan() {
+    if (_scanning) {
+      widget.onStopScan();
+      setState(() => _scanning = false);
+      return;
+    }
+    setState(() {
+      _scanning = true;
+      _discoveredPrinters = [];
+    });
+    widget.onStartScan((list) {
+      if (mounted) {
+        setState(() => _discoveredPrinters = list);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    if (_scanning) widget.onStopScan();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final row = widget.row;
+    final isNetwork = row.connectionType == _ConnectionType.network;
+    final isUsb = row.connectionType == _ConnectionType.usb;
+    final isBle = row.connectionType == _ConnectionType.ble;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -187,21 +329,90 @@ class _KitchenRowWidget extends StatelessWidget {
             style: AppStyles.getBoldTextStyle(fontSize: 14),
           ),
           const SizedBox(height: 12),
-          CustomTextField(
-            controller: row.ipController,
-            labelText: 'IP Address',
+          DropdownButtonFormField<_ConnectionType>(
+            value: row.connectionType,
+            decoration: const InputDecoration(
+              labelText: 'Connection',
+              border: OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(value: _ConnectionType.network, child: Text('Network (Wi‑Fi)')),
+              DropdownMenuItem(value: _ConnectionType.usb, child: Text('USB')),
+              DropdownMenuItem(value: _ConnectionType.ble, child: Text('Bluetooth')),
+            ],
+            onChanged: (v) {
+              if (v != null) widget.onConnectionTypeChanged(v);
+            },
           ),
           const SizedBox(height: 12),
-          CustomTextField(
-            controller: row.portController,
-            labelText: 'Port',
-            keyBoardType: TextInputType.number,
-          ),
+          if (isNetwork) ...[
+            CustomTextField(
+              controller: row.ipController,
+              labelText: 'IP Address',
+            ),
+            const SizedBox(height: 12),
+            CustomTextField(
+              controller: row.portController,
+              labelText: 'Port',
+              keyBoardType: TextInputType.number,
+            ),
+          ],
+          if (isUsb || isBle) ...[
+            Row(
+              children: [
+                CustomButton(
+                  width: 120,
+                  text: _scanning ? 'Stop scan' : 'Scan printers',
+                  onPressed: _handleScan,
+                ),
+              ],
+            ),
+            if (_discoveredPrinters.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Select printer:',
+                style: AppStyles.getBoldTextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              DropdownButtonFormField<String>(
+                value: row.selectedAddress,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                ),
+                hint: const Text('Choose a printer'),
+                items: () {
+                  final encSet = <String>{};
+                  final items = <DropdownMenuItem<String>>[];
+                  for (final p in _discoveredPrinters) {
+                    final enc = _encodePrinter(p);
+                    if (enc.isNotEmpty && !encSet.contains(enc)) {
+                      encSet.add(enc);
+                      items.add(DropdownMenuItem<String>(
+                        value: enc,
+                        child: Text(p.name ?? enc, overflow: TextOverflow.ellipsis),
+                      ));
+                    }
+                  }
+                  final savedEnc = row.selectedAddress;
+                  if (savedEnc != null &&
+                      savedEnc.isNotEmpty &&
+                      !encSet.contains(savedEnc)) {
+                    items.add(DropdownMenuItem<String>(
+                      value: savedEnc,
+                      child: const Text('Saved (scan to change)', overflow: TextOverflow.ellipsis),
+                    ));
+                  }
+                  return items;
+                }(),
+                onChanged: (v) => widget.onSelectedAddressChanged(v),
+              ),
+            ],
+          ],
           const SizedBox(height: 12),
           CustomButton(
             width: 100,
             text: 'Save',
-            onPressed: onSave,
+            onPressed: widget.onSave,
           ),
         ],
       ),

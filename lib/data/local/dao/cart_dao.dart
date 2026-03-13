@@ -70,12 +70,18 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
 
   /* ───────── CART ITEMS ───────── */
 
-  Future<void> addCartItem(CartItemsCompanion data) {
+  Future<int> addCartItem(CartItemsCompanion data) {
     return into(cartItems).insert(data);
   }
 
   Future<void> updateCartItem(CartItemsCompanion data) {
     return into(cartItems).insertOnConflictUpdate(data);
+  }
+
+  /// Explicit UPDATE for total (used when unit price is edited).
+  Future<void> updateCartItemTotal(int cartItemId, double total) {
+    return (update(cartItems)..where((c) => c.id.equals(cartItemId)))
+        .write(CartItemsCompanion(total: Value(total)));
   }
 
   Future<void> removeCartItem(int id) {

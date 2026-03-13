@@ -53,6 +53,11 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Bluetooth thermal printer -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>This app needs Bluetooth to connect to thermal printers for receipts and kitchen orders.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>This app needs Bluetooth to connect to thermal printers for receipts and kitchen orders.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs access to your photo library to select images.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
