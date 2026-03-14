@@ -51,6 +51,16 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration {
     return MigrationStrategy(
       onUpgrade: (m, from, to) async {
+        Future<void> safeAddColumn(dynamic table, dynamic column) async {
+          try {
+            await m.addColumn(table, column);
+          } on SqliteException catch (e) {
+            if (e.resultCode != 1 ||
+                !e.message.toLowerCase().contains('duplicate column')) {
+              rethrow;
+            }
+          }
+        }
         if (from < 2) {
           // Add Orders table
           await m.createTable(orders);
@@ -83,21 +93,13 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 7) {
           // Persist active cart id in session (so cart survives navigation/reload)
-          try {
-            await m.addColumn(sessions, sessions.activeCartId);
-          } on SqliteException catch (e) {
-            if (e.resultCode != 1 ||
-                !e.message.toLowerCase().contains('duplicate column')) {
-              rethrow;
-            }
-            // Column already exists (e.g. from partially completed migration)
-          }
+          await safeAddColumn(sessions, sessions.activeCartId);
         }
         if (from < 8) {
           // Add Kitchens table and kitchen columns to Items
           await m.createTable(kitchens);
-          await m.addColumn(items, items.kitchenId);
-          await m.addColumn(items, items.kitchenName);
+          await safeAddColumn(items, items.kitchenId);
+          await safeAddColumn(items, items.kitchenName);
         }
         if (from < 9) {
           // Add KitchenPrinters table for printer IP/port per kitchen (kitchen_id=0 = bill printer)
@@ -105,8 +107,8 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 10) {
           // Add printer IP/port to Kitchens table for device–printer connection
-          await m.addColumn(kitchens, kitchens.printerIp);
-          await m.addColumn(kitchens, kitchens.printerPort);
+          await safeAddColumn(kitchens, kitchens.printerIp);
+          await safeAddColumn(kitchens, kitchens.printerPort);
         }
       },
     );
