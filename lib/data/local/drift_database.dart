@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:sqlite3/sqlite3.dart' show SqliteException;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -82,7 +83,15 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 7) {
           // Persist active cart id in session (so cart survives navigation/reload)
-          await m.addColumn(sessions, sessions.activeCartId);
+          try {
+            await m.addColumn(sessions, sessions.activeCartId);
+          } on SqliteException catch (e) {
+            if (e.resultCode != 1 ||
+                !e.message.toLowerCase().contains('duplicate column')) {
+              rethrow;
+            }
+            // Column already exists (e.g. from partially completed migration)
+          }
         }
         if (from < 8) {
           // Add Kitchens table and kitchen columns to Items
