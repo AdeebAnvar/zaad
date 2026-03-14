@@ -13,6 +13,8 @@ abstract class OrderRepository {
     String? invoiceNumber,
     String? referenceNumber,
     String? status,
+    String? orderType,
+    String? deliveryPartner,
     DateTime? startDate,
     DateTime? endDate,
   });

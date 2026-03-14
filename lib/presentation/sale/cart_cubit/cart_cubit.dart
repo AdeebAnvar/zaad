@@ -17,8 +17,14 @@ class CartCubit extends Cubit<CartState> {
     this.itemRepo,
     this.orderRepo,
     this.sessionDao,
-    this.printService,
-  ) : super(CartState([]));
+    this.printService, {
+    this.orderType = 'take_away',
+    this.deliveryPartner,
+  }) : super(CartState([]));
+
+  /// 'take_away' | 'delivery' | 'dine_in'
+  final String orderType;
+  final String? deliveryPartner;
   final CartRepository cartRepo;
   final ItemRepository itemRepo;
   final OrderRepository orderRepo;
@@ -171,7 +177,11 @@ class CartCubit extends Cubit<CartState> {
 
     final invoice = _generateInvoiceNumber();
 
-    _activeCartId = await cartRepo.createCart(invoice);
+    _activeCartId = await cartRepo.createCart(
+      invoice,
+      orderType: orderType,
+      deliveryPartner: deliveryPartner,
+    );
     _invoiceNumber = invoice;
     await _persistActiveCartId(_activeCartId!);
   }
@@ -304,6 +314,8 @@ class CartCubit extends Cubit<CartState> {
         cardAmount: 0,
         createdAt: DateTime.now(),
         status: 'kot',
+        orderType: orderType,
+        deliveryPartner: deliveryPartner,
       );
       final orderId = await orderRepo.createOrder(order);
       _currentKOTOrderId = orderId;
@@ -434,7 +446,7 @@ class CartCubit extends Cubit<CartState> {
       id: 0,
       cartId: _activeCartId!,
       invoiceNumber: invoiceNum,
-      referenceNumber: _currentKOTReference ?? invoiceNum, // Use KOT ref if paying KOT, else invoice for display
+      referenceNumber: _currentKOTReference ?? invoiceNum,
       totalAmount: totalAmount,
       discountAmount: discountAmount,
       discountType: _cartDiscountType ?? discount['type'] as String?,
@@ -448,6 +460,8 @@ class CartCubit extends Cubit<CartState> {
       cardAmount: payments['card'] ?? 0.0,
       createdAt: DateTime.now(),
       status: 'completed',
+      orderType: orderType,
+      deliveryPartner: deliveryPartner,
     );
 
     // Save order to database
@@ -501,6 +515,8 @@ class CartCubit extends Cubit<CartState> {
       cardAmount: existingOrder.cardAmount,
       createdAt: existingOrder.createdAt,
       status: existingOrder.status,
+      orderType: existingOrder.orderType,
+      deliveryPartner: existingOrder.deliveryPartner,
     );
 
     // Update order in database
@@ -563,7 +579,9 @@ class CartCubit extends Cubit<CartState> {
       creditAmount: payments['credit'] ?? 0.0,
       cardAmount: payments['card'] ?? 0.0,
       createdAt: existingOrder.createdAt,
-      status: 'completed', // Payment completed = move to Recent Sales (out of Take Away Log)
+      status: 'completed',
+      orderType: existingOrder.orderType,
+      deliveryPartner: existingOrder.deliveryPartner,
     );
 
     // Update order in database

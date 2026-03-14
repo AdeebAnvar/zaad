@@ -1,7 +1,7 @@
 import 'package:pos/data/local/drift_database.dart';
 
 abstract class CartRepository {
-  Future<int> createCart(String invoiceNumber);
+  Future<int> createCart(String invoiceNumber, {String? orderType, String? deliveryPartner});
 
   Future<void> deleteCart(int cartId);
 

@@ -10,8 +10,8 @@ class CartRepositoryImpl implements CartRepository {
   /* ───────── CART ───────── */
 
   @override
-  Future<int> createCart(String invoiceNumber) {
-    return db.cartsDao.createCart(invoiceNumber);
+  Future<int> createCart(String invoiceNumber, {String? orderType, String? deliveryPartner}) {
+    return db.cartsDao.createCart(invoiceNumber, orderType: orderType, deliveryPartner: deliveryPartner);
   }
 
   @override
@@ -21,33 +21,12 @@ class CartRepositoryImpl implements CartRepository {
 
   @override
   Future<Cart?> getCartByInvoice(String invoice) async {
-    final cart = await db.cartsDao.getCartByInvoice(invoice);
-    if (cart == null) return null;
-
-    return Cart(
-      id: cart.id,
-      invoiceNumber: cart.invoiceNumber,
-      createdAt: cart.createdAt,
-    );
+    return db.cartsDao.getCartByInvoice(invoice);
   }
 
   @override
   Future<List<Cart>> getAllCarts() async {
-    final carts = await db.cartsDao.select(db.cartsDao.carts).get();
-
-    final List<Cart> result = [];
-
-    for (final cart in carts) {
-      result.add(
-        Cart(
-          id: cart.id,
-          invoiceNumber: cart.invoiceNumber,
-          createdAt: cart.createdAt,
-        ),
-      );
-    }
-
-    return result;
+    return db.cartsDao.select(db.cartsDao.carts).get();
   }
 
   /* ───────── CART ITEMS ───────── */
@@ -105,13 +84,6 @@ class CartRepositoryImpl implements CartRepository {
 
   @override
   Future<Cart?> getCartByCartId(int cartId) async {
-    final cart = await db.cartsDao.getCartByCartId(cartId);
-    if (cart == null) return null;
-
-    return Cart(
-      id: cart.id,
-      invoiceNumber: cart.invoiceNumber,
-      createdAt: cart.createdAt,
-    );
+    return db.cartsDao.getCartByCartId(cartId);
   }
 }

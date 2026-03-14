@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/data/repository/user_repository.dart';
 import 'package:pos/core/sync/sync_service.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -41,7 +42,8 @@ class SettingsScreen extends StatelessWidget {
   Future<void> _sync(BuildContext context) async {
     try {
       final db = locator<AppDatabase>();
-      await SyncService.instance.start(db);
+      final serverUrl = locator<UserRepository>().getServerUrl();
+      await SyncService.instance.start(db, serverUrl: serverUrl);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Sync completed')),

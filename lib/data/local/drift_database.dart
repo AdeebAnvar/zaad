@@ -13,6 +13,7 @@ part 'dao/session_dao.dart';
 part 'dao/cart_dao.dart';
 part 'dao/orders_dao.dart';
 part 'dao/customers_dao.dart';
+part 'dao/delivery_partners_dao.dart';
 
 @DriftDatabase(
   tables: [
@@ -29,6 +30,7 @@ part 'dao/customers_dao.dart';
     CartItems,
     Orders,
     Customers,
+    DeliveryPartners,
   ],
   daos: [
     UsersDao,
@@ -38,13 +40,14 @@ part 'dao/customers_dao.dart';
     SessionDao,
     OrdersDao,
     CustomersDao,
+    DeliveryPartnersDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration {
@@ -98,6 +101,18 @@ class AppDatabase extends _$AppDatabase {
           // Add printer IP/port to Kitchens table for device–printer connection
           await m.addColumn(kitchens, kitchens.printerIp);
           await m.addColumn(kitchens, kitchens.printerPort);
+        }
+        if (from < 11) {
+          // Delivery: orderType, deliveryPartner on Carts & Orders; deliveryPartner on Items
+          await m.addColumn(carts, carts.orderType);
+          await m.addColumn(carts, carts.deliveryPartner);
+          await m.addColumn(orders, orders.orderType);
+          await m.addColumn(orders, orders.deliveryPartner);
+          await m.addColumn(items, items.deliveryPartner);
+        }
+        if (from < 12) {
+          // Delivery partners table - synced from server
+          await m.createTable(deliveryPartners);
         }
       },
     );

@@ -5,7 +5,10 @@ import 'package:pos/app/navigation.dart';
 import 'package:pos/app/routes.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/presentation/delivery_log/delivery_log_cubit.dart';
+import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_ui.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
@@ -18,6 +21,86 @@ class CounterHome extends StatefulWidget {
 }
 
 class _CounterHomeState extends State<CounterHome> {
+  void _handleCardTap(BuildContext context, int index) {
+    switch (index) {
+      case 0:
+        AppNavigator.pushNamed(Routes.counter, args: {'orderType': 'take_away'});
+        break;
+      case 1:
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => BlocProvider(
+              create: (context) => TakeAwayLogCubit(locator<OrderRepository>()),
+              child: const TakeAwayLogScreen(),
+            ),
+          ),
+        );
+        break;
+      case 2:
+        _showDeliveryPartnerPopup(context);
+        break;
+      case 3:
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => BlocProvider(
+              create: (context) => DeliveryLogCubit(locator<OrderRepository>()),
+              child: const DeliveryLogScreen(),
+            ),
+          ),
+        );
+        break;
+    }
+  }
+
+  Future<void> _showDeliveryPartnerPopup(BuildContext context) async {
+    final repo = locator<DeliveryPartnerRepository>();
+    final partners = await repo.getAll();
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Select Delivery Partner'),
+        content: SizedBox(
+          width: 280,
+          child: partners.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    'No delivery partners. Sync to fetch from server.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: partners.length,
+                  itemBuilder: (_, i) {
+                    final partner = partners[i];
+                    return ListTile(
+                      leading: const Icon(Icons.delivery_dining),
+                      title: Text(partner.name),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        AppNavigator.pushNamed(
+                          Routes.counter,
+                          args: {'orderType': 'delivery', 'deliveryPartner': partner.name},
+                        );
+                      },
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return CustomScaffold(
@@ -54,23 +137,7 @@ class _CounterHomeState extends State<CounterHome> {
                   itemBuilder: (context, index) {
                     return _DashboardCard(
                       title: _titles[index],
-                      onTap: () {
-                        if (index == 0) {
-                          AppNavigator.pushNamed(Routes.counter);
-                        } else {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => BlocProvider(
-                                create: (context) => TakeAwayLogCubit(
-                                  locator<OrderRepository>(),
-                                ),
-                                child: const TakeAwayLogScreen(),
-                              ),
-                            ),
-                          );
-                        }
-                      },
+                      onTap: () => _handleCardTap(context, index),
                     );
                   },
                 ),
@@ -123,10 +190,8 @@ class _DashboardCard extends StatelessWidget {
 const _titles = [
   "Take Away",
   "Take Away Log",
-  // "Customers",
-  // "Reports",
-  // "Sync",
-  // "Settings",
+  "Delivery Sale",
+  "Delivery Sale Log",
 ];
 
 class AppScaffold extends StatelessWidget {

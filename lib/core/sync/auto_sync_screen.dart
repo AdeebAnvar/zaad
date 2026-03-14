@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/data/repository/user_repository.dart';
 import 'package:pos/app/navigation.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/constants/styles.dart';
@@ -9,8 +10,9 @@ import 'package:pos/core/sync/sync_service.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/sync_repository.dart';
 import 'package:pos/domain/models/category_model.dart';
-import 'package:pos/domain/models/item_model.dart';
 import 'package:pos/domain/models/customer_model.dart';
+import 'package:pos/domain/models/delivery_partner_model.dart';
+import 'package:pos/domain/models/item_model.dart';
 import 'package:pos/domain/models/kitchen_model.dart';
 
 import 'dart:math';
@@ -70,7 +72,8 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProvid
 
   Future<void> _startSync() async {
     final db = locator<AppDatabase>();
-    await SyncService.instance.start(db);
+    final serverUrl = locator<UserRepository>().getServerUrl();
+    await SyncService.instance.start(db, serverUrl: serverUrl);
   }
 
   Future<void> _goToDashboard() async {
@@ -144,13 +147,14 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProvid
   }
 }
 
-Future<SyncPayload> fetchSyncData() async {
+Future<SyncPayload> fetchSyncData(String serverUrl) async {
   final repo = SyncRepository();
   final categories = await repo.fetchCategories();
   final kitchens = await repo.fetchKitchens();
   final items = await repo.fetchItems();
   final customers = await repo.fetchCustomers();
-  return SyncPayload(categories, kitchens, items, customers);
+  final deliveryPartners = await repo.fetchDeliveryPartners(serverUrl);
+  return SyncPayload(categories, kitchens, items, customers, deliveryPartners);
 }
 
 class SyncPayload {
@@ -158,8 +162,15 @@ class SyncPayload {
   final List<KitchenModel> kitchens;
   final List<ItemModel> items;
   final List<CustomerModel> customers;
+  final List<DeliveryPartnerModel> deliveryPartners;
 
-  SyncPayload(this.categories, this.kitchens, this.items, this.customers);
+  SyncPayload(
+    this.categories,
+    this.kitchens,
+    this.items,
+    this.customers,
+    this.deliveryPartners,
+  );
 }
 
 class PosReceiptLoader extends StatefulWidget {

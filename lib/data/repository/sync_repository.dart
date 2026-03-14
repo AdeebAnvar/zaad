@@ -1,12 +1,24 @@
 import 'package:pos/domain/models/item_topping_model.dart';
 import 'package:pos/domain/models/item_variant_model.dart';
 
-import '../../domain/models/item_model.dart';
 import '../../domain/models/category_model.dart';
 import '../../domain/models/customer_model.dart';
+import '../../domain/models/delivery_partner_model.dart';
+import '../../domain/models/item_model.dart';
 import '../../domain/models/kitchen_model.dart';
 
 class SyncRepository {
+  Future<List<DeliveryPartnerModel>> fetchDeliveryPartners(String serverUrl) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    return [
+      DeliveryPartnerModel(id: 1, name: 'Swiggy'),
+      DeliveryPartnerModel(id: 2, name: 'Zomato'),
+      DeliveryPartnerModel(id: 3, name: 'Dunzo'),
+      DeliveryPartnerModel(id: 4, name: 'Uber Eats'),
+      DeliveryPartnerModel(id: 5, name: 'Rapido'),
+    ];
+  }
+
   Future<List<KitchenModel>> fetchKitchens() async {
     await Future.delayed(const Duration(milliseconds: 500));
     return [

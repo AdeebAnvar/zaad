@@ -4,9 +4,11 @@ import 'package:pos/data/repository/item_repository.dart';
 part 'items_state.dart';
 
 class ItemsCubit extends Cubit<ItemState> {
-  ItemsCubit(this._repo) : super(ItemsInitialState());
+  ItemsCubit(this._repo, {this.deliveryPartner}) : super(ItemsInitialState());
 
   final ItemRepository _repo;
+  /// When set (delivery mode), filter items by this delivery partner
+  final String? deliveryPartner;
 
   List<Item> _allItems = [];
   List<Category> _allCategories = [];
@@ -33,6 +35,13 @@ class ItemsCubit extends Cubit<ItemState> {
 
   void _applyFilters() {
     List<Item> filtered = _allItems;
+
+    if (deliveryPartner != null && deliveryPartner!.isNotEmpty) {
+      filtered = filtered.where((i) {
+        final dp = i.deliveryPartner;
+        return dp == null || dp.isEmpty || dp == deliveryPartner;
+      }).toList();
+    }
 
     if (_selectedCategoryId != -1) {
       filtered = filtered.where((i) => i.categoryId == _selectedCategoryId).toList();

@@ -12,7 +12,10 @@ import 'package:pos/presentation/widgets/custom_scaffold.dart';
 const double kTabletWidth = 900;
 
 class SaleScreen extends StatefulWidget {
-  const SaleScreen({super.key});
+  const SaleScreen({this.orderType = 'take_away', this.deliveryPartner, super.key});
+
+  final String orderType;
+  final String? deliveryPartner;
 
   @override
   State<SaleScreen> createState() => _SaleScreenState();
@@ -30,9 +33,12 @@ class _SaleScreenState extends State<SaleScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final title = widget.orderType == 'delivery' && widget.deliveryPartner != null
+        ? 'Delivery - ${widget.deliveryPartner}'
+        : 'Take Away';
     return CustomScaffold(
-      title: 'TakeAway',
-      appBarScreen: 'take_away',
+      title: title,
+      appBarScreen: widget.orderType == 'delivery' ? 'delivery' : 'take_away',
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isMobile = constraints.maxWidth < kTabletWidth;

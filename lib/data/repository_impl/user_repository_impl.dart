@@ -16,6 +16,9 @@ class UserRepositoryImpl implements UserRepository {
     serverUrl = url;
   }
 
+  @override
+  String getServerUrl() => serverUrl;
+
   // ---------------- SERVER (DUMMY) ----------------
 
   @override

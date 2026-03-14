@@ -4,6 +4,10 @@ class Carts extends Table {
   IntColumn get id => integer()();
   TextColumn get invoiceNumber => text()();
   DateTimeColumn get createdAt => dateTime()();
+  /// 'take_away' | 'delivery' | 'dine_in'
+  TextColumn get orderType => text().withDefault(const Constant('take_away'))();
+  /// Delivery partner name (Swiggy, Zomato, etc.) when orderType is 'delivery'
+  TextColumn get deliveryPartner => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -45,11 +49,13 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
 
   /* ───────── CART ───────── */
 
-  Future<int> createCart(String invoiceNumber) {
+  Future<int> createCart(String invoiceNumber, {String? orderType, String? deliveryPartner}) {
     return into(carts).insert(
       CartsCompanion.insert(
         invoiceNumber: invoiceNumber,
         createdAt: DateTime.now(),
+        orderType: orderType != null ? Value(orderType) : const Value.absent(),
+        deliveryPartner: deliveryPartner != null ? Value(deliveryPartner) : const Value.absent(),
       ),
     );
   }

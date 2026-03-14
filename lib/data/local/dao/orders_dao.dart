@@ -23,6 +23,9 @@ class Orders extends Table {
   
   DateTimeColumn get createdAt => dateTime()();
   TextColumn get status => text().withDefault(const Constant('placed'))(); // placed, completed, cancelled, kot
+  /// 'take_away' | 'delivery' | 'dine_in'
+  TextColumn get orderType => text().nullable()();
+  TextColumn get deliveryPartner => text().nullable()();
 }
 
 @DriftAccessor(tables: [
@@ -83,6 +86,8 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     String? invoiceNumber,
     String? referenceNumber,
     String? status,
+    String? orderType,
+    String? deliveryPartner,
     DateTime? startDate,
     DateTime? endDate,
   }) {
@@ -98,6 +103,18 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
 
     if (status != null && status.isNotEmpty) {
       query = query..where((o) => o.status.equals(status));
+    }
+
+    if (orderType != null && orderType.isNotEmpty) {
+      if (orderType == 'take_away') {
+        query = query..where((o) => o.orderType.isNull() | o.orderType.equals('take_away'));
+      } else {
+        query = query..where((o) => o.orderType.equals(orderType));
+      }
+    }
+
+    if (deliveryPartner != null && deliveryPartner.isNotEmpty) {
+      query = query..where((o) => o.deliveryPartner.like('%$deliveryPartner%'));
     }
 
     if (startDate != null) {

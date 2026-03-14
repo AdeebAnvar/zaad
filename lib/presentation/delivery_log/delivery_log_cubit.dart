@@ -2,23 +2,24 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 
-part 'take_away_log_state.dart';
+part 'delivery_log_state.dart';
 
-class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
-  TakeAwayLogCubit(this.orderRepo) : super(TakeAwayLogInitial()) {
+class DeliveryLogCubit extends Cubit<DeliveryLogState> {
+  DeliveryLogCubit(this.orderRepo) : super(DeliveryLogInitial()) {
     loadOrders();
   }
 
   final OrderRepository orderRepo;
 
   Future<void> loadOrders() async {
-    emit(TakeAwayLogLoading());
+    emit(DeliveryLogLoading());
     try {
-      var orders = await orderRepo.filterOrders(orderType: 'take_away');
+      var orders = await orderRepo.filterOrders(orderType: 'delivery');
+      // Delivery Log = unpaid (kot) orders, similar to Take Away Log
       orders = orders.where((o) => o.status == 'kot').toList();
-      emit(TakeAwayLogLoaded(orders));
+      emit(DeliveryLogLoaded(orders));
     } catch (e) {
-      emit(TakeAwayLogError(e.toString()));
+      emit(DeliveryLogError(e.toString()));
     }
   }
 
@@ -29,39 +30,37 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
   Future<void> filterOrders({
     String? invoiceNumber,
     String? referenceNumber,
+    String? deliveryPartner,
     String? status,
     DateTime? startDate,
     DateTime? endDate,
   }) async {
-    emit(TakeAwayLogLoading());
+    emit(DeliveryLogLoading());
     try {
       var orders = await orderRepo.filterOrders(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
+        orderType: 'delivery',
+        deliveryPartner: deliveryPartner,
         status: status,
-        orderType: 'take_away',
         startDate: startDate,
         endDate: endDate,
       );
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where((o) => o.status == 'kot').toList();
-      } else if (status != 'completed') {
-        orders = orders.where((o) => o.status != 'completed').toList();
-      } else {
-        orders = [];
       }
-      emit(TakeAwayLogLoaded(orders));
+      emit(DeliveryLogLoaded(orders));
     } catch (e) {
-      emit(TakeAwayLogError(e.toString()));
+      emit(DeliveryLogError(e.toString()));
     }
   }
 
   Future<void> deleteOrder(int orderId) async {
     try {
       await orderRepo.deleteOrder(orderId);
-      await loadOrders(); // Reload orders after deletion
+      await loadOrders();
     } catch (e) {
-      emit(TakeAwayLogError(e.toString()));
+      emit(DeliveryLogError(e.toString()));
     }
   }
 }

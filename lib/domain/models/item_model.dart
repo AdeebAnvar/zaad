@@ -16,6 +16,7 @@ class ItemModel {
   final int categoryId;
   final int? kitchenId;
   final String? kitchenName;
+  final String? deliveryPartner;
   final List<ItemVariant> variants;
   final List<ItemTopping> toppings;
 
@@ -34,6 +35,7 @@ class ItemModel {
     required this.barcode,
     this.kitchenId,
     this.kitchenName,
+    this.deliveryPartner,
     this.variants = const [],
     this.toppings = const [],
   });
@@ -54,6 +56,7 @@ class ItemModel {
       barcode: json['barcode'] as String? ?? '',
       kitchenId: json['kitchen_id'] as int?,
       kitchenName: json['kitchen_name'] as String?,
+      deliveryPartner: json['delivery_partner'] as String?,
       variants: (json['variants'] as List<dynamic>?)?.map((e) => ItemVariant.fromJson(e)).toList() ?? [],
       toppings: (json['toppings'] as List<dynamic>?)?.map((e) => ItemTopping.fromJson(e)).toList() ?? [],
     );
@@ -75,6 +78,7 @@ class ItemModel {
       'barcode': barcode,
       'kitchen_id': kitchenId,
       'kitchen_name': kitchenName,
+      if (deliveryPartner != null) 'delivery_partner': deliveryPartner,
       'variants': variants.map((e) => e.toJson()).toList(),
       'toppings': toppings.map((e) => e.toJson()).toList(),
     };

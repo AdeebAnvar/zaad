@@ -23,7 +23,8 @@ class SyncService {
   SyncStatus currentStatus = const SyncStatus(phase: SyncPhase.idle, message: 'Idle');
 
   DateTime? lastSyncedAt;
-  Future<void> start(AppDatabase db) async {
+
+  Future<void> start(AppDatabase db, {String serverUrl = ''}) async {
     const int totalPhases = 100; // Total progress phases
     int currentPhase = 0;
 
@@ -56,7 +57,7 @@ class SyncService {
 
     try {
       // ✅ Network in isolate
-      final payload = await Isolate.run(fetchSyncData);
+      final payload = await Isolate.run(() => fetchSyncData(serverUrl));
 
       currentPhase = 15; // Fetching completed (15% total)
 
@@ -111,22 +112,33 @@ class SyncService {
 
       currentPhase = 23; // Kitchens completed (23% total)
 
-      // ---------- CUSTOMERS ---------- (7% of total, from 23% to 30%)
+      // ---------- DELIVERY PARTNERS ---------- (2% of total, from 23% to 25%)
+      for (final dp in payload.deliveryPartners) {
+        await db.deliveryPartnersDao.upsertDeliveryPartner(
+          DeliveryPartnersCompanion.insert(
+            id: Value(dp.id),
+            name: dp.name,
+          ),
+        );
+      }
+      currentPhase = 25;
+
+      // ---------- CUSTOMERS ---------- (5% of total, from 25% to 30%)
       _emit(SyncStatus(
         phase: SyncPhase.items,
-        message: 'Also fetching customers...',
-        current: 23,
+        message: 'Syncing customers...',
+        current: 25,
         total: totalPhases,
       ));
 
       final customers = payload.customers;
-      currentPhase = 25; // Customers fetched (25% total)
+      currentPhase = 27; // Customers fetch progress
 
       int customerIndex = 0;
       final customerTotal = customers.length;
       for (final c in customers) {
         customerIndex++;
-        final customerProgress = (customerIndex / customerTotal) * 5; // 5% for all customers (25-30%)
+        final customerProgress = (customerIndex / customerTotal) * 5; // 5% for customers (25-30%)
 
         _emit(SyncStatus(
           phase: SyncPhase.items,
@@ -194,6 +206,7 @@ class SyncService {
             categoryId: i.categoryId,
             kitchenId: Value(i.kitchenId),
             kitchenName: Value(i.kitchenName),
+            deliveryPartner: i.deliveryPartner != null ? Value(i.deliveryPartner) : const Value.absent(),
           ),
         );
         await Future.wait([

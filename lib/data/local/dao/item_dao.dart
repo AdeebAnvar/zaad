@@ -33,6 +33,8 @@ class Items extends Table {
   IntColumn get categoryId => integer()();
   IntColumn get kitchenId => integer().nullable()();
   TextColumn get kitchenName => text().nullable()();
+  /// Delivery partner id/name - items filtered by partner when in delivery mode
+  TextColumn get deliveryPartner => text().nullable()();
   @override
   Set<Column> get primaryKey => {id};
 }

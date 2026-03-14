@@ -45,6 +45,8 @@ class Routes {
     counter: (context) {
       final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       final orderId = args?['orderId'] as int?;
+      final orderType = args?['orderType'] as String? ?? 'take_away';
+      final deliveryPartner = args?['deliveryPartner'] as String?;
 
       return BlocProvider<CartCubit>(
         create: (context) {
@@ -55,6 +57,8 @@ class Routes {
             locator<OrderRepository>(),
             db.sessionDao,
             locator<PrintService>(),
+            orderType: orderType,
+            deliveryPartner: deliveryPartner,
           );
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (orderId != null) {
@@ -68,8 +72,9 @@ class Routes {
         child: BlocProvider<ItemsCubit>(
           create: (context) => ItemsCubit(
             ItemRepositoryImpl(locator<AppDatabase>()),
+            deliveryPartner: deliveryPartner,
           ),
-          child: const SaleScreen(),
+          child: SaleScreen(orderType: orderType, deliveryPartner: deliveryPartner),
         ),
       );
     },
