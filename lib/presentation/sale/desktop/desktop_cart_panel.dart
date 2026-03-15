@@ -143,8 +143,11 @@ class CartPanel extends StatelessWidget {
                                           final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
                                           if (hasRef) {
                                             try {
-                                              await cartCubit.saveKOTWithExistingReference();
-                                              if (context.mounted) Navigator.pop(context);
+                                              final printFailed = await cartCubit.saveKOTWithExistingReference();
+                                              if (context.mounted) {
+                                                Navigator.pop(context);
+                                                if (printFailed.isNotEmpty) showPrintFailedDialog(context, printFailed);
+                                              }
                                             } catch (e) {
                                               if (context.mounted) showErrorDialog(context, e);
                                             }
@@ -257,8 +260,11 @@ class CartPanel extends StatelessWidget {
                               final value = referenceController.text.trim();
                               if (value.isNotEmpty) {
                                 try {
-                                  await cartCubit.saveKOT(value);
-                                  if (context.mounted) Navigator.pop(context);
+                                  final printFailed = await cartCubit.saveKOT(value);
+                                  if (context.mounted) {
+                                    Navigator.pop(context);
+                                    if (printFailed.isNotEmpty) showPrintFailedDialog(context, printFailed);
+                                  }
                                 } catch (e) {
                                   if (context.mounted) {
                                     showErrorDialog(context, e);
@@ -288,24 +294,24 @@ class CartPanel extends StatelessWidget {
         onSave: (customerDetails, discount, payments) async {
           try {
             final cartCubit = context.read<CartCubit>();
+            List<String> printFailed;
             if (isEditing) {
-              await cartCubit.updateOrderWithPayment(
+              printFailed = await cartCubit.updateOrderWithPayment(
                 customerDetails: customerDetails,
                 discount: discount,
                 payments: payments,
               );
             } else {
-              await cartCubit.placeOrderWithPayment(
+              printFailed = await cartCubit.placeOrderWithPayment(
                 customerDetails: customerDetails,
                 discount: discount,
                 payments: payments,
               );
             }
-            if (dialogContext.mounted) {
-              Navigator.pop(dialogContext);
-              if (isEditing && context.mounted) {
-                Navigator.pop(context);
-              }
+            if (dialogContext.mounted) Navigator.pop(dialogContext);
+            if (context.mounted) {
+              if (isEditing) Navigator.pop(context);
+              if (printFailed.isNotEmpty) showPrintFailedDialog(context, printFailed);
             }
           } catch (e) {
             if (dialogContext.mounted) {

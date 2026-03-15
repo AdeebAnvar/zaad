@@ -27,11 +27,13 @@ class PrintService {
 
   /// Groups cart items by kitchen and prints KOT to each kitchen's printer.
   /// [referenceNumber] e.g. table number or order ref.
-  Future<void> printKOTPerKitchen({
+  /// Returns list of printer labels that failed (working printers still print).
+  Future<List<String>> printKOTPerKitchen({
     required List<CartItem> cartItems,
     required String referenceNumber,
   }) async {
-    if (cartItems.isEmpty) return;
+    final failed = <String>[];
+    if (cartItems.isEmpty) return failed;
 
     final lines = await _buildPrintLines(cartItems);
     final byKitchen = <int?, List<_PrintLine>>{};
@@ -75,52 +77,66 @@ class PrintService {
 
       final kitchen = kitchenId > 0 ? await _db.itemDao.getKitchenById(kitchenId) : null;
       final kitchenName = kitchen?.name ?? 'General';
+      final printerLabel = 'Kitchen "$kitchenName" printer';
 
-      final bytes = await _generateKOTTicket(
-        items: entry.value,
-        referenceNumber: referenceNumber,
-        kitchenName: kitchenName,
-      );
-      final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
-      await _sendToPrinter(
-        address: address,
-        port: printerPort,
-        bytes: bytes,
-        printerLabel: 'Kitchen "$kitchenName" printer',
-        connectionType: connType,
-        vendorId: vendorId,
-        productId: productId,
-      );
+      try {
+        final bytes = await _generateKOTTicket(
+          items: entry.value,
+          referenceNumber: referenceNumber,
+          kitchenName: kitchenName,
+        );
+        final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
+        await _sendToPrinter(
+          address: address,
+          port: printerPort,
+          bytes: bytes,
+          printerLabel: printerLabel,
+          connectionType: connType,
+          vendorId: vendorId,
+          productId: productId,
+        );
+      } catch (_) {
+        failed.add(printerLabel);
+      }
     }
+    return failed;
   }
 
   /// Prints final bill (customer receipt) with all items.
   /// Uses bill printer (kitchen_id=0).
-  Future<void> printFinalBill({
+  /// Returns list of printer labels that failed (working printers still print).
+  Future<List<String>> printFinalBill({
     required Order order,
     required List<CartItem> cartItems,
   }) async {
+    final failed = <String>[];
     final lines = await _buildPrintLines(cartItems);
     final billPrinter = await _db.itemDao.getBillPrinter();
     if (billPrinter == null || billPrinter.printerIp.isEmpty) {
       if (kDebugMode) debugPrint('PrintService: No bill printer configured');
-      return;
+      return failed;
     }
 
-    final bytes = await _generateFinalBillTicket(
-      order: order,
-      lines: lines,
-    );
-    final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
-    await _sendToPrinter(
-      address: address,
-      port: billPrinter.printerPort,
-      bytes: bytes,
-      printerLabel: 'Bill printer',
-      connectionType: connType,
-      vendorId: vendorId,
-      productId: productId,
-    );
+    const printerLabel = 'Bill printer';
+    try {
+      final bytes = await _generateFinalBillTicket(
+        order: order,
+        lines: lines,
+      );
+      final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
+      await _sendToPrinter(
+        address: address,
+        port: billPrinter.printerPort,
+        bytes: bytes,
+        printerLabel: printerLabel,
+        connectionType: connType,
+        vendorId: vendorId,
+        productId: productId,
+      );
+    } catch (_) {
+      failed.add(printerLabel);
+    }
+    return failed;
   }
 
   Future<List<_PrintLine>> _buildPrintLines(List<CartItem> cartItems) async {
@@ -322,12 +338,15 @@ class PrintService {
         throw Exception('$printerLabel failed to print. Check connection (IP: $address:$port).');
       }
     } else {
-      // USB or BLE: build Printer from stored address/vendorId/productId
+      // USB or BLE: build Printer from stored address/vendorId/productId.
+      // Plugin can crash on null in printData for USB (e.g. printer_manager.dart:234 uses !);
+      // for USB only, pass non-null strings so the plugin never sees null.
+      final isUsb = connType == 'usb';
       final printer = Printer(
         address: address.isEmpty ? null : address,
-        connectionType: connType == 'usb' ? ConnectionType.USB : ConnectionType.BLE,
-        vendorId: vendorId,
-        productId: productId,
+        connectionType: isUsb ? ConnectionType.USB : ConnectionType.BLE,
+        vendorId: isUsb ? _normalizeUsbId(vendorId) : vendorId,
+        productId: isUsb ? _normalizeUsbId(productId) : productId,
       );
       final connected = await plugin.connect(printer);
       if (!connected) {
@@ -339,6 +358,15 @@ class PrintService {
         await plugin.disconnect(printer);
       }
     }
+  }
+
+  /// Normalize USB vendor/product ID: never return null; treat null, empty, "N/A" as empty string
+  /// so the plugin never sees null (avoids null check crash in printer_manager printData).
+  static String _normalizeUsbId(String? v) {
+    if (v == null || v.isEmpty) return '';
+    final t = v.trim().toLowerCase();
+    if (t == 'n/a' || t == 'na') return '';
+    return v.trim();
   }
 
   /// Decode stored address: "ble|ADDR", "usb|vid|pid", or plain IP for network

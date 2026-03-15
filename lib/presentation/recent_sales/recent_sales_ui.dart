@@ -682,11 +682,15 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
       return;
     }
     try {
-      await printService.printFinalBill(order: order, cartItems: cartItems);
+      final printFailed = await printService.printFinalBill(order: order, cartItems: cartItems);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bill sent to printer')),
-        );
+        if (printFailed.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Bill sent to printer')),
+          );
+        } else {
+          showPrintFailedDialog(context, printFailed);
+        }
       }
     } catch (e) {
       if (context.mounted) {
