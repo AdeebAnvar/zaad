@@ -350,12 +350,15 @@ class PrintService {
       // Plugin can crash on null in printData for USB (e.g. printer_manager.dart:234 uses !);
       // for USB only, pass non-null strings so the plugin never sees null.
       // On Windows the plugin reports vendorId/address as the printer name (e.g. "BP-T3") and productId as "N/A".
+      // Windows USB print uses printer.name! for OpenPrinter() (Win32); must set name to exact Windows printer name.
       final isUsb = connType == 'usb';
       final safeVid = isUsb ? _normalizeUsbId(vendorId) : vendorId;
       final safePid = isUsb ? _normalizeUsbId(productId, emptyDefault: '0') : productId;
       final effectiveAddress = isUsb && address.isEmpty && (safeVid?.isNotEmpty ?? false) ? (safeVid ?? '') : address;
+      final windowsPrinterName = effectiveAddress.isNotEmpty ? effectiveAddress : (safeVid?.isNotEmpty ?? false ? safeVid! : null);
       final printer = Printer(
         address: (effectiveAddress.isEmpty) ? null : effectiveAddress,
+        name: isUsb ? (windowsPrinterName ?? safeVid) : null,
         connectionType: isUsb ? ConnectionType.USB : ConnectionType.BLE,
         vendorId: isUsb ? safeVid : vendorId,
         productId: isUsb ? safePid : productId,
