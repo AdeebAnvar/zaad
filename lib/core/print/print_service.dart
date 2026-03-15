@@ -349,12 +349,16 @@ class PrintService {
       // USB or BLE: build Printer from stored address/vendorId/productId.
       // Plugin can crash on null in printData for USB (e.g. printer_manager.dart:234 uses !);
       // for USB only, pass non-null strings so the plugin never sees null.
+      // On Windows the plugin reports vendorId/address as the printer name (e.g. "BP-T3") and productId as "N/A".
       final isUsb = connType == 'usb';
+      final safeVid = isUsb ? _normalizeUsbId(vendorId) : vendorId;
+      final safePid = isUsb ? _normalizeUsbId(productId, emptyDefault: '0') : productId;
+      final effectiveAddress = isUsb && address.isEmpty && (safeVid?.isNotEmpty ?? false) ? (safeVid ?? '') : address;
       final printer = Printer(
-        address: address.isEmpty ? null : address,
+        address: (effectiveAddress.isEmpty) ? null : effectiveAddress,
         connectionType: isUsb ? ConnectionType.USB : ConnectionType.BLE,
-        vendorId: isUsb ? _normalizeUsbId(vendorId) : vendorId,
-        productId: isUsb ? _normalizeUsbId(productId, emptyDefault: '0') : productId,
+        vendorId: isUsb ? safeVid : vendorId,
+        productId: isUsb ? safePid : productId,
       );
       try {
         final connected = await plugin.connect(printer);

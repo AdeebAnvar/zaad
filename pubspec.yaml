@@ -53,6 +53,7 @@ dependencies:
   path_provider: ^2.1.5
   uuid: ^4.3.3
   flutter_thermal_printer: ^2.0.1
+  permission_handler: ^11.3.1
   multi_expansion_card: ^0.0.3
 
 dev_dependencies:

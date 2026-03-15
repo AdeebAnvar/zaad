@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_thermal_printer/flutter_thermal_printer.dart';
 import 'package:flutter_thermal_printer/utils/printer.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/print/print_service.dart';
@@ -137,7 +138,21 @@ class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
     }
   }
 
-  void _startScan(void Function(List<Printer>) onResults) {
+  /// Returns false if permission was denied and scan did not start; true otherwise.
+  Future<bool> _startScan(void Function(List<Printer>) onResults) async {
+    if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
+      final ok = await _requestPrinterPermissions();
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Bluetooth permission is needed to scan for printers. Grant it in app settings.',
+            ),
+          ),
+        );
+        return false;
+      }
+    }
     _scanSubscription?.cancel();
     _printerPlugin.getPrinters(
       connectionTypes: [ConnectionType.USB, ConnectionType.BLE],
@@ -156,6 +171,24 @@ class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
               p.connectionType == ConnectionType.BLE)).toList();
       onResults(filtered);
     });
+    return true;
+  }
+
+  /// Request Bluetooth (and location on Android <12 for BLE scan) so scan works on Android 12+ and iOS.
+  Future<bool> _requestPrinterPermissions() async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      await Permission.bluetoothScan.request();
+      await Permission.bluetoothConnect.request();
+      await Permission.locationWhenInUse.request(); // BLE scan on Android < 12
+      final scan = await Permission.bluetoothScan.status;
+      final connect = await Permission.bluetoothConnect.status;
+      return scan.isGranted && connect.isGranted;
+    }
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      final status = await Permission.bluetooth.request();
+      return status.isGranted;
+    }
+    return true;
   }
 
   void _stopScan() {
@@ -260,7 +293,7 @@ class _KitchenRowWidget extends StatefulWidget {
   final VoidCallback onSave;
   final void Function(_ConnectionType) onConnectionTypeChanged;
   final void Function(String?) onSelectedAddressChanged;
-  final void Function(void Function(List<Printer>) onResults) onStartScan;
+  final Future<bool> Function(void Function(List<Printer>) onResults) onStartScan;
   final VoidCallback onStopScan;
 
   const _KitchenRowWidget({
@@ -300,7 +333,7 @@ class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
     return '';
   }
 
-  void _handleScan() {
+  void _handleScan() async {
     if (_scanning) {
       widget.onStopScan();
       setState(() => _scanning = false);
@@ -310,11 +343,14 @@ class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
       _scanning = true;
       _discoveredPrinters = [];
     });
-    widget.onStartScan((list) {
+    final started = await widget.onStartScan((list) {
       if (mounted) {
         setState(() => _discoveredPrinters = list);
       }
     });
+    if (!started && mounted) {
+      setState(() => _scanning = false);
+    }
   }
 
   @override
