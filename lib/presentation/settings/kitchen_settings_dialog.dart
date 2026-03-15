@@ -273,11 +273,15 @@ class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
   List<Printer> _discoveredPrinters = [];
   bool _scanning = false;
 
+  /// Encode printer for saving. Stored in DB as printerIp (e.g. "usb|vid|pid").
+  /// For USB we always save three segments so productId is never null when decoding;
+  /// if the plugin returns null/empty productId we use '0'.
   static String _encodePrinter(Printer p) {
-    if (p.connectionType == ConnectionType.USB &&
-        p.vendorId != null &&
-        p.productId != null) {
-      return 'usb|${p.vendorId}|${p.productId}';
+    if (p.connectionType == ConnectionType.USB && p.vendorId != null && p.vendorId!.isNotEmpty) {
+      final pid = (p.productId != null && p.productId!.trim().isNotEmpty && p.productId!.toLowerCase() != 'n/a')
+          ? p.productId!.trim()
+          : '0';
+      return 'usb|${p.vendorId}|$pid';
     }
     if (p.connectionType == ConnectionType.BLE && p.address != null) {
       return 'ble|${p.address}';

@@ -346,7 +346,7 @@ class PrintService {
         address: address.isEmpty ? null : address,
         connectionType: isUsb ? ConnectionType.USB : ConnectionType.BLE,
         vendorId: isUsb ? _normalizeUsbId(vendorId) : vendorId,
-        productId: isUsb ? _normalizeUsbId(productId) : productId,
+        productId: isUsb ? _normalizeUsbId(productId, emptyDefault: '0') : productId,
       );
       try {
         final connected = await plugin.connect(printer);
@@ -373,12 +373,13 @@ class PrintService {
     }
   }
 
-  /// Normalize USB vendor/product ID: never return null; treat null, empty, "N/A" as empty string
-  /// so the plugin never sees null (avoids null check crash in printer_manager printData).
-  static String _normalizeUsbId(String? v) {
-    if (v == null || v.isEmpty) return '';
+  /// Normalize USB vendor/product ID: never return null.
+  /// Treat null, empty, "N/A" as empty string (or [emptyDefault] for productId).
+  /// Plugin can crash on null in printData; some devices report productId "N/A" so use '0' as fallback.
+  static String _normalizeUsbId(String? v, {String emptyDefault = ''}) {
+    if (v == null || v.isEmpty) return emptyDefault;
     final t = v.trim().toLowerCase();
-    if (t == 'n/a' || t == 'na') return '';
+    if (t == 'n/a' || t == 'na') return emptyDefault;
     return v.trim();
   }
 
