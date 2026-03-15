@@ -348,14 +348,27 @@ class PrintService {
         vendorId: isUsb ? _normalizeUsbId(vendorId) : vendorId,
         productId: isUsb ? _normalizeUsbId(productId) : productId,
       );
-      final connected = await plugin.connect(printer);
-      if (!connected) {
-        throw Exception('$printerLabel not found. Ensure the printer is on and paired.');
-      }
       try {
-        await plugin.printData(printer, bytes, longData: true);
-      } finally {
-        await plugin.disconnect(printer);
+        final connected = await plugin.connect(printer);
+        if (!connected) {
+          throw Exception('$printerLabel not found. Ensure the printer is on and paired.');
+        }
+        try {
+          await plugin.printData(printer, bytes, longData: true);
+        } finally {
+          await plugin.disconnect(printer);
+        }
+      } catch (e) {
+        final msg = e.toString();
+        if (msg.contains('Unreachable') ||
+            msg.contains('UniversalBle') ||
+            (connType == 'ble' && msg.contains('Ble'))) {
+          throw Exception(
+            '$printerLabel: Bluetooth printer unreachable. '
+            'Turn the printer on, stay in range, and try again.',
+          );
+        }
+        rethrow;
       }
     }
   }
