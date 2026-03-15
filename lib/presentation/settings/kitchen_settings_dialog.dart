@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_thermal_printer/flutter_thermal_printer.dart';
 import 'package:flutter_thermal_printer/utils/printer.dart';
@@ -143,6 +144,12 @@ class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
       refreshDuration: const Duration(seconds: 5),
     );
     _scanSubscription = _printerPlugin.devicesStream.listen((list) {
+      for (final p in list) {
+        debugPrint(
+          'Printer from plugin: name=${p.name}, connectionType=${p.connectionType}, '
+          'address=${p.address}, vendorId=${p.vendorId}, productId=${p.productId}, isConnected=${p.isConnected}',
+        );
+      }
       final filtered = list.where((p) =>
           (p.name != null && p.name!.isNotEmpty) &&
           (p.connectionType == ConnectionType.USB ||
@@ -281,7 +288,11 @@ class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
       final pid = (p.productId != null && p.productId!.trim().isNotEmpty && p.productId!.toLowerCase() != 'n/a')
           ? p.productId!.trim()
           : '0';
+      debugPrint('KitchenSettings: encoding USB printer vendorId=${p.vendorId}, productId=${p.productId} -> saved as usb|${p.vendorId}|$pid');
       return 'usb|${p.vendorId}|$pid';
+    }
+    if (p.connectionType == ConnectionType.USB && (p.vendorId == null || p.vendorId!.isEmpty)) {
+      debugPrint('KitchenSettings: USB printer "${p.name}" has no vendorId (address=${p.address}), cannot encode');
     }
     if (p.connectionType == ConnectionType.BLE && p.address != null) {
       return 'ble|${p.address}';

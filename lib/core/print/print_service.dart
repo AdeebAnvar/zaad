@@ -95,7 +95,9 @@ class PrintService {
           vendorId: vendorId,
           productId: productId,
         );
-      } catch (_) {
+      } catch (e, st) {
+        debugPrint('PrintService: KOT printer failed [$printerLabel]: $e');
+        debugPrint('PrintService: stack trace:\n$st');
         failed.add(printerLabel);
       }
     }
@@ -133,7 +135,9 @@ class PrintService {
         vendorId: vendorId,
         productId: productId,
       );
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('PrintService: Bill printer failed [$printerLabel]: $e');
+      debugPrint('PrintService: stack trace:\n$st');
       failed.add(printerLabel);
     }
     return failed;
@@ -330,12 +334,16 @@ class PrintService {
       );
       final connectResult = await service.connect();
       if (connectResult != NetworkPrintResult.success) {
-        throw Exception('$printerLabel not found. Ensure the printer is on and connected (IP: $address:$port).');
+        final err = Exception('$printerLabel not found. Ensure the printer is on and connected (IP: $address:$port). connectResult=$connectResult');
+        debugPrint('PrintService: Network printer error [$printerLabel]: $err');
+        throw err;
       }
       final printResult = await service.printTicket(bytes);
       await service.disconnect();
       if (printResult != NetworkPrintResult.success) {
-        throw Exception('$printerLabel failed to print. Check connection (IP: $address:$port).');
+        final err = Exception('$printerLabel failed to print. Check connection (IP: $address:$port). printResult=$printResult');
+        debugPrint('PrintService: Network printer error [$printerLabel]: $err');
+        throw err;
       }
     } else {
       // USB or BLE: build Printer from stored address/vendorId/productId.
@@ -358,7 +366,9 @@ class PrintService {
         } finally {
           await plugin.disconnect(printer);
         }
-      } catch (e) {
+      } catch (e, st) {
+        debugPrint('PrintService: Printer error [$printerLabel]: $e');
+        debugPrint('PrintService: stack trace:\n$st');
         final msg = e.toString();
         if (msg.contains('Unreachable') ||
             msg.contains('UniversalBle') ||
