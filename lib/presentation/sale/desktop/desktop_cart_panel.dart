@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -14,12 +17,41 @@ import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 
+// #region agent log
+void _dbgNav({
+  required String hypothesisId,
+  required String location,
+  required String message,
+  Map<String, dynamic>? data,
+}) {
+  try {
+    final payload = <String, dynamic>{
+      "sessionId": "4f647b",
+      "runId": "payment-pop-debug",
+      "hypothesisId": hypothesisId,
+      "location": location,
+      "message": message,
+      "data": data ?? const {},
+      "timestamp": DateTime.now().millisecondsSinceEpoch,
+    };
+
+    File("debug-4f647b.log").writeAsStringSync("${jsonEncode(payload)}\n", mode: FileMode.append);
+  } catch (_) {}
+}
+// #endregion
+
 class CartPanel extends StatelessWidget {
-  const CartPanel({super.key, this.scrollController});
+  const CartPanel({
+    super.key,
+    this.scrollController,
+    this.closeOnComplete = false,
+    this.onCloseCart,
+  });
 
   /// Optional scroll controller for use in DraggableScrollableSheet (mobile).
   final ScrollController? scrollController;
-
+  final bool closeOnComplete;
+  final void Function(bool closed)? onCloseCart;
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<CartCubit, CartState>(
@@ -64,6 +96,9 @@ class CartPanel extends StatelessWidget {
                             childCount: state.items.length,
                           ),
                         ),
+                        SliverToBoxAdapter(
+                          child: SizedBox(height: 90),
+                        ),
                       ],
                     ),
             ),
@@ -93,10 +128,11 @@ class CartPanel extends StatelessWidget {
                 ),
                 child: SafeArea(
                   top: false,
-                  child: Row(
-                    children: [
-                      // TOTAL PAYABLE
-                      Column(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isNarrow = constraints.maxWidth < 420;
+
+                      Widget totalWidget = Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
@@ -112,30 +148,77 @@ class CartPanel extends StatelessWidget {
                             style: AppStyles.getBoldTextStyle(fontSize: 18),
                           ),
                         ],
-                      ),
+                      );
 
-                      const Spacer(),
-
-                      // Show different buttons based on editing mode
-                      BlocBuilder<CartCubit, CartState>(
+                      Widget buttonsWidget = BlocBuilder<CartCubit, CartState>(
                         builder: (context, cartState) {
                           final cartCubit = context.read<CartCubit>();
                           final isEditingPaidOrder = cartCubit.isEditingPaidOrder;
                           final isOpenedForEdit = cartCubit.isOpenedForEdit;
 
                           if (isEditingPaidOrder) {
-                            // When editing a paid order, only show Save button
                             return CustomButton(
-                              width: 150,
-                              onPressed: state.items.isEmpty ? () {} : () => _showPaymentDialog(context, totalAmount, isEditing: true),
+                              width: isNarrow ? constraints.maxWidth : 150,
+                              onPressed: state.items.isEmpty
+                                  ? () {}
+                                  : () async {
+                                      await _showPaymentDialog(context, totalAmount, isEditing: true);
+                                      onCloseCart?.call(true);
+                                    },
                               text: "Save",
                             );
                           }
-                          // Edit and normal: show KOT and Pay. In edit, KOT/Pay don't show ref popup (use existing ref for KOT).
-                          return Row(
+
+                          if (!isNarrow) {
+                            return Row(
+                              children: [
+                                CustomButton(
+                                  width: 120,
+                                  onPressed: state.items.isEmpty
+                                      ? () {}
+                                      : () async {
+                                          if (isOpenedForEdit) {
+                                            final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
+                                            if (hasRef) {
+                                              try {
+                                                final printFailed = await cartCubit.saveKOTWithExistingReference();
+                                                if (context.mounted) {
+                                                  if (closeOnComplete) {
+                                                    Navigator.maybePop(context);
+                                                  }
+                                                  if (printFailed.isNotEmpty) showPrintFailedDialog(context, printFailed);
+                                                }
+                                              } catch (e) {
+                                                if (context.mounted) showErrorDialog(context, e);
+                                              }
+                                            }
+                                          } else {
+                                            showKOTDialog(context);
+                                          }
+                                        },
+                                  text: "KOT",
+                                ),
+                                const SizedBox(width: 12),
+                                CustomButton(
+                                  width: 150,
+                                  onPressed: state.items.isEmpty
+                                      ? () {}
+                                      : () async {
+                                          await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
+                                          onCloseCart?.call(true);
+                                        },
+                                  text: "Pay",
+                                ),
+                              ],
+                            );
+                          }
+
+                          // Narrow screens: stack buttons to avoid overflow.
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               CustomButton(
-                                width: 120,
+                                width: constraints.maxWidth,
                                 onPressed: state.items.isEmpty
                                     ? () {}
                                     : () async {
@@ -145,7 +228,9 @@ class CartPanel extends StatelessWidget {
                                             try {
                                               final printFailed = await cartCubit.saveKOTWithExistingReference();
                                               if (context.mounted) {
-                                                Navigator.pop(context);
+                                                if (closeOnComplete) {
+                                                  Navigator.maybePop(context);
+                                                }
                                                 if (printFailed.isNotEmpty) showPrintFailedDialog(context, printFailed);
                                               }
                                             } catch (e) {
@@ -158,17 +243,45 @@ class CartPanel extends StatelessWidget {
                                       },
                                 text: "KOT",
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(height: 10),
                               CustomButton(
-                                width: 150,
-                                onPressed: state.items.isEmpty ? () {} : () => _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit),
+                                width: constraints.maxWidth,
+                                onPressed: state.items.isEmpty
+                                    ? () {}
+                                    : () async {
+                                        await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
+                                        onCloseCart?.call(true);
+                                      },
                                 text: "Pay",
                               ),
                             ],
                           );
                         },
-                      ),
-                    ],
+                      );
+
+                      if (!isNarrow) {
+                        return Row(
+                          children: [
+                            totalWidget,
+                            const Spacer(),
+                            buttonsWidget,
+                          ],
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(child: totalWidget),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          buttonsWidget,
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
@@ -180,6 +293,7 @@ class CartPanel extends StatelessWidget {
   }
 
   void showKOTDialog(BuildContext context) {
+    final parentContext = context;
     final cartCubit = context.read<CartCubit>();
     final currentReference = cartCubit.currentKOTReference;
     final referenceController = TextEditingController(text: currentReference ?? '');
@@ -229,7 +343,7 @@ class CartPanel extends StatelessWidget {
                           ),
                           IconButton(
                             icon: const Icon(Icons.close),
-                            onPressed: () => Navigator.pop(context),
+                            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
                           ),
                         ],
                       ),
@@ -249,7 +363,7 @@ class CartPanel extends StatelessWidget {
                       Row(
                         children: [
                           TextButton(
-                            onPressed: () => Navigator.pop(context),
+                            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
                             child: const Text('Cancel'),
                           ),
                           const Spacer(),
@@ -258,17 +372,18 @@ class CartPanel extends StatelessWidget {
                             text: 'Save',
                             onPressed: () async {
                               final value = referenceController.text.trim();
-                              if (value.isNotEmpty) {
-                                try {
-                                  final printFailed = await cartCubit.saveKOT(value);
-                                  if (context.mounted) {
-                                    Navigator.pop(context);
-                                    if (printFailed.isNotEmpty) showPrintFailedDialog(context, printFailed);
+                              try {
+                                final printFailed = await cartCubit.saveKOT(value);
+                                if (context.mounted) {
+                                  Navigator.of(context, rootNavigator: true).pop();
+                                  if (closeOnComplete && parentContext.mounted) {
+                                    Navigator.of(parentContext).pop();
                                   }
-                                } catch (e) {
-                                  if (context.mounted) {
-                                    showErrorDialog(context, e);
-                                  }
+                                  if (printFailed.isNotEmpty) showPrintFailedDialog(context, printFailed);
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  showErrorDialog(context, e);
                                 }
                               }
                             },
@@ -286,14 +401,21 @@ class CartPanel extends StatelessWidget {
     );
   }
 
-  void _showPaymentDialog(BuildContext context, double totalAmount, {bool isEditing = false}) {
-    showDialog(
+  Future<bool> _showPaymentDialog(
+    BuildContext context,
+    double totalAmount, {
+    bool isEditing = false,
+  }) async {
+    final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => PaymentDialog(
         totalAmount: totalAmount,
+        closeSheetOnClose: closeOnComplete,
+        parentContext: context,
         onSave: (customerDetails, discount, payments) async {
           try {
             final cartCubit = context.read<CartCubit>();
+
             List<String> printFailed;
             if (isEditing) {
               printFailed = await cartCubit.updateOrderWithPayment(
@@ -308,10 +430,17 @@ class CartPanel extends StatelessWidget {
                 payments: payments,
               );
             }
-            if (dialogContext.mounted) Navigator.pop(dialogContext);
-            if (context.mounted) {
-              if (isEditing) Navigator.pop(context);
-              if (printFailed.isNotEmpty) showPrintFailedDialog(context, printFailed);
+
+            if (dialogContext.mounted) {
+              Navigator.of(dialogContext).pop(true); // ✅ return true
+            }
+
+            if (context.mounted && closeOnComplete) {
+              Navigator.of(context).pop(); // close sheet
+            }
+
+            if (printFailed.isNotEmpty) {
+              showPrintFailedDialog(context, printFailed);
             }
           } catch (e) {
             if (dialogContext.mounted) {
@@ -321,6 +450,8 @@ class CartPanel extends StatelessWidget {
         },
       ),
     );
+
+    return result ?? false;
   }
 }
 
@@ -328,6 +459,8 @@ class CartPanel extends StatelessWidget {
 
 class PaymentDialog extends StatefulWidget {
   final double totalAmount;
+  final bool closeSheetOnClose;
+  final BuildContext parentContext;
   final Function(
     Map<String, dynamic> customer,
     Map<String, dynamic> discount,
@@ -337,6 +470,8 @@ class PaymentDialog extends StatefulWidget {
   const PaymentDialog({
     super.key,
     required this.totalAmount,
+    required this.closeSheetOnClose,
+    required this.parentContext,
     required this.onSave,
   });
 
@@ -370,6 +505,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   final CustomerRepository _customerRepo = locator<CustomerRepository>();
   List<CustomerModel> _allCustomers = [];
   bool _loadingCustomers = true;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
@@ -914,7 +1050,24 @@ class _PaymentDialogState extends State<PaymentDialog> {
         children: [
           // CLOSE - light grey bg, dark blue border and text
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () async {
+              // #region agent log
+              _dbgNav(
+                hypothesisId: "D",
+                location: "desktop_cart_panel.dart:PaymentDialog._footer",
+                message: "CLOSE pressed",
+                data: {
+                  "closeSheetOnClose": widget.closeSheetOnClose,
+                  "dialogCanPopBefore": Navigator.canPop(context),
+                  "parentCanPopBefore": Navigator.canPop(widget.parentContext),
+                },
+              );
+              // #endregion
+              Navigator.of(context, rootNavigator: true).pop();
+              if (widget.closeSheetOnClose && widget.parentContext.mounted) {
+                await Navigator.maybePop(widget.parentContext);
+              }
+            },
             style: TextButton.styleFrom(
               foregroundColor: AppColors.primaryColor,
               side: const BorderSide(color: AppColors.primaryColor, width: 1.5),
@@ -932,68 +1085,97 @@ class _PaymentDialogState extends State<PaymentDialog> {
           // SUBMIT - only when amount payable is 0 (payments match). Show SnackBar on error.
           CustomButton(
             width: 120,
-            text: 'SUBMIT',
-            onPressed: () async {
-              if (!_validatePayments()) {
-                final cash = double.tryParse(_cashController.text) ?? 0;
-                final card = double.tryParse(_cardController.text) ?? 0;
-                final credit = double.tryParse(_creditController.text) ?? 0;
-                final total = cash + card + credit;
-                final remaining = _finalAmount - total;
-                if (remaining > 0.01) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Amount payable must be 0. Add ${remaining.toStringAsFixed(2)} more.',
-                        ),
-                        backgroundColor: Colors.red.shade700,
-                      ),
-                    );
-                  }
-                } else if (total > _finalAmount + 0.01) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Payment total (${total.toStringAsFixed(2)}) exceeds amount payable (${_finalAmount.toStringAsFixed(2)}).',
-                        ),
-                        backgroundColor: Colors.red.shade700,
-                      ),
-                    );
-                  }
-                } else {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Payment total must match amount payable.'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-                return;
-              }
-              await _saveNewCustomerIfNeeded();
-              widget.onSave(
-                {
-                  'name': _nameController.text,
-                  'phone': _phoneController.text,
-                  'email': _emailController.text,
-                  'gender': _genderController.text,
-                },
-                {
-                  'type': _discountType,
-                  'value': _discountValue,
-                },
-                {
-                  'cash': double.tryParse(_cashController.text) ?? 0,
-                  'credit': double.tryParse(_creditController.text) ?? 0,
-                  'card': double.tryParse(_cardController.text) ?? 0,
-                },
-              );
-              Navigator.pop(context);
-            },
+            text: _isSubmitting ? 'PROCESSING...' : 'SUBMIT',
+            isLoading: _isSubmitting,
+            onPressed: _isSubmitting
+                ? null
+                : () async {
+                    if (!_validatePayments()) {
+                      final cash = double.tryParse(_cashController.text) ?? 0;
+                      final card = double.tryParse(_cardController.text) ?? 0;
+                      final credit = double.tryParse(_creditController.text) ?? 0;
+                      final total = cash + card + credit;
+                      final remaining = _finalAmount - total;
+                      if (remaining > 0.01) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Amount payable must be 0. Add ${remaining.toStringAsFixed(2)} more.',
+                              ),
+                              backgroundColor: Colors.red.shade700,
+                            ),
+                          );
+                        }
+                      } else if (total > _finalAmount + 0.01) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Payment total (${total.toStringAsFixed(2)}) exceeds amount payable (${_finalAmount.toStringAsFixed(2)}).',
+                              ),
+                              backgroundColor: Colors.red.shade700,
+                            ),
+                          );
+                        }
+                      } else {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Payment total must match amount payable.'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
+                      return;
+                    }
+                    setState(() => _isSubmitting = true);
+                    try {
+                      await _saveNewCustomerIfNeeded();
+                      // #region agent log
+                      _dbgNav(
+                        hypothesisId: "E",
+                        location: "desktop_cart_panel.dart:PaymentDialog._footer",
+                        message: "SUBMIT before widget.onSave",
+                        data: {
+                          "dialogCanPopBefore": Navigator.canPop(context),
+                        },
+                      );
+                      // #endregion
+                      await widget.onSave(
+                        {
+                          'name': _nameController.text,
+                          'phone': _phoneController.text,
+                          'email': _emailController.text,
+                          'gender': _genderController.text,
+                        },
+                        {
+                          'type': _discountType,
+                          'value': _discountValue,
+                        },
+                        {
+                          'cash': double.tryParse(_cashController.text) ?? 0,
+                          'credit': double.tryParse(_creditController.text) ?? 0,
+                          'card': double.tryParse(_cardController.text) ?? 0,
+                        },
+                      );
+                      // #region agent log
+                      _dbgNav(
+                        hypothesisId: "E",
+                        location: "desktop_cart_panel.dart:PaymentDialog._footer",
+                        message: "SUBMIT after widget.onSave, before pop",
+                        data: {
+                          "dialogCanPopBefore": Navigator.canPop(context),
+                        },
+                      );
+                      // #endregion
+                    } finally {
+                      if (mounted) {
+                        setState(() => _isSubmitting = false);
+                      }
+                    }
+                  },
           ),
         ],
       ),

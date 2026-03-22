@@ -46,7 +46,6 @@ class _SaleScreenState extends State<SaleScreen> {
 class SaleScreenFunction {
   static void openCart(BuildContext context) {
     final cartCubit = context.read<CartCubit>();
-    final screenHeight = MediaQuery.of(context).size.height;
 
     showModalBottomSheet(
       context: context,
@@ -57,7 +56,11 @@ class SaleScreenFunction {
       ),
       builder: (_) => BlocProvider.value(
         value: cartCubit,
-        child: CartPanel(),
+        child: CartPanel(onCloseCart: (sheetClosed) {
+          if (sheetClosed) {
+            Navigator.pop(context);
+          }
+        }),
       ),
     );
   }

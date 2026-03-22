@@ -41,10 +41,13 @@ class _CartItemContentState extends State<_CartItemContent> {
   ItemVariant? _variant;
   List<Map<String, dynamic>>? _toppings; // All toppings from JSON
   bool _isLoading = true;
+  bool _isEditingUnitPrice = false;
+  late TextEditingController _unitPriceController;
 
   @override
   void initState() {
     super.initState();
+    _unitPriceController = TextEditingController();
     _loadItemData();
   }
 
@@ -64,6 +67,12 @@ class _CartItemContentState extends State<_CartItemContent> {
       _isLoading = true;
       _loadItemData();
     }
+  }
+
+  @override
+  void dispose() {
+    _unitPriceController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadItemData() async {
@@ -247,28 +256,76 @@ class _CartItemContentState extends State<_CartItemContent> {
                             ),
                           const SizedBox(height: 4),
                           // Unit price (editable) and total for this variant
-                          Row(
-                            children: [
-                              GestureDetector(
-                                onTap: () => _showUnitPriceEditDialog(context, (widget.cartItem.total + widget.cartItem.discount) / widget.cartItem.quantity),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      "Unit: ₹${unitPrice.toStringAsFixed(2)} × ${widget.cartItem.quantity}${toppingsTotal > 0 ? ' + toppings' : ''}",
-                                      style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              Widget unitWidget;
+                              if (_isEditingUnitPrice) {
+                                unitWidget = SizedBox(
+                                  width: 100,
+                                  child: TextField(
+                                    controller: _unitPriceController,
+                                    autofocus: true,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.black87),
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      border: OutlineInputBorder(),
                                     ),
-                                    const SizedBox(width: 4),
-                                    Icon(Icons.edit, size: 12, color: Colors.grey.shade500),
-                                  ],
-                                ),
-                              ),
-                              const Spacer(),
-                              Text(
+                                    onSubmitted: (value) async {
+                                      final newValue = double.tryParse(value);
+                                      if (newValue != null && newValue >= 0) {
+                                        await cartCubit.updateUnitPrice(widget.cartItem.id, newValue);
+                                      }
+                                      if (mounted) {
+                                        setState(() => _isEditingUnitPrice = false);
+                                      }
+                                    },
+                                  ),
+                                );
+                              } else {
+                                unitWidget = GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _isEditingUnitPrice = true;
+                                      _unitPriceController.text = unitPrice.toStringAsFixed(2);
+                                    });
+                                  },
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          "Unit: ₹${unitPrice.toStringAsFixed(2)} × ${widget.cartItem.quantity}${toppingsTotal > 0 ? ' + toppings' : ''}",
+                                          style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Icon(Icons.edit, size: 12, color: Colors.grey.shade500),
+                                    ],
+                                  ),
+                                );
+                              }
+
+                              final totalWidget = Text(
                                 "Total: ₹ ${widget.cartItem.total.toStringAsFixed(2)}",
                                 style: AppStyles.getBoldTextStyle(fontSize: 15),
-                              ),
-                            ],
+                              );
+
+                              // Stack unit and total to avoid horizontal overflow on narrow sheets.
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  unitWidget,
+                                  const SizedBox(height: 4),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: totalWidget,
+                                  ),
+                                ],
+                              );
+                            },
                           ),
                         ],
                       );
@@ -502,37 +559,6 @@ class _CartItemContentState extends State<_CartItemContent> {
         ),
       );
     }
-  }
-
-  void _showUnitPriceEditDialog(BuildContext context, double currentUnitPrice) {
-    final controller = TextEditingController(text: currentUnitPrice.toStringAsFixed(2));
-    final cartCubit = context.read<CartCubit>();
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('Edit Unit Price'),
-          content: CustomTextField(
-            controller: controller,
-            labelText: 'Unit price (₹)',
-            keyBoardType: const TextInputType.numberWithOptions(decimal: true),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            CustomButton(
-              text: 'Save',
-              onPressed: () async {
-                final value = double.tryParse(controller.text);
-                if (value != null && value >= 0) {
-                  await cartCubit.updateUnitPrice(widget.cartItem.id, value);
-                  if (ctx.mounted) Navigator.pop(ctx);
-                }
-              },
-            ),
-          ],
-        );
-      },
-    );
   }
 
   void showDiscountDialog(BuildContext context, CartItem cartItem) {

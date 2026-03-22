@@ -18,42 +18,41 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final isDashboard = screen == 'dashboard';
-    final isTakeAway = screen == 'take_away';
-    final isTakeAwayLog = screen == 'take_away_log';
 
     return AppBar(
       backgroundColor: Colors.white,
       shadowColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
       elevation: 1,
-      leading: IconButton(
-        icon: const Icon(Icons.menu, color: AppColors.primaryColor),
-        onPressed: () => Scaffold.of(context).openDrawer(),
+      centerTitle: true,
+      leadingWidth: 95,
+      leading: Row(
+        children: [
+          GestureDetector(
+            onTap: () => Scaffold.of(context).openDrawer(),
+            child: Container(
+              margin: EdgeInsets.all(10),
+              padding: EdgeInsets.all(6),
+              decoration: BoxDecoration(color: AppColors.primaryColor, borderRadius: BorderRadius.circular(6)),
+              child: const Icon(Icons.menu, color: Colors.white),
+            ),
+          ),
+          if (!isDashboard)
+            GestureDetector(
+              onTap: () => AppNavigator.pushReplacementNamed(Routes.dashboard),
+              child: Container(
+                padding: EdgeInsets.all(6),
+                decoration: BoxDecoration(color: AppColors.primaryColor, borderRadius: BorderRadius.circular(6)),
+                child: Icon(Icons.home_filled, color: Colors.white),
+              ),
+            ),
+        ],
       ),
       title: Text(
         title,
         style: AppStyles.getSemiBoldTextStyle(fontSize: 18),
       ),
-      actions: [
-        // if (!isDashboard)
-        //   IconButton(
-        //     icon: const Icon(Icons.home_outlined, color: AppColors.primaryColor),
-        //     onPressed: () => AppNavigator.pushReplacementNamed(Routes.dashboard),
-        //     tooltip: 'Dashboard',
-        //   ),
-        // if (!isTakeAway)
-        //   IconButton(
-        //     icon: const Icon(Icons.shopping_cart_outlined, color: AppColors.primaryColor),
-        //     onPressed: () => AppNavigator.pushReplacementNamed(Routes.counter),
-        //     tooltip: 'Take Away',
-        //   ),
-        // if (!isTakeAwayLog)
-        //   IconButton(
-        //     icon: const Icon(Icons.receipt_long_outlined, color: AppColors.primaryColor),
-        //     onPressed: () => AppNavigator.pushReplacementNamed(Routes.takeAwayLog),
-        //     tooltip: 'Take Away Log',
-        //   ),
-      ],
+      actions: [],
     );
   }
 }

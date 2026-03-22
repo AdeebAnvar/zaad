@@ -204,27 +204,57 @@ class _ItemVariantDialogState extends State<ItemVariantDialog> {
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: Colors.grey.shade200)),
       ),
-      child: Row(
-        children: [
-          Text(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final maxWidth = constraints.maxWidth;
+          final isNarrow = maxWidth < 360;
+
+          final priceWidget = Text(
             "₹ ${totalPrice.toStringAsFixed(2)}",
             style: AppStyles.getBoldTextStyle(fontSize: 16),
-          ),
-          const Spacer(),
-          TextButton(
+          );
+
+          final cancelButton = TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text("Cancel"),
-          ),
-          const SizedBox(width: 8),
-          Opacity(
+          );
+
+          final addButton = Opacity(
             opacity: _canAddToCart ? 1 : 0.5,
             child: CustomButton(
-              width: 150,
+              width: isNarrow ? maxWidth : 150,
               onPressed: _canAddToCart ? _onAddToCart : () {},
               text: "Add to Cart",
             ),
-          ),
-        ],
+          );
+
+          if (!isNarrow) {
+            return Row(
+              children: [
+                priceWidget,
+                const Spacer(),
+                cancelButton,
+                const SizedBox(width: 8),
+                addButton,
+              ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  priceWidget,
+                  const Spacer(),
+                  cancelButton,
+                ],
+              ),
+              const SizedBox(height: 12),
+              addButton,
+            ],
+          );
+        },
       ),
     );
   }

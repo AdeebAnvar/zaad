@@ -173,11 +173,6 @@ class CartCubit extends Cubit<CartState> {
 
     _activeCartId = await cartRepo.createCart(invoice);
     _invoiceNumber = invoice;
-    await _persistActiveCartId(_activeCartId!);
-  }
-
-  Future<void> _persistActiveCartId(int cartId) async {
-    await sessionDao.setActiveCartId(cartId);
   }
 
   Future<void> _clearPersistedCartId() async {
@@ -190,15 +185,9 @@ class CartCubit extends Cubit<CartState> {
     final cartId = await sessionDao.getActiveCartId();
     if (cartId == null) return;
 
-    final cart = await cartRepo.getCartByCartId(cartId);
-    if (cart == null) {
-      await sessionDao.setActiveCartId(null);
-      return;
-    }
-
-    _activeCartId = cart.id;
-    _invoiceNumber = cart.invoiceNumber;
-    await _loadCartItems();
+    // We no longer restore persisted carts across screen rebuilds / app restarts.
+    // Clear any previously saved active cart id so future sessions start fresh.
+    await sessionDao.setActiveCartId(null);
   }
 
   Future<void> removeItem(int index, BuildContext? context) async {
