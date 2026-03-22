@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/app/navigation.dart';
+import 'package:pos/app/routes.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/customer_repository.dart';
@@ -62,6 +64,7 @@ class _CrmCustomerDetailsScreenState extends State<CrmCustomerDetailsScreen> {
     if (loading) {
       return Scaffold(
         appBar: AppBar(
+          centerTitle: true,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () => Navigator.of(context).pop(),
@@ -69,6 +72,13 @@ class _CrmCustomerDetailsScreenState extends State<CrmCustomerDetailsScreen> {
           title: const Text('Customer Details'),
           backgroundColor: AppColors.primaryColor,
           foregroundColor: Colors.white,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.home_outlined),
+              onPressed: () => AppNavigator.pushReplacementNamed(Routes.dashboard),
+              tooltip: 'Dashboard',
+            ),
+          ],
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -77,6 +87,7 @@ class _CrmCustomerDetailsScreenState extends State<CrmCustomerDetailsScreen> {
     if (customer == null) {
       return Scaffold(
         appBar: AppBar(
+          centerTitle: true,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () => Navigator.of(context).pop(),
@@ -84,6 +95,13 @@ class _CrmCustomerDetailsScreenState extends State<CrmCustomerDetailsScreen> {
           title: const Text('Customer Details'),
           backgroundColor: AppColors.primaryColor,
           foregroundColor: Colors.white,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.home_outlined),
+              onPressed: () => AppNavigator.pushReplacementNamed(Routes.dashboard),
+              tooltip: 'Dashboard',
+            ),
+          ],
         ),
         body: const Center(child: Text('Customer not found')),
       );
@@ -91,6 +109,7 @@ class _CrmCustomerDetailsScreenState extends State<CrmCustomerDetailsScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
@@ -98,6 +117,13 @@ class _CrmCustomerDetailsScreenState extends State<CrmCustomerDetailsScreen> {
         title: const Text('Customer Details'),
         backgroundColor: AppColors.primaryColor,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            onPressed: () => AppNavigator.pushReplacementNamed(Routes.dashboard),
+            tooltip: 'Dashboard',
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

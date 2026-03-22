@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_thermal_printer/flutter_thermal_printer.dart';
 import 'package:flutter_thermal_printer/utils/printer.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/print/print_service.dart';
@@ -136,19 +138,57 @@ class _KitchenSettingsDialogState extends State<KitchenSettingsDialog> {
     }
   }
 
-  void _startScan(void Function(List<Printer>) onResults) {
+  /// Returns false if permission was denied and scan did not start; true otherwise.
+  Future<bool> _startScan(void Function(List<Printer>) onResults) async {
+    if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
+      final ok = await _requestPrinterPermissions();
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Bluetooth permission is needed to scan for printers. Grant it in app settings.',
+            ),
+          ),
+        );
+        return false;
+      }
+    }
     _scanSubscription?.cancel();
     _printerPlugin.getPrinters(
       connectionTypes: [ConnectionType.USB, ConnectionType.BLE],
       refreshDuration: const Duration(seconds: 5),
     );
     _scanSubscription = _printerPlugin.devicesStream.listen((list) {
+      for (final p in list) {
+        debugPrint(
+          'Printer from plugin: name=${p.name}, connectionType=${p.connectionType}, '
+          'address=${p.address}, vendorId=${p.vendorId}, productId=${p.productId}, isConnected=${p.isConnected}',
+        );
+      }
       final filtered = list.where((p) =>
           (p.name != null && p.name!.isNotEmpty) &&
           (p.connectionType == ConnectionType.USB ||
               p.connectionType == ConnectionType.BLE)).toList();
       onResults(filtered);
     });
+    return true;
+  }
+
+  /// Request Bluetooth (and location on Android <12 for BLE scan) so scan works on Android 12+ and iOS.
+  Future<bool> _requestPrinterPermissions() async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      await Permission.bluetoothScan.request();
+      await Permission.bluetoothConnect.request();
+      await Permission.locationWhenInUse.request(); // BLE scan on Android < 12
+      final scan = await Permission.bluetoothScan.status;
+      final connect = await Permission.bluetoothConnect.status;
+      return scan.isGranted && connect.isGranted;
+    }
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      final status = await Permission.bluetooth.request();
+      return status.isGranted;
+    }
+    return true;
   }
 
   void _stopScan() {
@@ -253,7 +293,7 @@ class _KitchenRowWidget extends StatefulWidget {
   final VoidCallback onSave;
   final void Function(_ConnectionType) onConnectionTypeChanged;
   final void Function(String?) onSelectedAddressChanged;
-  final void Function(void Function(List<Printer>) onResults) onStartScan;
+  final Future<bool> Function(void Function(List<Printer>) onResults) onStartScan;
   final VoidCallback onStopScan;
 
   const _KitchenRowWidget({
@@ -273,11 +313,19 @@ class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
   List<Printer> _discoveredPrinters = [];
   bool _scanning = false;
 
+  /// Encode printer for saving. Stored in DB as printerIp (e.g. "usb|vid|pid").
+  /// For USB we always save three segments so productId is never null when decoding;
+  /// if the plugin returns null/empty productId we use '0'.
   static String _encodePrinter(Printer p) {
-    if (p.connectionType == ConnectionType.USB &&
-        p.vendorId != null &&
-        p.productId != null) {
-      return 'usb|${p.vendorId}|${p.productId}';
+    if (p.connectionType == ConnectionType.USB && p.vendorId != null && p.vendorId!.isNotEmpty) {
+      final pid = (p.productId != null && p.productId!.trim().isNotEmpty && p.productId!.toLowerCase() != 'n/a')
+          ? p.productId!.trim()
+          : '0';
+      debugPrint('KitchenSettings: encoding USB printer vendorId=${p.vendorId}, productId=${p.productId} -> saved as usb|${p.vendorId}|$pid');
+      return 'usb|${p.vendorId}|$pid';
+    }
+    if (p.connectionType == ConnectionType.USB && (p.vendorId == null || p.vendorId!.isEmpty)) {
+      debugPrint('KitchenSettings: USB printer "${p.name}" has no vendorId (address=${p.address}), cannot encode');
     }
     if (p.connectionType == ConnectionType.BLE && p.address != null) {
       return 'ble|${p.address}';
@@ -285,7 +333,7 @@ class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
     return '';
   }
 
-  void _handleScan() {
+  void _handleScan() async {
     if (_scanning) {
       widget.onStopScan();
       setState(() => _scanning = false);
@@ -295,11 +343,14 @@ class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
       _scanning = true;
       _discoveredPrinters = [];
     });
-    widget.onStartScan((list) {
+    final started = await widget.onStartScan((list) {
       if (mounted) {
         setState(() => _discoveredPrinters = list);
       }
     });
+    if (!started && mounted) {
+      setState(() => _scanning = false);
+    }
   }
 
   @override

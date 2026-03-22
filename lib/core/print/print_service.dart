@@ -27,11 +27,13 @@ class PrintService {
 
   /// Groups cart items by kitchen and prints KOT to each kitchen's printer.
   /// [referenceNumber] e.g. table number or order ref.
-  Future<void> printKOTPerKitchen({
+  /// Returns list of printer labels that failed (working printers still print).
+  Future<List<String>> printKOTPerKitchen({
     required List<CartItem> cartItems,
     required String referenceNumber,
   }) async {
-    if (cartItems.isEmpty) return;
+    final failed = <String>[];
+    if (cartItems.isEmpty) return failed;
 
     final lines = await _buildPrintLines(cartItems);
     final byKitchen = <int?, List<_PrintLine>>{};
@@ -75,52 +77,70 @@ class PrintService {
 
       final kitchen = kitchenId > 0 ? await _db.itemDao.getKitchenById(kitchenId) : null;
       final kitchenName = kitchen?.name ?? 'General';
+      final printerLabel = 'Kitchen "$kitchenName" printer';
 
-      final bytes = await _generateKOTTicket(
-        items: entry.value,
-        referenceNumber: referenceNumber,
-        kitchenName: kitchenName,
-      );
-      final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
-      await _sendToPrinter(
-        address: address,
-        port: printerPort,
-        bytes: bytes,
-        printerLabel: 'Kitchen "$kitchenName" printer',
-        connectionType: connType,
-        vendorId: vendorId,
-        productId: productId,
-      );
+      try {
+        final bytes = await _generateKOTTicket(
+          items: entry.value,
+          referenceNumber: referenceNumber,
+          kitchenName: kitchenName,
+        );
+        final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
+        await _sendToPrinter(
+          address: address,
+          port: printerPort,
+          bytes: bytes,
+          printerLabel: printerLabel,
+          connectionType: connType,
+          vendorId: vendorId,
+          productId: productId,
+        );
+      } catch (e, st) {
+        debugPrint('PrintService: KOT printer failed [$printerLabel]: $e');
+        debugPrint('PrintService: stack trace:\n$st');
+        failed.add(printerLabel);
+      }
     }
+    return failed;
   }
 
   /// Prints final bill (customer receipt) with all items.
   /// Uses bill printer (kitchen_id=0).
-  Future<void> printFinalBill({
+  /// Returns list of printer labels that failed (working printers still print).
+  Future<List<String>> printFinalBill({
     required Order order,
     required List<CartItem> cartItems,
   }) async {
+    final failed = <String>[];
     final lines = await _buildPrintLines(cartItems);
     final billPrinter = await _db.itemDao.getBillPrinter();
     if (billPrinter == null || billPrinter.printerIp.isEmpty) {
       if (kDebugMode) debugPrint('PrintService: No bill printer configured');
-      return;
+      return failed;
     }
 
-    final bytes = await _generateFinalBillTicket(
-      order: order,
-      lines: lines,
-    );
-    final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
-    await _sendToPrinter(
-      address: address,
-      port: billPrinter.printerPort,
-      bytes: bytes,
-      printerLabel: 'Bill printer',
-      connectionType: connType,
-      vendorId: vendorId,
-      productId: productId,
-    );
+    const printerLabel = 'Bill printer';
+    try {
+      final bytes = await _generateFinalBillTicket(
+        order: order,
+        lines: lines,
+      );
+      final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
+      await _sendToPrinter(
+        address: address,
+        port: billPrinter.printerPort,
+        bytes: bytes,
+        printerLabel: printerLabel,
+        connectionType: connType,
+        vendorId: vendorId,
+        productId: productId,
+      );
+    } catch (e, st) {
+      debugPrint('PrintService: Bill printer failed [$printerLabel]: $e');
+      debugPrint('PrintService: stack trace:\n$st');
+      failed.add(printerLabel);
+    }
+    return failed;
   }
 
   Future<List<_PrintLine>> _buildPrintLines(List<CartItem> cartItems) async {
@@ -314,31 +334,70 @@ class PrintService {
       );
       final connectResult = await service.connect();
       if (connectResult != NetworkPrintResult.success) {
-        throw Exception('$printerLabel not found. Ensure the printer is on and connected (IP: $address:$port).');
+        final err = Exception('$printerLabel not found. Ensure the printer is on and connected (IP: $address:$port). connectResult=$connectResult');
+        debugPrint('PrintService: Network printer error [$printerLabel]: $err');
+        throw err;
       }
       final printResult = await service.printTicket(bytes);
       await service.disconnect();
       if (printResult != NetworkPrintResult.success) {
-        throw Exception('$printerLabel failed to print. Check connection (IP: $address:$port).');
+        final err = Exception('$printerLabel failed to print. Check connection (IP: $address:$port). printResult=$printResult');
+        debugPrint('PrintService: Network printer error [$printerLabel]: $err');
+        throw err;
       }
     } else {
-      // USB or BLE: build Printer from stored address/vendorId/productId
+      // USB or BLE: build Printer from stored address/vendorId/productId.
+      // Plugin can crash on null in printData for USB (e.g. printer_manager.dart:234 uses !);
+      // for USB only, pass non-null strings so the plugin never sees null.
+      // On Windows the plugin reports vendorId/address as the printer name (e.g. "BP-T3") and productId as "N/A".
+      // Windows USB print uses printer.name! for OpenPrinter() (Win32); must set name to exact Windows printer name.
+      final isUsb = connType == 'usb';
+      final safeVid = isUsb ? _normalizeUsbId(vendorId) : vendorId;
+      final safePid = isUsb ? _normalizeUsbId(productId, emptyDefault: '0') : productId;
+      final effectiveAddress = isUsb && address.isEmpty && (safeVid?.isNotEmpty ?? false) ? (safeVid ?? '') : address;
+      final windowsPrinterName = effectiveAddress.isNotEmpty ? effectiveAddress : (safeVid?.isNotEmpty ?? false ? safeVid! : null);
       final printer = Printer(
-        address: address.isEmpty ? null : address,
-        connectionType: connType == 'usb' ? ConnectionType.USB : ConnectionType.BLE,
-        vendorId: vendorId,
-        productId: productId,
+        address: (effectiveAddress.isEmpty) ? null : effectiveAddress,
+        name: isUsb ? (windowsPrinterName ?? safeVid) : null,
+        connectionType: isUsb ? ConnectionType.USB : ConnectionType.BLE,
+        vendorId: isUsb ? safeVid : vendorId,
+        productId: isUsb ? safePid : productId,
       );
-      final connected = await plugin.connect(printer);
-      if (!connected) {
-        throw Exception('$printerLabel not found. Ensure the printer is on and paired.');
-      }
       try {
-        await plugin.printData(printer, bytes, longData: true);
-      } finally {
-        await plugin.disconnect(printer);
+        final connected = await plugin.connect(printer);
+        if (!connected) {
+          throw Exception('$printerLabel not found. Ensure the printer is on and paired.');
+        }
+        try {
+          await plugin.printData(printer, bytes, longData: true);
+        } finally {
+          await plugin.disconnect(printer);
+        }
+      } catch (e, st) {
+        debugPrint('PrintService: Printer error [$printerLabel]: $e');
+        debugPrint('PrintService: stack trace:\n$st');
+        final msg = e.toString();
+        if (msg.contains('Unreachable') ||
+            msg.contains('UniversalBle') ||
+            (connType == 'ble' && msg.contains('Ble'))) {
+          throw Exception(
+            '$printerLabel: Bluetooth printer unreachable. '
+            'Turn the printer on, stay in range, and try again.',
+          );
+        }
+        rethrow;
       }
     }
+  }
+
+  /// Normalize USB vendor/product ID: never return null.
+  /// Treat null, empty, "N/A" as empty string (or [emptyDefault] for productId).
+  /// Plugin can crash on null in printData; some devices report productId "N/A" so use '0' as fallback.
+  static String _normalizeUsbId(String? v, {String emptyDefault = ''}) {
+    if (v == null || v.isEmpty) return emptyDefault;
+    final t = v.trim().toLowerCase();
+    if (t == 'n/a' || t == 'na') return emptyDefault;
+    return v.trim();
   }
 
   /// Decode stored address: "ble|ADDR", "usb|vid|pid", or plain IP for network

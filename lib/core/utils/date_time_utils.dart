@@ -26,7 +26,6 @@ class DateTimeUtils {
       var one = format.parse("${DateTime.now().toString().split(" ")[0]} $startTime");
       var two = format.parse("${DateTime.now().toString().split(" ")[0]} $endTime");
       duration = two.difference(one);
-      print("${two.difference(one)}");
     }
     return duration;
   }
@@ -91,7 +90,6 @@ class DateTimeUtils {
         return hours * 3600 + minutes * 60 + seconds;
       } catch (e) {
         // Handle parsing errors, if any.
-        print('Error parsing time: $e');
       }
     }
 
@@ -115,11 +113,8 @@ class DateTimeUtils {
       DateTime weekDate = DateTime.now().subtract(const Duration(days: 7));
 
       if (lastDayOfMonth.isBefore(weekDate)) {
-        print('before$weekDate');
-
         return weekDate;
       } else {
-        print('after$weekDate');
         return lastDayOfMonth.add(const Duration(days: 1));
       }
     } else if (calenderType == 3) {
@@ -128,11 +123,8 @@ class DateTimeUtils {
       DateTime monthDate = DateTime.now().subtract(Duration(days: totalDays));
 
       if (lastDayOfMonth.isBefore(monthDate)) {
-        print('before$monthDate');
-
         return monthDate;
       } else {
-        print('after$monthDate');
         return lastDayOfMonth.add(const Duration(days: 1));
       }
     } else if (calenderType == 4) {
@@ -141,11 +133,8 @@ class DateTimeUtils {
       DateTime yearDate = DateTime.now().subtract(Duration(days: totalDays));
 
       if (lastYear.isBefore(yearDate)) {
-        print('before$yearDate');
-
         return yearDate;
       } else {
-        print('after$yearDate');
         return lastYear.add(const Duration(days: 1));
       }
     } else {
@@ -256,7 +245,6 @@ class DateTimeUtils {
 
     // Define the number of days in a non-leap year and a leap year
     const daysInYear = 365;
-    const daysInLeapYear = 366;
 
     // // Define the number of days in each month
     final daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -281,7 +269,6 @@ class DateTimeUtils {
     // Add the days to the total
     totalDays += days;
     final dateTime = DateTime.now().difference(DateTime(DateTime.now().year - years, DateTime.now().month - months, DateTime.now().day - days)).inDays;
-    print("aaa${dateTime}_$totalDays");
     // print(dateTime.year.toString()+"-"+dateTime.month.toString()+"-"+dateTime.day.toString()+"----");
     return dateTime;
   }

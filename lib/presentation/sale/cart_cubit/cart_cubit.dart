@@ -183,11 +183,6 @@ class CartCubit extends Cubit<CartState> {
       deliveryPartner: deliveryPartner,
     );
     _invoiceNumber = invoice;
-    await _persistActiveCartId(_activeCartId!);
-  }
-
-  Future<void> _persistActiveCartId(int cartId) async {
-    await sessionDao.setActiveCartId(cartId);
   }
 
   Future<void> _clearPersistedCartId() async {
@@ -200,15 +195,9 @@ class CartCubit extends Cubit<CartState> {
     final cartId = await sessionDao.getActiveCartId();
     if (cartId == null) return;
 
-    final cart = await cartRepo.getCartByCartId(cartId);
-    if (cart == null) {
-      await sessionDao.setActiveCartId(null);
-      return;
-    }
-
-    _activeCartId = cart.id;
-    _invoiceNumber = cart.invoiceNumber;
-    await _loadCartItems();
+    // We no longer restore persisted carts across screen rebuilds / app restarts.
+    // Clear any previously saved active cart id so future sessions start fresh.
+    await sessionDao.setActiveCartId(null);
   }
 
   Future<void> removeItem(int index, BuildContext? context) async {
@@ -273,8 +262,8 @@ class CartCubit extends Cubit<CartState> {
     emit(CartState([]));
   }
 
-  Future<void> saveKOT(String referenceNumber) async {
-    if (state.items.isEmpty || _activeCartId == null) return;
+  Future<List<String>> saveKOT(String referenceNumber) async {
+    if (state.items.isEmpty || _activeCartId == null) return [];
 
     // Calculate total amount
     final totalAmount = state.items.fold<double>(
@@ -323,8 +312,8 @@ class CartCubit extends Cubit<CartState> {
 
     _currentKOTReference = referenceNumber;
 
-    // Print KOT to each kitchen's printer (before clearing cart)
-    await printService.printKOTPerKitchen(
+    // Print KOT to each kitchen's printer (before clearing cart); working printers still print
+    final printFailed = await printService.printKOTPerKitchen(
       cartItems: state.items,
       referenceNumber: referenceNumber,
     );
@@ -333,12 +322,13 @@ class CartCubit extends Cubit<CartState> {
     _activeCartId = null;
     _invoiceNumber = null;
     emit(CartState([]));
+    return printFailed;
   }
 
   /// Save KOT using the already defined reference (edit only). No reference dialog.
-  Future<void> saveKOTWithExistingReference() async {
-    if (_currentKOTReference == null || _currentKOTReference!.isEmpty) return;
-    await saveKOT(_currentKOTReference!);
+  Future<List<String>> saveKOTWithExistingReference() async {
+    if (_currentKOTReference == null || _currentKOTReference!.isEmpty) return [];
+    return saveKOT(_currentKOTReference!);
   }
 
   Future<void> _updateKOTIfExists() async {
@@ -411,12 +401,12 @@ class CartCubit extends Cubit<CartState> {
     emit(CartState(cartItems ?? []));
   }
 
-  Future<void> placeOrderWithPayment({
+  Future<List<String>> placeOrderWithPayment({
     required Map<String, dynamic> customerDetails,
     required Map<String, dynamic> discount,
     required Map<String, double> payments,
   }) async {
-    if (state.items.isEmpty || _activeCartId == null) return;
+    if (state.items.isEmpty || _activeCartId == null) return [];
 
     // Apply cart discount if provided
     final discountValue = discount['value'] as double;
@@ -467,11 +457,12 @@ class CartCubit extends Cubit<CartState> {
     // Save order to database
     await orderRepo.createOrder(order);
 
-    // Print final bill to bill printer
-    await printService.printFinalBill(order: order, cartItems: state.items);
+    // Print final bill to bill printer(s); working printers still print
+    final printFailed = await printService.printFinalBill(order: order, cartItems: state.items);
 
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)
     await _clearCartStateOnly();
+    return printFailed;
   }
 
   /// Update existing order (for editing paid orders)
@@ -528,12 +519,12 @@ class CartCubit extends Cubit<CartState> {
   }
 
   /// Update existing order with payment details (for editing paid orders)
-  Future<void> updateOrderWithPayment({
+  Future<List<String>> updateOrderWithPayment({
     required Map<String, dynamic> customerDetails,
     required Map<String, dynamic> discount,
     required Map<String, double> payments,
   }) async {
-    if (state.items.isEmpty || _activeCartId == null || _editingOrderId == null) return;
+    if (state.items.isEmpty || _activeCartId == null || _editingOrderId == null) return [];
 
     // Apply cart discount if provided
     final discountValue = discount['value'] as double;
@@ -544,7 +535,7 @@ class CartCubit extends Cubit<CartState> {
 
     // Get the existing order
     final existingOrder = await orderRepo.getOrderById(_editingOrderId!);
-    if (existingOrder == null) return;
+    if (existingOrder == null) return [];
 
     // Calculate total amount from items
     final totalAmount = state.items.fold<double>(
@@ -587,13 +578,14 @@ class CartCubit extends Cubit<CartState> {
     // Update order in database
     await orderRepo.updateOrder(updatedOrder);
 
-    // Print final bill (updated order)
-    await printService.printFinalBill(order: updatedOrder, cartItems: state.items);
+    // Print final bill (updated order); working printers still print
+    final printFailed = await printService.printFinalBill(order: updatedOrder, cartItems: state.items);
 
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)
     _editingOrderId = null;
     _editingOrderStatus = null;
     await _clearCartStateOnly();
+    return printFailed;
   }
 
   String _generateInvoiceNumber() {
