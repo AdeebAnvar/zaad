@@ -25,6 +25,7 @@ class OrderRepositoryImpl implements OrderRepository {
         cashAmount: Value(order.cashAmount),
         creditAmount: Value(order.creditAmount),
         cardAmount: Value(order.cardAmount),
+        onlineAmount: Value(order.onlineAmount),
         createdAt: order.createdAt,
         status: Value(order.status),
         orderType: Value(order.orderType),
@@ -82,6 +83,7 @@ class OrderRepositoryImpl implements OrderRepository {
         cashAmount: Value(order.cashAmount),
         creditAmount: Value(order.creditAmount),
         cardAmount: Value(order.cardAmount),
+        onlineAmount: Value(order.onlineAmount),
         createdAt: Value(order.createdAt),
         status: Value(order.status),
         orderType: Value(order.orderType),
@@ -97,6 +99,7 @@ class OrderRepositoryImpl implements OrderRepository {
     String? status,
     String? orderType,
     String? deliveryPartner,
+    String? customerPhone,
     DateTime? startDate,
     DateTime? endDate,
   }) {
@@ -106,6 +109,7 @@ class OrderRepositoryImpl implements OrderRepository {
       status: status,
       orderType: orderType,
       deliveryPartner: deliveryPartner,
+      customerPhone: customerPhone,
       startDate: startDate,
       endDate: endDate,
     );

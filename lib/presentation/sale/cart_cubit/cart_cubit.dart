@@ -301,6 +301,7 @@ class CartCubit extends Cubit<CartState> {
         cashAmount: 0,
         creditAmount: 0,
         cardAmount: 0,
+        onlineAmount: 0,
         createdAt: DateTime.now(),
         status: 'kot',
         orderType: orderType,
@@ -405,6 +406,7 @@ class CartCubit extends Cubit<CartState> {
     required Map<String, dynamic> customerDetails,
     required Map<String, dynamic> discount,
     required Map<String, double> payments,
+    String? onlineOrderNumber,
   }) async {
     if (state.items.isEmpty || _activeCartId == null) return [];
 
@@ -432,11 +434,14 @@ class CartCubit extends Cubit<CartState> {
 
     // Create order record
     final invoiceNum = _invoiceNumber ?? _generateInvoiceNumber();
+    final refNumber = orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty
+        ? onlineOrderNumber
+        : (_currentKOTReference ?? invoiceNum);
     final order = Order(
       id: 0,
       cartId: _activeCartId!,
       invoiceNumber: invoiceNum,
-      referenceNumber: _currentKOTReference ?? invoiceNum,
+      referenceNumber: refNumber,
       totalAmount: totalAmount,
       discountAmount: discountAmount,
       discountType: _cartDiscountType ?? discount['type'] as String?,
@@ -448,6 +453,7 @@ class CartCubit extends Cubit<CartState> {
       cashAmount: payments['cash'] ?? 0.0,
       creditAmount: payments['credit'] ?? 0.0,
       cardAmount: payments['card'] ?? 0.0,
+      onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
       createdAt: DateTime.now(),
       status: 'completed',
       orderType: orderType,
@@ -504,6 +510,7 @@ class CartCubit extends Cubit<CartState> {
       cashAmount: existingOrder.cashAmount,
       creditAmount: existingOrder.creditAmount,
       cardAmount: existingOrder.cardAmount,
+      onlineAmount: existingOrder.onlineAmount,
       createdAt: existingOrder.createdAt,
       status: existingOrder.status,
       orderType: existingOrder.orderType,
@@ -523,6 +530,7 @@ class CartCubit extends Cubit<CartState> {
     required Map<String, dynamic> customerDetails,
     required Map<String, dynamic> discount,
     required Map<String, double> payments,
+    String? onlineOrderNumber,
   }) async {
     if (state.items.isEmpty || _activeCartId == null || _editingOrderId == null) return [];
 
@@ -553,11 +561,14 @@ class CartCubit extends Cubit<CartState> {
     }
 
     // Update order with new totals and payment details
+    final refNumber = existingOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty
+        ? onlineOrderNumber
+        : existingOrder.referenceNumber;
     final updatedOrder = Order(
       id: existingOrder.id,
       cartId: _activeCartId!,
       invoiceNumber: existingOrder.invoiceNumber,
-      referenceNumber: existingOrder.referenceNumber,
+      referenceNumber: refNumber,
       totalAmount: totalAmount,
       discountAmount: discountAmount,
       discountType: _cartDiscountType ?? discount['type'] as String?,
@@ -569,6 +580,7 @@ class CartCubit extends Cubit<CartState> {
       cashAmount: payments['cash'] ?? 0.0,
       creditAmount: payments['credit'] ?? 0.0,
       cardAmount: payments['card'] ?? 0.0,
+      onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
       createdAt: existingOrder.createdAt,
       status: 'completed',
       orderType: existingOrder.orderType,

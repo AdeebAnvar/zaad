@@ -20,6 +20,7 @@ class Orders extends Table {
   RealColumn get cashAmount => real().withDefault(const Constant(0))();
   RealColumn get creditAmount => real().withDefault(const Constant(0))();
   RealColumn get cardAmount => real().withDefault(const Constant(0))();
+  RealColumn get onlineAmount => real().withDefault(const Constant(0))();
   
   DateTimeColumn get createdAt => dateTime()();
   TextColumn get status => text().withDefault(const Constant('placed'))(); // placed, completed, cancelled, kot
@@ -88,6 +89,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     String? status,
     String? orderType,
     String? deliveryPartner,
+    String? customerPhone,
     DateTime? startDate,
     DateTime? endDate,
   }) {
@@ -115,6 +117,10 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
 
     if (deliveryPartner != null && deliveryPartner.isNotEmpty) {
       query = query..where((o) => o.deliveryPartner.like('%$deliveryPartner%'));
+    }
+
+    if (customerPhone != null && customerPhone.isNotEmpty) {
+      query = query..where((o) => o.customerPhone.like('%$customerPhone%'));
     }
 
     if (startDate != null) {

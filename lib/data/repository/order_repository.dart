@@ -15,6 +15,7 @@ abstract class OrderRepository {
     String? status,
     String? orderType,
     String? deliveryPartner,
+    String? customerPhone,
     DateTime? startDate,
     DateTime? endDate,
   });

@@ -398,6 +398,7 @@ class SyncService {
             'cashAmount': order.cashAmount,
             'creditAmount': order.creditAmount,
             'cardAmount': order.cardAmount,
+            'onlineAmount': order.onlineAmount,
             'status': order.status,
             'createdAt': order.createdAt.toIso8601String(),
             'items': cartItems.map((item) => {

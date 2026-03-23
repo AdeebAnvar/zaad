@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/data/repository/customer_repository.dart';
+import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
@@ -14,7 +16,7 @@ import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
-import 'package:pos/data/repository/delivery_partner_repository.dart';
+import 'package:pos/presentation/driver_log/driver_log_screen.dart';
 
 class DeliveryLogScreen extends StatelessWidget {
   const DeliveryLogScreen({super.key});
@@ -60,7 +62,11 @@ class DeliveryLogScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               if (!isMobile) const _DeliveryFilterBar(),
-                              if (!isMobile) const SizedBox(height: 16),
+                              _PartnerTabs(
+                                selectedPartner: state.selectedPartner,
+                                deliveryPartners: state.deliveryPartners,
+                                onSelect: (p) => context.read<DeliveryLogCubit>().selectPartnerTab(p),
+                              ),
                               if (state.orders.isEmpty)
                                 const Center(
                                   child: Padding(
@@ -81,9 +87,11 @@ class DeliveryLogScreen extends StatelessWidget {
                                     spacing: spacing,
                                     runSpacing: spacing,
                                     children: state.orders
-                                        .map((order) => SizedBox(
+                                        .asMap()
+                                        .entries
+                                        .map((e) => SizedBox(
                                               width: cardWidth,
-                                              child: _DeliveryCard(order: order),
+                                              child: _DeliveryCard(order: e.value, serialNo: e.key + 1),
                                             ))
                                         .toList(),
                                   );
@@ -109,12 +117,27 @@ class DeliveryLogScreen extends StatelessWidget {
                               minChildSize: 0.4,
                               maxChildSize: 0.9,
                               expand: false,
-                              builder: (_, scrollController) => SingleChildScrollView(
-                                controller: scrollController,
-                                child: Padding(
-                                  padding: AppPadding.screenAll,
-                                  child: const _DeliveryFilterBar(),
-                                ),
+                              builder: (_, scrollController) => BlocBuilder<DeliveryLogCubit, DeliveryLogState>(
+                                builder: (context, sheetState) {
+                                  return SingleChildScrollView(
+                                    controller: scrollController,
+                                    child: Padding(
+                                      padding: AppPadding.screenAll,
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const _DeliveryFilterBar(),
+                                          if (sheetState is DeliveryLogLoaded)
+                                            _PartnerTabs(
+                                              selectedPartner: sheetState.selectedPartner,
+                                              deliveryPartners: sheetState.deliveryPartners,
+                                              onSelect: (p) => context.read<DeliveryLogCubit>().selectPartnerTab(p),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                             ),
                           ),
@@ -144,76 +167,40 @@ class _DeliveryFilterBar extends StatefulWidget {
 
 class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
   final _invoiceController = TextEditingController();
-  final _referenceController = TextEditingController();
-  final _partnerController = TextEditingController();
-  final _statusController = TextEditingController();
-  DateTime? _startDate;
-  DateTime? _endDate;
+  final _customerController = TextEditingController();
+  final _usersController = TextEditingController();
 
-  List<String> _partnerNames = [];
-  final List<String> _statusOptions = ['All', 'kot', 'placed', 'cancelled'];
+  List<CustomerModel> _customers = [];
+  String? _selectedCustomerPhone;
 
   @override
   void initState() {
     super.initState();
-    _loadPartners();
+    _loadCustomers();
   }
 
-  Future<void> _loadPartners() async {
-    final partners = await locator<DeliveryPartnerRepository>().getAll();
-    if (mounted) {
-      setState(() => _partnerNames = partners.map((p) => p.name).toList());
+  Future<void> _loadCustomers() async {
+    try {
+      final customers = await locator<CustomerRepository>().getAllLocalCustomers();
+      if (mounted) setState(() => _customers = customers);
+    } catch (_) {
+      if (mounted) setState(() => _customers = []);
     }
   }
 
   @override
   void dispose() {
     _invoiceController.dispose();
-    _referenceController.dispose();
-    _partnerController.dispose();
-    _statusController.dispose();
+    _customerController.dispose();
+    _usersController.dispose();
     super.dispose();
-  }
-
-  Future<void> _selectDate(BuildContext context, bool isStartDate) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isStartDate ? (_startDate ?? DateTime.now()) : (_endDate ?? DateTime.now()),
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isStartDate) {
-          _startDate = picked;
-        } else {
-          _endDate = picked;
-        }
-      });
-    }
   }
 
   void _applyFilters() {
     context.read<DeliveryLogCubit>().filterOrders(
           invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
-          referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
-          deliveryPartner: _partnerController.text.trim().isEmpty ? null : _partnerController.text.trim(),
-          status: _statusController.text.isEmpty || _statusController.text == 'All' ? null : _statusController.text,
-          startDate: _startDate,
-          endDate: _endDate,
+          customerPhone: _selectedCustomerPhone,
         );
-  }
-
-  void _clearFilters() {
-    setState(() {
-      _invoiceController.clear();
-      _referenceController.clear();
-      _partnerController.clear();
-      _statusController.clear();
-      _startDate = null;
-      _endDate = null;
-    });
-    context.read<DeliveryLogCubit>().loadOrders();
   }
 
   @override
@@ -225,64 +212,148 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
       ),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 12,
+      child: Row(
         children: [
-          SizedBox(width: 220, child: CustomTextField(controller: _invoiceController, labelText: 'Receipt No.')),
-          SizedBox(width: 220, child: CustomTextField(controller: _referenceController, labelText: 'Reference No.')),
-          SizedBox(
-            width: 180,
-            child: AutoCompleteTextField<String>(
-              defaultText: 'Delivery Partner',
-              displayStringFunction: (v) => v,
-              items: _partnerNames,
-              onSelected: (v) => setState(() => _partnerController.text = v),
-              controller: _partnerController,
+          Expanded(
+            child: Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              children: [
+                SizedBox(
+                  width: 220,
+                  child: AutoCompleteTextField<CustomerModel>(
+                    defaultText: 'SELECT',
+                    labelText: 'Customer',
+                    displayStringFunction: (c) => c.phone != null && c.phone!.isNotEmpty
+                        ? '${c.name} - ${c.phone}'
+                        : c.name,
+                    items: _customers.where((c) => c.phone != null && c.phone!.isNotEmpty).toList(),
+                    onSelected: (c) => setState(() {
+                      _customerController.text = '${c.name} - ${c.phone ?? ''}';
+                      _selectedCustomerPhone = c.phone;
+                    }),
+                    onChanged: (v) {
+                      if (v.isEmpty) setState(() => _selectedCustomerPhone = null);
+                    },
+                    controller: _customerController,
+                  ),
+                ),
+                SizedBox(width: 180, child: CustomTextField(controller: _invoiceController, labelText: 'Receipt No.')),
+                SizedBox(
+                  width: 140,
+                  child: AutoCompleteTextField<String>(
+                    defaultText: 'SELECT',
+                    labelText: 'Users',
+                    displayStringFunction: (v) => v,
+                    items: const ['SELECT', 'User 1', 'User 2'],
+                    onSelected: (_) {},
+                    controller: _usersController,
+                  ),
+                ),
+                CustomButton(width: 100, onPressed: _applyFilters, text: 'Submit'),
+              ],
             ),
           ),
-          SizedBox(
-            width: 180,
-            child: AutoCompleteTextField<String>(
-              defaultText: 'Status',
-              displayStringFunction: (v) => v,
-              items: _statusOptions,
-              onSelected: (v) => setState(() => _statusController.text = v),
-              controller: _statusController,
-            ),
+          CustomButton(
+            width: 120,
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const DriverLogScreen(),
+                ),
+              );
+            },
+            text: 'Driver Log',
           ),
-          _datePicker('Start Date', _startDate, true),
-          _datePicker('End Date', _endDate, false),
-          CustomButton(width: 120, onPressed: _applyFilters, text: 'Filter'),
-          CustomButton(width: 120, onPressed: _clearFilters, text: 'Clear', backgroundColor: Colors.grey),
         ],
       ),
     );
   }
 
-  Widget _datePicker(String label, DateTime? value, bool isStart) {
-    return SizedBox(
-      width: 200,
-      child: InkWell(
-        onTap: () => _selectDate(context, isStart),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  value == null ? label : DateFormat('dd-MM-yyyy').format(value),
-                  style: TextStyle(color: value == null ? Colors.grey : Colors.black),
+}
+
+class _PartnerTabs extends StatelessWidget {
+  final String? selectedPartner;
+  final List<DeliveryPartner> deliveryPartners;
+  final ValueChanged<String?> onSelect;
+
+  const _PartnerTabs({
+    this.selectedPartner,
+    required this.deliveryPartners,
+    required this.onSelect,
+  });
+
+  static bool _samePartner(String? a, String? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return a.toUpperCase() == b.toUpperCase();
+  }
+
+  static String _chipLabel(String filterValue) {
+    final t = filterValue.trim();
+    if (t.isEmpty) return '?';
+    if (t.toUpperCase() == 'NORMAL') return 'Normal';
+    return t;
+  }
+
+  /// ALL + partners from DB/sync (deduped) + NORMAL (own delivery) if not already in sync list.
+  List<({String label, String? value})> _buildTabs() {
+    final tabs = <({String label, String? value})>[
+      (label: 'ALL', value: null),
+    ];
+    final seen = <String>{};
+    for (final p in deliveryPartners) {
+      final v = p.name.trim();
+      if (v.isEmpty) continue;
+      final key = v.toUpperCase();
+      if (seen.contains(key)) continue;
+      seen.add(key);
+      tabs.add((label: _chipLabel(v), value: v));
+    }
+    if (!seen.contains('NORMAL')) {
+      tabs.add((label: 'Normal', value: 'NORMAL'));
+    }
+    return tabs;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tabs = _buildTabs();
+    return Padding(
+      padding: const EdgeInsets.only(top: 16, bottom: 16),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: tabs.map((t) {
+            final isSelected = _samePartner(selectedPartner, t.value);
+            return Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Material(
+                color: isSelected ? AppColors.primaryColor : Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(color: AppColors.primaryColor),
+                ),
+                child: InkWell(
+                  onTap: () => onSelect(t.value),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    child: Text(
+                      t.label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isSelected ? Colors.white : AppColors.primaryColor,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ],
-          ),
+            );
+          }).toList(),
         ),
       ),
     );
@@ -291,8 +362,9 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
 
 class _DeliveryCard extends StatefulWidget {
   final Order order;
+  final int serialNo;
 
-  const _DeliveryCard({required this.order});
+  const _DeliveryCard({required this.order, required this.serialNo});
 
   @override
   State<_DeliveryCard> createState() => _DeliveryCardState();
@@ -300,11 +372,80 @@ class _DeliveryCard extends StatefulWidget {
 
 class _DeliveryCardState extends State<_DeliveryCard> {
   bool _hovered = false;
+  String _status = '';
+  String _paymentType = '';
+  /// Bumps when user cancels confirmation so the dropdown rebuilds and shows the previous value.
+  int _statusDropdownRevision = 0;
+  int _paymentDropdownRevision = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _status = widget.order.status;
+    _paymentType = _getPaymentType(widget.order);
+  }
+
+  @override
+  void didUpdateWidget(covariant _DeliveryCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.order.id != oldWidget.order.id) {
+      _status = widget.order.status;
+      _paymentType = _getPaymentType(widget.order);
+      return;
+    }
+    // Same row: sync when parent list refreshes after a successful save (or external update).
+    if (widget.order.status != oldWidget.order.status ||
+        widget.order.cashAmount != oldWidget.order.cashAmount ||
+        widget.order.cardAmount != oldWidget.order.cardAmount ||
+        widget.order.onlineAmount != oldWidget.order.onlineAmount) {
+      _status = widget.order.status;
+      _paymentType = _getPaymentType(widget.order);
+    }
+  }
+
+  String _getPaymentType(Order o) {
+    if (o.onlineAmount > 0) return 'ONLINE';
+    if (o.cashAmount > 0) return 'CASH';
+    if (o.cardAmount > 0) return 'CARD';
+    return 'CASH';
+  }
+
+  Future<bool> _showUpdateConfirmation({
+    required String title,
+    required String message,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            style: TextButton.styleFrom(foregroundColor: AppColors.primaryColor),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
 
   @override
   Widget build(BuildContext context) {
     final order = widget.order;
-    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt);
+    final partnerLabel = order.deliveryPartner ?? 'Normal';
+    final formattedDate = DateFormat('dd-MM-yyyy HH:mm:ss').format(order.createdAt);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -337,80 +478,65 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                       color: const Color(0xFF2F3A56),
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.delivery_dining, size: 14, color: Colors.white),
-                        SizedBox(width: 6),
-                        Text('DELIVERY', style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600)),
+                        const Icon(Icons.local_shipping, size: 14, color: Colors.white),
+                        const SizedBox(width: 6),
+                        Text('DELIVERY - ${partnerLabel.toUpperCase()}', style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
-                  if (order.deliveryPartner != null && order.deliveryPartner!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          order.deliveryPartner!,
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.orange.shade900),
-                        ),
-                      ),
-                    ),
                   const Spacer(),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(order.status.toUpperCase(), style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 2),
-                      Text(formattedDate, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                    ],
+                  Text(formattedDate, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _infoRow('S.No', '${widget.serialNo}'),
+                        const SizedBox(height: 8),
+                        _infoRow('Order Number', order.referenceNumber ?? '-'),
+                        const SizedBox(height: 8),
+                        _statusDropdown(),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _infoRow('Receipt No', order.invoiceNumber),
+                        const SizedBox(height: 8),
+                        _infoRow('Customer / Driver', order.customerPhone ?? order.customerName ?? '-'),
+                        const SizedBox(height: 8),
+                        _paymentTypeDropdown(),
+                      ],
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  _infoBlock('Receipt No', order.invoiceNumber),
-                  const SizedBox(width: 48),
-                  _infoBlock('Reference', order.referenceNumber ?? 'N/A'),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Container(
-                height: 56,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF1F3F8),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryColor,
-                        borderRadius: const BorderRadius.horizontal(left: Radius.circular(14)),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Text('Net Total', style: AppStyles.getMediumTextStyle(fontSize: 14, color: Colors.grey.shade600)),
-                    const Spacer(),
-                    Text('₹ ${order.totalAmount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-                    const SizedBox(width: 20),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               Row(
                 children: [
                   _actionIcon(Icons.remove_red_eye_outlined, 'View', () => _handleView(context, order)),
                   _actionIcon(Icons.print_outlined, 'Print', () => _handlePrint(context, order)),
                   _actionIcon(Icons.edit_outlined, 'Edit', () => _handleEdit(context, order)),
                   _actionIcon(Icons.delete_outline, 'Delete', () => _handleDelete(context, order), bg: Colors.red),
+                  const Spacer(),
+                  CustomButton(
+                    width: 80,
+                    text: 'Move',
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Move - Coming soon')));
+                    },
+                  ),
                 ],
               ),
             ],
@@ -420,13 +546,119 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     );
   }
 
-  Widget _infoBlock(String label, String value) {
+  Widget _infoRow(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
         const SizedBox(height: 2),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+        Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+      ],
+    );
+  }
+
+  // DB status -> Display (for showing current value)
+  static const _dbToDisplay = {
+    'placed': 'Pending',
+    'pending': 'Pending',
+    'dispatched': 'Dispatched',
+    'assigned': 'Assigned',
+    'delivered': 'Delivered',
+    'completed': 'Delivered',
+    'kot': 'Pending',
+    'cancelled': 'Cancelled',
+  };
+
+  // Delivery partner (NOON, KEETA, TALABAT): Pending, Dispatched, Cancelled
+  static const _partnerStatusOptions = [
+    ('Pending', 'pending'),
+    ('Dispatched', 'dispatched'),
+    ('Cancelled', 'cancelled'),
+  ];
+
+  // NORMAL: Pending, Assigned, Delivered, Cancelled
+  static const _normalStatusOptions = [
+    ('Pending', 'pending'),
+    ('Assigned', 'assigned'),
+    ('Delivered', 'delivered'),
+    ('Cancelled', 'cancelled'),
+  ];
+
+  Widget _statusDropdown() {
+    final isNormal = widget.order.deliveryPartner?.toUpperCase() == 'NORMAL';
+    final options = isNormal ? _normalStatusOptions : _partnerStatusOptions;
+
+    final dbStatus = _status.isEmpty ? 'pending' : _status;
+    final displayStatus = _dbToDisplay[dbStatus] ?? 'Pending';
+    final validDisplay = options.any((e) => e.$1 == displayStatus) ? displayStatus : options.first.$1;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Status', style: TextStyle(fontSize: 11, color: Colors.grey)),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<String>(
+          key: ValueKey<String>('status_${widget.order.id}_$_statusDropdownRevision'),
+          value: validDisplay,
+          decoration: InputDecoration(
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            isDense: true,
+          ),
+          items: options.map((e) => DropdownMenuItem(value: e.$1, child: Text(e.$1, style: const TextStyle(fontSize: 13)))).toList(),
+          onChanged: (v) async {
+            if (v == null) return;
+            final newStatus = options.firstWhere((e) => e.$1 == v).$2;
+            if (newStatus == _status) return;
+            final confirmed = await _showUpdateConfirmation(
+              title: 'Confirm Status Change',
+              message: 'Change order status to "$v"?',
+            );
+            if (!mounted) return;
+            if (!confirmed) {
+              setState(() => _statusDropdownRevision++);
+              return;
+            }
+            // Only persist and refresh list after Confirm; UI updates when cubit reloads (didUpdateWidget).
+            await context.read<DeliveryLogCubit>().updateOrderStatus(widget.order.id, newStatus);
+          },
+        ),
+      ],
+    );
+  }
+
+  static const _paymentOptions = ['CASH', 'CARD', 'ONLINE'];
+
+  Widget _paymentTypeDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Payment Type', style: TextStyle(fontSize: 11, color: Colors.grey)),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<String>(
+          key: ValueKey<String>('pay_${widget.order.id}_$_paymentDropdownRevision'),
+          value: _paymentType,
+          decoration: InputDecoration(
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            isDense: true,
+          ),
+          items: _paymentOptions.map((s) => DropdownMenuItem(value: s, child: Text(s, style: const TextStyle(fontSize: 13)))).toList(),
+          onChanged: (v) async {
+            if (v == null) return;
+            if (v == _paymentType) return;
+            final confirmed = await _showUpdateConfirmation(
+              title: 'Confirm Payment Type Change',
+              message: 'Change payment type to "$v"?',
+            );
+            if (!mounted) return;
+            if (!confirmed) {
+              setState(() => _paymentDropdownRevision++);
+              return;
+            }
+            await context.read<DeliveryLogCubit>().updateOrderPaymentType(widget.order.id, v, widget.order.finalAmount);
+          },
+        ),
       ],
     );
   }

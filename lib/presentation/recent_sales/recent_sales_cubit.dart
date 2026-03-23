@@ -71,8 +71,7 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
             case 'credit':
               return order.creditAmount > 0;
             case 'online':
-              // Online payment might be inferred from cardAmount or other fields
-              return order.cardAmount > 0;
+              return order.onlineAmount > 0;
             default:
               return true;
           }

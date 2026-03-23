@@ -4039,6 +4039,14 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
       type: DriftSqlType.double,
       requiredDuringInsert: false,
       defaultValue: const Constant(0));
+  static const VerificationMeta _onlineAmountMeta =
+      const VerificationMeta('onlineAmount');
+  @override
+  late final GeneratedColumn<double> onlineAmount = GeneratedColumn<double>(
+      'online_amount', aliasedName, false,
+      type: DriftSqlType.double,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -4081,6 +4089,7 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
         cashAmount,
         creditAmount,
         cardAmount,
+        onlineAmount,
         createdAt,
         status,
         orderType,
@@ -4189,6 +4198,12 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           cardAmount.isAcceptableOrUnknown(
               data['card_amount']!, _cardAmountMeta));
     }
+    if (data.containsKey('online_amount')) {
+      context.handle(
+          _onlineAmountMeta,
+          onlineAmount.isAcceptableOrUnknown(
+              data['online_amount']!, _onlineAmountMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -4248,6 +4263,8 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           .read(DriftSqlType.double, data['${effectivePrefix}credit_amount'])!,
       cardAmount: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}card_amount'])!,
+      onlineAmount: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}online_amount'])!,
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       status: attachedDatabase.typeMapping
@@ -4281,6 +4298,7 @@ class Order extends DataClass implements Insertable<Order> {
   final double cashAmount;
   final double creditAmount;
   final double cardAmount;
+  final double onlineAmount;
   final DateTime createdAt;
   final String status;
 
@@ -4303,6 +4321,7 @@ class Order extends DataClass implements Insertable<Order> {
       required this.cashAmount,
       required this.creditAmount,
       required this.cardAmount,
+      required this.onlineAmount,
       required this.createdAt,
       required this.status,
       this.orderType,
@@ -4337,6 +4356,7 @@ class Order extends DataClass implements Insertable<Order> {
     map['cash_amount'] = Variable<double>(cashAmount);
     map['credit_amount'] = Variable<double>(creditAmount);
     map['card_amount'] = Variable<double>(cardAmount);
+    map['online_amount'] = Variable<double>(onlineAmount);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['status'] = Variable<String>(status);
     if (!nullToAbsent || orderType != null) {
@@ -4377,6 +4397,7 @@ class Order extends DataClass implements Insertable<Order> {
       cashAmount: Value(cashAmount),
       creditAmount: Value(creditAmount),
       cardAmount: Value(cardAmount),
+      onlineAmount: Value(onlineAmount),
       createdAt: Value(createdAt),
       status: Value(status),
       orderType: orderType == null && nullToAbsent
@@ -4407,6 +4428,7 @@ class Order extends DataClass implements Insertable<Order> {
       cashAmount: serializer.fromJson<double>(json['cashAmount']),
       creditAmount: serializer.fromJson<double>(json['creditAmount']),
       cardAmount: serializer.fromJson<double>(json['cardAmount']),
+      onlineAmount: serializer.fromJson<double>(json['onlineAmount']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       status: serializer.fromJson<String>(json['status']),
       orderType: serializer.fromJson<String?>(json['orderType']),
@@ -4432,6 +4454,7 @@ class Order extends DataClass implements Insertable<Order> {
       'cashAmount': serializer.toJson<double>(cashAmount),
       'creditAmount': serializer.toJson<double>(creditAmount),
       'cardAmount': serializer.toJson<double>(cardAmount),
+      'onlineAmount': serializer.toJson<double>(onlineAmount),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'status': serializer.toJson<String>(status),
       'orderType': serializer.toJson<String?>(orderType),
@@ -4455,6 +4478,7 @@ class Order extends DataClass implements Insertable<Order> {
           double? cashAmount,
           double? creditAmount,
           double? cardAmount,
+          double? onlineAmount,
           DateTime? createdAt,
           String? status,
           Value<String?> orderType = const Value.absent(),
@@ -4482,6 +4506,7 @@ class Order extends DataClass implements Insertable<Order> {
         cashAmount: cashAmount ?? this.cashAmount,
         creditAmount: creditAmount ?? this.creditAmount,
         cardAmount: cardAmount ?? this.cardAmount,
+        onlineAmount: onlineAmount ?? this.onlineAmount,
         createdAt: createdAt ?? this.createdAt,
         status: status ?? this.status,
         orderType: orderType.present ? orderType.value : this.orderType,
@@ -4528,6 +4553,9 @@ class Order extends DataClass implements Insertable<Order> {
           : this.creditAmount,
       cardAmount:
           data.cardAmount.present ? data.cardAmount.value : this.cardAmount,
+      onlineAmount: data.onlineAmount.present
+          ? data.onlineAmount.value
+          : this.onlineAmount,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       status: data.status.present ? data.status.value : this.status,
       orderType: data.orderType.present ? data.orderType.value : this.orderType,
@@ -4555,6 +4583,7 @@ class Order extends DataClass implements Insertable<Order> {
           ..write('cashAmount: $cashAmount, ')
           ..write('creditAmount: $creditAmount, ')
           ..write('cardAmount: $cardAmount, ')
+          ..write('onlineAmount: $onlineAmount, ')
           ..write('createdAt: $createdAt, ')
           ..write('status: $status, ')
           ..write('orderType: $orderType, ')
@@ -4580,6 +4609,7 @@ class Order extends DataClass implements Insertable<Order> {
       cashAmount,
       creditAmount,
       cardAmount,
+      onlineAmount,
       createdAt,
       status,
       orderType,
@@ -4603,6 +4633,7 @@ class Order extends DataClass implements Insertable<Order> {
           other.cashAmount == this.cashAmount &&
           other.creditAmount == this.creditAmount &&
           other.cardAmount == this.cardAmount &&
+          other.onlineAmount == this.onlineAmount &&
           other.createdAt == this.createdAt &&
           other.status == this.status &&
           other.orderType == this.orderType &&
@@ -4625,6 +4656,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
   final Value<double> cashAmount;
   final Value<double> creditAmount;
   final Value<double> cardAmount;
+  final Value<double> onlineAmount;
   final Value<DateTime> createdAt;
   final Value<String> status;
   final Value<String?> orderType;
@@ -4645,6 +4677,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.cashAmount = const Value.absent(),
     this.creditAmount = const Value.absent(),
     this.cardAmount = const Value.absent(),
+    this.onlineAmount = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.status = const Value.absent(),
     this.orderType = const Value.absent(),
@@ -4666,6 +4699,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.cashAmount = const Value.absent(),
     this.creditAmount = const Value.absent(),
     this.cardAmount = const Value.absent(),
+    this.onlineAmount = const Value.absent(),
     required DateTime createdAt,
     this.status = const Value.absent(),
     this.orderType = const Value.absent(),
@@ -4691,6 +4725,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     Expression<double>? cashAmount,
     Expression<double>? creditAmount,
     Expression<double>? cardAmount,
+    Expression<double>? onlineAmount,
     Expression<DateTime>? createdAt,
     Expression<String>? status,
     Expression<String>? orderType,
@@ -4712,6 +4747,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       if (cashAmount != null) 'cash_amount': cashAmount,
       if (creditAmount != null) 'credit_amount': creditAmount,
       if (cardAmount != null) 'card_amount': cardAmount,
+      if (onlineAmount != null) 'online_amount': onlineAmount,
       if (createdAt != null) 'created_at': createdAt,
       if (status != null) 'status': status,
       if (orderType != null) 'order_type': orderType,
@@ -4735,6 +4771,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       Value<double>? cashAmount,
       Value<double>? creditAmount,
       Value<double>? cardAmount,
+      Value<double>? onlineAmount,
       Value<DateTime>? createdAt,
       Value<String>? status,
       Value<String?>? orderType,
@@ -4755,6 +4792,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       cashAmount: cashAmount ?? this.cashAmount,
       creditAmount: creditAmount ?? this.creditAmount,
       cardAmount: cardAmount ?? this.cardAmount,
+      onlineAmount: onlineAmount ?? this.onlineAmount,
       createdAt: createdAt ?? this.createdAt,
       status: status ?? this.status,
       orderType: orderType ?? this.orderType,
@@ -4810,6 +4848,9 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     if (cardAmount.present) {
       map['card_amount'] = Variable<double>(cardAmount.value);
     }
+    if (onlineAmount.present) {
+      map['online_amount'] = Variable<double>(onlineAmount.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -4843,6 +4884,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
           ..write('cashAmount: $cashAmount, ')
           ..write('creditAmount: $creditAmount, ')
           ..write('cardAmount: $cardAmount, ')
+          ..write('onlineAmount: $onlineAmount, ')
           ..write('createdAt: $createdAt, ')
           ..write('status: $status, ')
           ..write('orderType: $orderType, ')
@@ -8304,6 +8346,7 @@ typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
   Value<double> cashAmount,
   Value<double> creditAmount,
   Value<double> cardAmount,
+  Value<double> onlineAmount,
   required DateTime createdAt,
   Value<String> status,
   Value<String?> orderType,
@@ -8325,6 +8368,7 @@ typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<double> cashAmount,
   Value<double> creditAmount,
   Value<double> cardAmount,
+  Value<double> onlineAmount,
   Value<DateTime> createdAt,
   Value<String> status,
   Value<String?> orderType,
@@ -8403,6 +8447,9 @@ class $$OrdersTableFilterComposer
 
   ColumnFilters<double> get cardAmount => $composableBuilder(
       column: $table.cardAmount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get onlineAmount => $composableBuilder(
+      column: $table.onlineAmount, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -8498,6 +8545,10 @@ class $$OrdersTableOrderingComposer
   ColumnOrderings<double> get cardAmount => $composableBuilder(
       column: $table.cardAmount, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<double> get onlineAmount => $composableBuilder(
+      column: $table.onlineAmount,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 
@@ -8583,6 +8634,9 @@ class $$OrdersTableAnnotationComposer
   GeneratedColumn<double> get cardAmount => $composableBuilder(
       column: $table.cardAmount, builder: (column) => column);
 
+  GeneratedColumn<double> get onlineAmount => $composableBuilder(
+      column: $table.onlineAmount, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -8654,6 +8708,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<double> cashAmount = const Value.absent(),
             Value<double> creditAmount = const Value.absent(),
             Value<double> cardAmount = const Value.absent(),
+            Value<double> onlineAmount = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
             Value<String> status = const Value.absent(),
             Value<String?> orderType = const Value.absent(),
@@ -8675,6 +8730,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             cashAmount: cashAmount,
             creditAmount: creditAmount,
             cardAmount: cardAmount,
+            onlineAmount: onlineAmount,
             createdAt: createdAt,
             status: status,
             orderType: orderType,
@@ -8696,6 +8752,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<double> cashAmount = const Value.absent(),
             Value<double> creditAmount = const Value.absent(),
             Value<double> cardAmount = const Value.absent(),
+            Value<double> onlineAmount = const Value.absent(),
             required DateTime createdAt,
             Value<String> status = const Value.absent(),
             Value<String?> orderType = const Value.absent(),
@@ -8717,6 +8774,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             cashAmount: cashAmount,
             creditAmount: creditAmount,
             cardAmount: cardAmount,
+            onlineAmount: onlineAmount,
             createdAt: createdAt,
             status: status,
             orderType: orderType,

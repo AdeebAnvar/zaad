@@ -141,7 +141,7 @@ class _OrderCard extends StatelessWidget {
                 style: TextStyle(color: Colors.grey.shade600),
               ),
             ],
-            if (order.cashAmount > 0 || order.creditAmount > 0 || order.cardAmount > 0) ...[
+            if (order.cashAmount > 0 || order.creditAmount > 0 || order.cardAmount > 0 || order.onlineAmount > 0) ...[
               const SizedBox(height: 8),
               Wrap(
                 spacing: 16,
@@ -152,6 +152,8 @@ class _OrderCard extends StatelessWidget {
                     Text('Credit: ₹ ${order.creditAmount.toStringAsFixed(2)}'),
                   if (order.cardAmount > 0)
                     Text('Card: ₹ ${order.cardAmount.toStringAsFixed(2)}'),
+                  if (order.onlineAmount > 0)
+                    Text('Online: ₹ ${order.onlineAmount.toStringAsFixed(2)}'),
                 ],
               ),
             ],

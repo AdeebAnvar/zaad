@@ -48,7 +48,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration {
@@ -124,6 +124,10 @@ class AppDatabase extends _$AppDatabase {
         if (from < 12) {
           // Delivery partners table - synced from server
           await m.createTable(deliveryPartners);
+        }
+        if (from < 13) {
+          // Online payment for delivery orders
+          await m.addColumn(orders, orders.onlineAmount);
         }
       },
     );
