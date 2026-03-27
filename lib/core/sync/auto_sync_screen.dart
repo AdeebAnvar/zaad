@@ -13,6 +13,8 @@ import 'package:pos/domain/models/category_model.dart';
 import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/domain/models/delivery_partner_model.dart';
 import 'package:pos/domain/models/driver_model.dart';
+import 'package:pos/domain/models/dining_floor_model.dart';
+import 'package:pos/domain/models/dining_table_model.dart';
 import 'package:pos/domain/models/item_model.dart';
 import 'package:pos/domain/models/kitchen_model.dart';
 
@@ -156,7 +158,18 @@ Future<SyncPayload> fetchSyncData(String serverUrl) async {
   final customers = await repo.fetchCustomers();
   final deliveryPartners = await repo.fetchDeliveryPartners(serverUrl);
   final drivers = await repo.fetchDrivers(serverUrl);
-  return SyncPayload(categories, kitchens, items, customers, deliveryPartners, drivers);
+  final diningFloors = await repo.fetchDiningFloors(serverUrl);
+  final diningTables = await repo.fetchDiningTables(serverUrl);
+  return SyncPayload(
+    categories,
+    kitchens,
+    items,
+    customers,
+    deliveryPartners,
+    drivers,
+    diningFloors,
+    diningTables,
+  );
 }
 
 class SyncPayload {
@@ -166,6 +179,8 @@ class SyncPayload {
   final List<CustomerModel> customers;
   final List<DeliveryPartnerModel> deliveryPartners;
   final List<DriverModel> drivers;
+  final List<DiningFloorModel> diningFloors;
+  final List<DiningTableModel> diningTables;
 
   SyncPayload(
     this.categories,
@@ -174,6 +189,8 @@ class SyncPayload {
     this.customers,
     this.deliveryPartners,
     this.drivers,
+    this.diningFloors,
+    this.diningTables,
   );
 }
 

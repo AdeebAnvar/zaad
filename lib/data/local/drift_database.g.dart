@@ -5781,6 +5781,504 @@ class DeliveryPartnersCompanion extends UpdateCompanion<DeliveryPartner> {
   }
 }
 
+class $DiningFloorsTable extends DiningFloors
+    with TableInfo<$DiningFloorsTable, DiningFloor> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DiningFloorsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _sortOrderMeta =
+      const VerificationMeta('sortOrder');
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+      'sort_order', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  @override
+  List<GeneratedColumn> get $columns => [id, name, sortOrder];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'dining_floors';
+  @override
+  VerificationContext validateIntegrity(Insertable<DiningFloor> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(_sortOrderMeta,
+          sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DiningFloor map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DiningFloor(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      sortOrder: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}sort_order'])!,
+    );
+  }
+
+  @override
+  $DiningFloorsTable createAlias(String alias) {
+    return $DiningFloorsTable(attachedDatabase, alias);
+  }
+}
+
+class DiningFloor extends DataClass implements Insertable<DiningFloor> {
+  final int id;
+  final String name;
+  final int sortOrder;
+  const DiningFloor(
+      {required this.id, required this.name, required this.sortOrder});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['name'] = Variable<String>(name);
+    map['sort_order'] = Variable<int>(sortOrder);
+    return map;
+  }
+
+  DiningFloorsCompanion toCompanion(bool nullToAbsent) {
+    return DiningFloorsCompanion(
+      id: Value(id),
+      name: Value(name),
+      sortOrder: Value(sortOrder),
+    );
+  }
+
+  factory DiningFloor.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DiningFloor(
+      id: serializer.fromJson<int>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+    };
+  }
+
+  DiningFloor copyWith({int? id, String? name, int? sortOrder}) => DiningFloor(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        sortOrder: sortOrder ?? this.sortOrder,
+      );
+  DiningFloor copyWithCompanion(DiningFloorsCompanion data) {
+    return DiningFloor(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DiningFloor(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('sortOrder: $sortOrder')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, name, sortOrder);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DiningFloor &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.sortOrder == this.sortOrder);
+}
+
+class DiningFloorsCompanion extends UpdateCompanion<DiningFloor> {
+  final Value<int> id;
+  final Value<String> name;
+  final Value<int> sortOrder;
+  const DiningFloorsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+  });
+  DiningFloorsCompanion.insert({
+    this.id = const Value.absent(),
+    required String name,
+    this.sortOrder = const Value.absent(),
+  }) : name = Value(name);
+  static Insertable<DiningFloor> custom({
+    Expression<int>? id,
+    Expression<String>? name,
+    Expression<int>? sortOrder,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (sortOrder != null) 'sort_order': sortOrder,
+    });
+  }
+
+  DiningFloorsCompanion copyWith(
+      {Value<int>? id, Value<String>? name, Value<int>? sortOrder}) {
+    return DiningFloorsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      sortOrder: sortOrder ?? this.sortOrder,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DiningFloorsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('sortOrder: $sortOrder')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $DiningTablesTable extends DiningTables
+    with TableInfo<$DiningTablesTable, DiningTable> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DiningTablesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _floorIdMeta =
+      const VerificationMeta('floorId');
+  @override
+  late final GeneratedColumn<int> floorId = GeneratedColumn<int>(
+      'floor_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES dining_floors (id)'));
+  static const VerificationMeta _codeMeta = const VerificationMeta('code');
+  @override
+  late final GeneratedColumn<String> code = GeneratedColumn<String>(
+      'code', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _chairsMeta = const VerificationMeta('chairs');
+  @override
+  late final GeneratedColumn<int> chairs = GeneratedColumn<int>(
+      'chairs', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(4));
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+      'status', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('free'));
+  @override
+  List<GeneratedColumn> get $columns => [id, floorId, code, chairs, status];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'dining_tables';
+  @override
+  VerificationContext validateIntegrity(Insertable<DiningTable> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('floor_id')) {
+      context.handle(_floorIdMeta,
+          floorId.isAcceptableOrUnknown(data['floor_id']!, _floorIdMeta));
+    } else if (isInserting) {
+      context.missing(_floorIdMeta);
+    }
+    if (data.containsKey('code')) {
+      context.handle(
+          _codeMeta, code.isAcceptableOrUnknown(data['code']!, _codeMeta));
+    } else if (isInserting) {
+      context.missing(_codeMeta);
+    }
+    if (data.containsKey('chairs')) {
+      context.handle(_chairsMeta,
+          chairs.isAcceptableOrUnknown(data['chairs']!, _chairsMeta));
+    }
+    if (data.containsKey('status')) {
+      context.handle(_statusMeta,
+          status.isAcceptableOrUnknown(data['status']!, _statusMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DiningTable map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DiningTable(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      floorId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}floor_id'])!,
+      code: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}code'])!,
+      chairs: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}chairs'])!,
+      status: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}status'])!,
+    );
+  }
+
+  @override
+  $DiningTablesTable createAlias(String alias) {
+    return $DiningTablesTable(attachedDatabase, alias);
+  }
+}
+
+class DiningTable extends DataClass implements Insertable<DiningTable> {
+  final int id;
+  final int floorId;
+  final String code;
+  final int chairs;
+  final String status;
+  const DiningTable(
+      {required this.id,
+      required this.floorId,
+      required this.code,
+      required this.chairs,
+      required this.status});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['floor_id'] = Variable<int>(floorId);
+    map['code'] = Variable<String>(code);
+    map['chairs'] = Variable<int>(chairs);
+    map['status'] = Variable<String>(status);
+    return map;
+  }
+
+  DiningTablesCompanion toCompanion(bool nullToAbsent) {
+    return DiningTablesCompanion(
+      id: Value(id),
+      floorId: Value(floorId),
+      code: Value(code),
+      chairs: Value(chairs),
+      status: Value(status),
+    );
+  }
+
+  factory DiningTable.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DiningTable(
+      id: serializer.fromJson<int>(json['id']),
+      floorId: serializer.fromJson<int>(json['floorId']),
+      code: serializer.fromJson<String>(json['code']),
+      chairs: serializer.fromJson<int>(json['chairs']),
+      status: serializer.fromJson<String>(json['status']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'floorId': serializer.toJson<int>(floorId),
+      'code': serializer.toJson<String>(code),
+      'chairs': serializer.toJson<int>(chairs),
+      'status': serializer.toJson<String>(status),
+    };
+  }
+
+  DiningTable copyWith(
+          {int? id, int? floorId, String? code, int? chairs, String? status}) =>
+      DiningTable(
+        id: id ?? this.id,
+        floorId: floorId ?? this.floorId,
+        code: code ?? this.code,
+        chairs: chairs ?? this.chairs,
+        status: status ?? this.status,
+      );
+  DiningTable copyWithCompanion(DiningTablesCompanion data) {
+    return DiningTable(
+      id: data.id.present ? data.id.value : this.id,
+      floorId: data.floorId.present ? data.floorId.value : this.floorId,
+      code: data.code.present ? data.code.value : this.code,
+      chairs: data.chairs.present ? data.chairs.value : this.chairs,
+      status: data.status.present ? data.status.value : this.status,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DiningTable(')
+          ..write('id: $id, ')
+          ..write('floorId: $floorId, ')
+          ..write('code: $code, ')
+          ..write('chairs: $chairs, ')
+          ..write('status: $status')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, floorId, code, chairs, status);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DiningTable &&
+          other.id == this.id &&
+          other.floorId == this.floorId &&
+          other.code == this.code &&
+          other.chairs == this.chairs &&
+          other.status == this.status);
+}
+
+class DiningTablesCompanion extends UpdateCompanion<DiningTable> {
+  final Value<int> id;
+  final Value<int> floorId;
+  final Value<String> code;
+  final Value<int> chairs;
+  final Value<String> status;
+  const DiningTablesCompanion({
+    this.id = const Value.absent(),
+    this.floorId = const Value.absent(),
+    this.code = const Value.absent(),
+    this.chairs = const Value.absent(),
+    this.status = const Value.absent(),
+  });
+  DiningTablesCompanion.insert({
+    this.id = const Value.absent(),
+    required int floorId,
+    required String code,
+    this.chairs = const Value.absent(),
+    this.status = const Value.absent(),
+  })  : floorId = Value(floorId),
+        code = Value(code);
+  static Insertable<DiningTable> custom({
+    Expression<int>? id,
+    Expression<int>? floorId,
+    Expression<String>? code,
+    Expression<int>? chairs,
+    Expression<String>? status,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (floorId != null) 'floor_id': floorId,
+      if (code != null) 'code': code,
+      if (chairs != null) 'chairs': chairs,
+      if (status != null) 'status': status,
+    });
+  }
+
+  DiningTablesCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? floorId,
+      Value<String>? code,
+      Value<int>? chairs,
+      Value<String>? status}) {
+    return DiningTablesCompanion(
+      id: id ?? this.id,
+      floorId: floorId ?? this.floorId,
+      code: code ?? this.code,
+      chairs: chairs ?? this.chairs,
+      status: status ?? this.status,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (floorId.present) {
+      map['floor_id'] = Variable<int>(floorId.value);
+    }
+    if (code.present) {
+      map['code'] = Variable<String>(code.value);
+    }
+    if (chairs.present) {
+      map['chairs'] = Variable<int>(chairs.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DiningTablesCompanion(')
+          ..write('id: $id, ')
+          ..write('floorId: $floorId, ')
+          ..write('code: $code, ')
+          ..write('chairs: $chairs, ')
+          ..write('status: $status')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -5801,6 +6299,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $CustomersTable customers = $CustomersTable(this);
   late final $DeliveryPartnersTable deliveryPartners =
       $DeliveryPartnersTable(this);
+  late final $DiningFloorsTable diningFloors = $DiningFloorsTable(this);
+  late final $DiningTablesTable diningTables = $DiningTablesTable(this);
   late final UsersDao usersDao = UsersDao(this as AppDatabase);
   late final CategoryDao categoryDao = CategoryDao(this as AppDatabase);
   late final CartsDao cartsDao = CartsDao(this as AppDatabase);
@@ -5811,6 +6311,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final DeliveryPartnersDao deliveryPartnersDao =
       DeliveryPartnersDao(this as AppDatabase);
   late final DriversDao driversDao = DriversDao(this as AppDatabase);
+  late final DiningTablesDao diningTablesDao =
+      DiningTablesDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5830,7 +6332,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         drivers,
         orders,
         customers,
-        deliveryPartners
+        deliveryPartners,
+        diningFloors,
+        diningTables
       ];
 }
 
@@ -9738,6 +10242,494 @@ typedef $$DeliveryPartnersTableProcessedTableManager = ProcessedTableManager<
     ),
     DeliveryPartner,
     PrefetchHooks Function()>;
+typedef $$DiningFloorsTableCreateCompanionBuilder = DiningFloorsCompanion
+    Function({
+  Value<int> id,
+  required String name,
+  Value<int> sortOrder,
+});
+typedef $$DiningFloorsTableUpdateCompanionBuilder = DiningFloorsCompanion
+    Function({
+  Value<int> id,
+  Value<String> name,
+  Value<int> sortOrder,
+});
+
+final class $$DiningFloorsTableReferences
+    extends BaseReferences<_$AppDatabase, $DiningFloorsTable, DiningFloor> {
+  $$DiningFloorsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$DiningTablesTable, List<DiningTable>>
+      _diningTablesRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.diningTables,
+              aliasName: $_aliasNameGenerator(
+                  db.diningFloors.id, db.diningTables.floorId));
+
+  $$DiningTablesTableProcessedTableManager get diningTablesRefs {
+    final manager = $$DiningTablesTableTableManager($_db, $_db.diningTables)
+        .filter((f) => f.floorId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_diningTablesRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
+
+class $$DiningFloorsTableFilterComposer
+    extends Composer<_$AppDatabase, $DiningFloorsTable> {
+  $$DiningFloorsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+      column: $table.sortOrder, builder: (column) => ColumnFilters(column));
+
+  Expression<bool> diningTablesRefs(
+      Expression<bool> Function($$DiningTablesTableFilterComposer f) f) {
+    final $$DiningTablesTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.diningTables,
+        getReferencedColumn: (t) => t.floorId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DiningTablesTableFilterComposer(
+              $db: $db,
+              $table: $db.diningTables,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$DiningFloorsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DiningFloorsTable> {
+  $$DiningFloorsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+      column: $table.sortOrder, builder: (column) => ColumnOrderings(column));
+}
+
+class $$DiningFloorsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DiningFloorsTable> {
+  $$DiningFloorsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  Expression<T> diningTablesRefs<T extends Object>(
+      Expression<T> Function($$DiningTablesTableAnnotationComposer a) f) {
+    final $$DiningTablesTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.diningTables,
+        getReferencedColumn: (t) => t.floorId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DiningTablesTableAnnotationComposer(
+              $db: $db,
+              $table: $db.diningTables,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$DiningFloorsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $DiningFloorsTable,
+    DiningFloor,
+    $$DiningFloorsTableFilterComposer,
+    $$DiningFloorsTableOrderingComposer,
+    $$DiningFloorsTableAnnotationComposer,
+    $$DiningFloorsTableCreateCompanionBuilder,
+    $$DiningFloorsTableUpdateCompanionBuilder,
+    (DiningFloor, $$DiningFloorsTableReferences),
+    DiningFloor,
+    PrefetchHooks Function({bool diningTablesRefs})> {
+  $$DiningFloorsTableTableManager(_$AppDatabase db, $DiningFloorsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DiningFloorsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DiningFloorsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DiningFloorsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> name = const Value.absent(),
+            Value<int> sortOrder = const Value.absent(),
+          }) =>
+              DiningFloorsCompanion(
+            id: id,
+            name: name,
+            sortOrder: sortOrder,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String name,
+            Value<int> sortOrder = const Value.absent(),
+          }) =>
+              DiningFloorsCompanion.insert(
+            id: id,
+            name: name,
+            sortOrder: sortOrder,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$DiningFloorsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({diningTablesRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (diningTablesRefs) db.diningTables],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (diningTablesRefs)
+                    await $_getPrefetchedData<DiningFloor, $DiningFloorsTable,
+                            DiningTable>(
+                        currentTable: table,
+                        referencedTable: $$DiningFloorsTableReferences
+                            ._diningTablesRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$DiningFloorsTableReferences(db, table, p0)
+                                .diningTablesRefs,
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.floorId == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$DiningFloorsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $DiningFloorsTable,
+    DiningFloor,
+    $$DiningFloorsTableFilterComposer,
+    $$DiningFloorsTableOrderingComposer,
+    $$DiningFloorsTableAnnotationComposer,
+    $$DiningFloorsTableCreateCompanionBuilder,
+    $$DiningFloorsTableUpdateCompanionBuilder,
+    (DiningFloor, $$DiningFloorsTableReferences),
+    DiningFloor,
+    PrefetchHooks Function({bool diningTablesRefs})>;
+typedef $$DiningTablesTableCreateCompanionBuilder = DiningTablesCompanion
+    Function({
+  Value<int> id,
+  required int floorId,
+  required String code,
+  Value<int> chairs,
+  Value<String> status,
+});
+typedef $$DiningTablesTableUpdateCompanionBuilder = DiningTablesCompanion
+    Function({
+  Value<int> id,
+  Value<int> floorId,
+  Value<String> code,
+  Value<int> chairs,
+  Value<String> status,
+});
+
+final class $$DiningTablesTableReferences
+    extends BaseReferences<_$AppDatabase, $DiningTablesTable, DiningTable> {
+  $$DiningTablesTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $DiningFloorsTable _floorIdTable(_$AppDatabase db) =>
+      db.diningFloors.createAlias(
+          $_aliasNameGenerator(db.diningTables.floorId, db.diningFloors.id));
+
+  $$DiningFloorsTableProcessedTableManager get floorId {
+    final $_column = $_itemColumn<int>('floor_id')!;
+
+    final manager = $$DiningFloorsTableTableManager($_db, $_db.diningFloors)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_floorIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$DiningTablesTableFilterComposer
+    extends Composer<_$AppDatabase, $DiningTablesTable> {
+  $$DiningTablesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get code => $composableBuilder(
+      column: $table.code, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get chairs => $composableBuilder(
+      column: $table.chairs, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get status => $composableBuilder(
+      column: $table.status, builder: (column) => ColumnFilters(column));
+
+  $$DiningFloorsTableFilterComposer get floorId {
+    final $$DiningFloorsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.floorId,
+        referencedTable: $db.diningFloors,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DiningFloorsTableFilterComposer(
+              $db: $db,
+              $table: $db.diningFloors,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$DiningTablesTableOrderingComposer
+    extends Composer<_$AppDatabase, $DiningTablesTable> {
+  $$DiningTablesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get code => $composableBuilder(
+      column: $table.code, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get chairs => $composableBuilder(
+      column: $table.chairs, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get status => $composableBuilder(
+      column: $table.status, builder: (column) => ColumnOrderings(column));
+
+  $$DiningFloorsTableOrderingComposer get floorId {
+    final $$DiningFloorsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.floorId,
+        referencedTable: $db.diningFloors,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DiningFloorsTableOrderingComposer(
+              $db: $db,
+              $table: $db.diningFloors,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$DiningTablesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DiningTablesTable> {
+  $$DiningTablesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get code =>
+      $composableBuilder(column: $table.code, builder: (column) => column);
+
+  GeneratedColumn<int> get chairs =>
+      $composableBuilder(column: $table.chairs, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  $$DiningFloorsTableAnnotationComposer get floorId {
+    final $$DiningFloorsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.floorId,
+        referencedTable: $db.diningFloors,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DiningFloorsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.diningFloors,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$DiningTablesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $DiningTablesTable,
+    DiningTable,
+    $$DiningTablesTableFilterComposer,
+    $$DiningTablesTableOrderingComposer,
+    $$DiningTablesTableAnnotationComposer,
+    $$DiningTablesTableCreateCompanionBuilder,
+    $$DiningTablesTableUpdateCompanionBuilder,
+    (DiningTable, $$DiningTablesTableReferences),
+    DiningTable,
+    PrefetchHooks Function({bool floorId})> {
+  $$DiningTablesTableTableManager(_$AppDatabase db, $DiningTablesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DiningTablesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DiningTablesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DiningTablesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> floorId = const Value.absent(),
+            Value<String> code = const Value.absent(),
+            Value<int> chairs = const Value.absent(),
+            Value<String> status = const Value.absent(),
+          }) =>
+              DiningTablesCompanion(
+            id: id,
+            floorId: floorId,
+            code: code,
+            chairs: chairs,
+            status: status,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int floorId,
+            required String code,
+            Value<int> chairs = const Value.absent(),
+            Value<String> status = const Value.absent(),
+          }) =>
+              DiningTablesCompanion.insert(
+            id: id,
+            floorId: floorId,
+            code: code,
+            chairs: chairs,
+            status: status,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$DiningTablesTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({floorId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (floorId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.floorId,
+                    referencedTable:
+                        $$DiningTablesTableReferences._floorIdTable(db),
+                    referencedColumn:
+                        $$DiningTablesTableReferences._floorIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$DiningTablesTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $DiningTablesTable,
+    DiningTable,
+    $$DiningTablesTableFilterComposer,
+    $$DiningTablesTableOrderingComposer,
+    $$DiningTablesTableAnnotationComposer,
+    $$DiningTablesTableCreateCompanionBuilder,
+    $$DiningTablesTableUpdateCompanionBuilder,
+    (DiningTable, $$DiningTablesTableReferences),
+    DiningTable,
+    PrefetchHooks Function({bool floorId})>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -9772,6 +10764,10 @@ class $AppDatabaseManager {
       $$CustomersTableTableManager(_db, _db.customers);
   $$DeliveryPartnersTableTableManager get deliveryPartners =>
       $$DeliveryPartnersTableTableManager(_db, _db.deliveryPartners);
+  $$DiningFloorsTableTableManager get diningFloors =>
+      $$DiningFloorsTableTableManager(_db, _db.diningFloors);
+  $$DiningTablesTableTableManager get diningTables =>
+      $$DiningTablesTableTableManager(_db, _db.diningTables);
 }
 
 mixin _$UsersDaoMixin on DatabaseAccessor<AppDatabase> {
@@ -9816,4 +10812,8 @@ mixin _$DeliveryPartnersDaoMixin on DatabaseAccessor<AppDatabase> {
 }
 mixin _$DriversDaoMixin on DatabaseAccessor<AppDatabase> {
   $DriversTable get drivers => attachedDatabase.drivers;
+}
+mixin _$DiningTablesDaoMixin on DatabaseAccessor<AppDatabase> {
+  $DiningFloorsTable get diningFloors => attachedDatabase.diningFloors;
+  $DiningTablesTable get diningTables => attachedDatabase.diningTables;
 }

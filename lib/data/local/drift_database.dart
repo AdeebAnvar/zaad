@@ -16,6 +16,7 @@ part 'dao/drivers_dao.dart';
 part 'dao/orders_dao.dart';
 part 'dao/customers_dao.dart';
 part 'dao/delivery_partners_dao.dart';
+part 'dao/dining_tables_dao.dart';
 
 @DriftDatabase(
   tables: [
@@ -34,6 +35,8 @@ part 'dao/delivery_partners_dao.dart';
     Orders,
     Customers,
     DeliveryPartners,
+    DiningFloors,
+    DiningTables,
   ],
   daos: [
     UsersDao,
@@ -45,13 +48,14 @@ part 'dao/delivery_partners_dao.dart';
     CustomersDao,
     DeliveryPartnersDao,
     DriversDao,
+    DiningTablesDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration {
@@ -136,6 +140,10 @@ class AppDatabase extends _$AppDatabase {
           await m.createTable(drivers);
           await safeAddColumn(orders, orders.driverId);
           await safeAddColumn(orders, orders.driverName);
+        }
+        if (from < 15) {
+          await m.createTable(diningFloors);
+          await m.createTable(diningTables);
         }
       },
     );

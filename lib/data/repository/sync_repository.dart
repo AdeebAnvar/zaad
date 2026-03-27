@@ -1,9 +1,14 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
 import 'package:pos/domain/models/item_topping_model.dart';
 import 'package:pos/domain/models/item_variant_model.dart';
 
 import '../../domain/models/category_model.dart';
 import '../../domain/models/customer_model.dart';
 import '../../domain/models/delivery_partner_model.dart';
+import '../../domain/models/dining_floor_model.dart';
+import '../../domain/models/dining_table_model.dart';
 import '../../domain/models/driver_model.dart';
 import '../../domain/models/item_model.dart';
 import '../../domain/models/kitchen_model.dart';
@@ -28,6 +33,52 @@ class SyncRepository {
       DriverModel(id: 2, name: 'Driver B'),
       DriverModel(id: 3, name: 'Driver C'),
       DriverModel(id: 4, name: 'Driver D'),
+    ];
+  }
+
+  Future<List<DiningFloorModel>> fetchDiningFloors(String serverUrl) async {
+    if (serverUrl.isNotEmpty) {
+      try {
+        final res = await http.get(Uri.parse('$serverUrl/api/dining/floors'));
+        if (res.statusCode == 200) {
+          final raw = jsonDecode(res.body);
+          if (raw is List) {
+            return raw.map((e) => DiningFloorModel.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+          }
+        }
+      } catch (_) {}
+    }
+
+    return const [
+      DiningFloorModel(id: 1, name: 'Floor 1', sortOrder: 1),
+      DiningFloorModel(id: 2, name: 'Floor 2', sortOrder: 2),
+      DiningFloorModel(id: 3, name: 'Rooftop', sortOrder: 3),
+    ];
+  }
+
+  Future<List<DiningTableModel>> fetchDiningTables(String serverUrl) async {
+    if (serverUrl.isNotEmpty) {
+      try {
+        final res = await http.get(Uri.parse('$serverUrl/api/dining/tables'));
+        if (res.statusCode == 200) {
+          final raw = jsonDecode(res.body);
+          if (raw is List) {
+            return raw.map((e) => DiningTableModel.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+          }
+        }
+      } catch (_) {}
+    }
+
+    return const [
+      DiningTableModel(id: 1, floorId: 1, code: 'T1', chairs: 2, status: 'free'),
+      DiningTableModel(id: 2, floorId: 1, code: 'T2', chairs: 4, status: 'allocated'),
+      DiningTableModel(id: 3, floorId: 1, code: 'T3', chairs: 4, status: 'free'),
+      DiningTableModel(id: 4, floorId: 1, code: 'T4', chairs: 6, status: 'allocated'),
+      DiningTableModel(id: 5, floorId: 2, code: 'T1', chairs: 2, status: 'allocated'),
+      DiningTableModel(id: 6, floorId: 2, code: 'T2', chairs: 4, status: 'free'),
+      DiningTableModel(id: 7, floorId: 2, code: 'T3', chairs: 4, status: 'free'),
+      DiningTableModel(id: 8, floorId: 3, code: 'T1', chairs: 2, status: 'free'),
+      DiningTableModel(id: 9, floorId: 3, code: 'T2', chairs: 4, status: 'free'),
     ];
   }
 
