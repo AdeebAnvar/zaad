@@ -3931,6 +3931,178 @@ class CartItemsCompanion extends UpdateCompanion<CartItem> {
   }
 }
 
+class $DriversTable extends Drivers with TableInfo<$DriversTable, Driver> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DriversTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [id, name];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'drivers';
+  @override
+  VerificationContext validateIntegrity(Insertable<Driver> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Driver map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Driver(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+    );
+  }
+
+  @override
+  $DriversTable createAlias(String alias) {
+    return $DriversTable(attachedDatabase, alias);
+  }
+}
+
+class Driver extends DataClass implements Insertable<Driver> {
+  final int id;
+  final String name;
+  const Driver({required this.id, required this.name});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['name'] = Variable<String>(name);
+    return map;
+  }
+
+  DriversCompanion toCompanion(bool nullToAbsent) {
+    return DriversCompanion(
+      id: Value(id),
+      name: Value(name),
+    );
+  }
+
+  factory Driver.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Driver(
+      id: serializer.fromJson<int>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+    };
+  }
+
+  Driver copyWith({int? id, String? name}) => Driver(
+        id: id ?? this.id,
+        name: name ?? this.name,
+      );
+  Driver copyWithCompanion(DriversCompanion data) {
+    return Driver(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Driver(')
+          ..write('id: $id, ')
+          ..write('name: $name')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, name);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Driver && other.id == this.id && other.name == this.name);
+}
+
+class DriversCompanion extends UpdateCompanion<Driver> {
+  final Value<int> id;
+  final Value<String> name;
+  const DriversCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+  });
+  DriversCompanion.insert({
+    this.id = const Value.absent(),
+    required String name,
+  }) : name = Value(name);
+  static Insertable<Driver> custom({
+    Expression<int>? id,
+    Expression<String>? name,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+    });
+  }
+
+  DriversCompanion copyWith({Value<int>? id, Value<String>? name}) {
+    return DriversCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DriversCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
   @override
   final GeneratedDatabase attachedDatabase;
@@ -4072,6 +4244,21 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
   late final GeneratedColumn<String> deliveryPartner = GeneratedColumn<String>(
       'delivery_partner', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _driverIdMeta =
+      const VerificationMeta('driverId');
+  @override
+  late final GeneratedColumn<int> driverId = GeneratedColumn<int>(
+      'driver_id', aliasedName, true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES drivers (id)'));
+  static const VerificationMeta _driverNameMeta =
+      const VerificationMeta('driverName');
+  @override
+  late final GeneratedColumn<String> driverName = GeneratedColumn<String>(
+      'driver_name', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -4093,7 +4280,9 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
         createdAt,
         status,
         orderType,
-        deliveryPartner
+        deliveryPartner,
+        driverId,
+        driverName
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4224,6 +4413,16 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           deliveryPartner.isAcceptableOrUnknown(
               data['delivery_partner']!, _deliveryPartnerMeta));
     }
+    if (data.containsKey('driver_id')) {
+      context.handle(_driverIdMeta,
+          driverId.isAcceptableOrUnknown(data['driver_id']!, _driverIdMeta));
+    }
+    if (data.containsKey('driver_name')) {
+      context.handle(
+          _driverNameMeta,
+          driverName.isAcceptableOrUnknown(
+              data['driver_name']!, _driverNameMeta));
+    }
     return context;
   }
 
@@ -4273,6 +4472,10 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           .read(DriftSqlType.string, data['${effectivePrefix}order_type']),
       deliveryPartner: attachedDatabase.typeMapping.read(
           DriftSqlType.string, data['${effectivePrefix}delivery_partner']),
+      driverId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}driver_id']),
+      driverName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}driver_name']),
     );
   }
 
@@ -4305,6 +4508,8 @@ class Order extends DataClass implements Insertable<Order> {
   /// 'take_away' | 'delivery' | 'dine_in'
   final String? orderType;
   final String? deliveryPartner;
+  final int? driverId;
+  final String? driverName;
   const Order(
       {required this.id,
       required this.cartId,
@@ -4325,7 +4530,9 @@ class Order extends DataClass implements Insertable<Order> {
       required this.createdAt,
       required this.status,
       this.orderType,
-      this.deliveryPartner});
+      this.deliveryPartner,
+      this.driverId,
+      this.driverName});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -4364,6 +4571,12 @@ class Order extends DataClass implements Insertable<Order> {
     }
     if (!nullToAbsent || deliveryPartner != null) {
       map['delivery_partner'] = Variable<String>(deliveryPartner);
+    }
+    if (!nullToAbsent || driverId != null) {
+      map['driver_id'] = Variable<int>(driverId);
+    }
+    if (!nullToAbsent || driverName != null) {
+      map['driver_name'] = Variable<String>(driverName);
     }
     return map;
   }
@@ -4406,6 +4619,12 @@ class Order extends DataClass implements Insertable<Order> {
       deliveryPartner: deliveryPartner == null && nullToAbsent
           ? const Value.absent()
           : Value(deliveryPartner),
+      driverId: driverId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(driverId),
+      driverName: driverName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(driverName),
     );
   }
 
@@ -4433,6 +4652,8 @@ class Order extends DataClass implements Insertable<Order> {
       status: serializer.fromJson<String>(json['status']),
       orderType: serializer.fromJson<String?>(json['orderType']),
       deliveryPartner: serializer.fromJson<String?>(json['deliveryPartner']),
+      driverId: serializer.fromJson<int?>(json['driverId']),
+      driverName: serializer.fromJson<String?>(json['driverName']),
     );
   }
   @override
@@ -4459,6 +4680,8 @@ class Order extends DataClass implements Insertable<Order> {
       'status': serializer.toJson<String>(status),
       'orderType': serializer.toJson<String?>(orderType),
       'deliveryPartner': serializer.toJson<String?>(deliveryPartner),
+      'driverId': serializer.toJson<int?>(driverId),
+      'driverName': serializer.toJson<String?>(driverName),
     };
   }
 
@@ -4482,7 +4705,9 @@ class Order extends DataClass implements Insertable<Order> {
           DateTime? createdAt,
           String? status,
           Value<String?> orderType = const Value.absent(),
-          Value<String?> deliveryPartner = const Value.absent()}) =>
+          Value<String?> deliveryPartner = const Value.absent(),
+          Value<int?> driverId = const Value.absent(),
+          Value<String?> driverName = const Value.absent()}) =>
       Order(
         id: id ?? this.id,
         cartId: cartId ?? this.cartId,
@@ -4513,6 +4738,8 @@ class Order extends DataClass implements Insertable<Order> {
         deliveryPartner: deliveryPartner.present
             ? deliveryPartner.value
             : this.deliveryPartner,
+        driverId: driverId.present ? driverId.value : this.driverId,
+        driverName: driverName.present ? driverName.value : this.driverName,
       );
   Order copyWithCompanion(OrdersCompanion data) {
     return Order(
@@ -4562,6 +4789,9 @@ class Order extends DataClass implements Insertable<Order> {
       deliveryPartner: data.deliveryPartner.present
           ? data.deliveryPartner.value
           : this.deliveryPartner,
+      driverId: data.driverId.present ? data.driverId.value : this.driverId,
+      driverName:
+          data.driverName.present ? data.driverName.value : this.driverName,
     );
   }
 
@@ -4587,33 +4817,38 @@ class Order extends DataClass implements Insertable<Order> {
           ..write('createdAt: $createdAt, ')
           ..write('status: $status, ')
           ..write('orderType: $orderType, ')
-          ..write('deliveryPartner: $deliveryPartner')
+          ..write('deliveryPartner: $deliveryPartner, ')
+          ..write('driverId: $driverId, ')
+          ..write('driverName: $driverName')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(
-      id,
-      cartId,
-      invoiceNumber,
-      referenceNumber,
-      totalAmount,
-      discountAmount,
-      discountType,
-      finalAmount,
-      customerName,
-      customerEmail,
-      customerPhone,
-      customerGender,
-      cashAmount,
-      creditAmount,
-      cardAmount,
-      onlineAmount,
-      createdAt,
-      status,
-      orderType,
-      deliveryPartner);
+  int get hashCode => Object.hashAll([
+        id,
+        cartId,
+        invoiceNumber,
+        referenceNumber,
+        totalAmount,
+        discountAmount,
+        discountType,
+        finalAmount,
+        customerName,
+        customerEmail,
+        customerPhone,
+        customerGender,
+        cashAmount,
+        creditAmount,
+        cardAmount,
+        onlineAmount,
+        createdAt,
+        status,
+        orderType,
+        deliveryPartner,
+        driverId,
+        driverName
+      ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -4637,7 +4872,9 @@ class Order extends DataClass implements Insertable<Order> {
           other.createdAt == this.createdAt &&
           other.status == this.status &&
           other.orderType == this.orderType &&
-          other.deliveryPartner == this.deliveryPartner);
+          other.deliveryPartner == this.deliveryPartner &&
+          other.driverId == this.driverId &&
+          other.driverName == this.driverName);
 }
 
 class OrdersCompanion extends UpdateCompanion<Order> {
@@ -4661,6 +4898,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
   final Value<String> status;
   final Value<String?> orderType;
   final Value<String?> deliveryPartner;
+  final Value<int?> driverId;
+  final Value<String?> driverName;
   const OrdersCompanion({
     this.id = const Value.absent(),
     this.cartId = const Value.absent(),
@@ -4682,6 +4921,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.status = const Value.absent(),
     this.orderType = const Value.absent(),
     this.deliveryPartner = const Value.absent(),
+    this.driverId = const Value.absent(),
+    this.driverName = const Value.absent(),
   });
   OrdersCompanion.insert({
     this.id = const Value.absent(),
@@ -4704,6 +4945,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.status = const Value.absent(),
     this.orderType = const Value.absent(),
     this.deliveryPartner = const Value.absent(),
+    this.driverId = const Value.absent(),
+    this.driverName = const Value.absent(),
   })  : cartId = Value(cartId),
         invoiceNumber = Value(invoiceNumber),
         totalAmount = Value(totalAmount),
@@ -4730,6 +4973,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     Expression<String>? status,
     Expression<String>? orderType,
     Expression<String>? deliveryPartner,
+    Expression<int>? driverId,
+    Expression<String>? driverName,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -4752,6 +4997,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       if (status != null) 'status': status,
       if (orderType != null) 'order_type': orderType,
       if (deliveryPartner != null) 'delivery_partner': deliveryPartner,
+      if (driverId != null) 'driver_id': driverId,
+      if (driverName != null) 'driver_name': driverName,
     });
   }
 
@@ -4775,7 +5022,9 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       Value<DateTime>? createdAt,
       Value<String>? status,
       Value<String?>? orderType,
-      Value<String?>? deliveryPartner}) {
+      Value<String?>? deliveryPartner,
+      Value<int?>? driverId,
+      Value<String?>? driverName}) {
     return OrdersCompanion(
       id: id ?? this.id,
       cartId: cartId ?? this.cartId,
@@ -4797,6 +5046,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       status: status ?? this.status,
       orderType: orderType ?? this.orderType,
       deliveryPartner: deliveryPartner ?? this.deliveryPartner,
+      driverId: driverId ?? this.driverId,
+      driverName: driverName ?? this.driverName,
     );
   }
 
@@ -4863,6 +5114,12 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     if (deliveryPartner.present) {
       map['delivery_partner'] = Variable<String>(deliveryPartner.value);
     }
+    if (driverId.present) {
+      map['driver_id'] = Variable<int>(driverId.value);
+    }
+    if (driverName.present) {
+      map['driver_name'] = Variable<String>(driverName.value);
+    }
     return map;
   }
 
@@ -4888,7 +5145,9 @@ class OrdersCompanion extends UpdateCompanion<Order> {
           ..write('createdAt: $createdAt, ')
           ..write('status: $status, ')
           ..write('orderType: $orderType, ')
-          ..write('deliveryPartner: $deliveryPartner')
+          ..write('deliveryPartner: $deliveryPartner, ')
+          ..write('driverId: $driverId, ')
+          ..write('driverName: $driverName')
           ..write(')'))
         .toString();
   }
@@ -5537,6 +5796,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $SessionsTable sessions = $SessionsTable(this);
   late final $CartsTable carts = $CartsTable(this);
   late final $CartItemsTable cartItems = $CartItemsTable(this);
+  late final $DriversTable drivers = $DriversTable(this);
   late final $OrdersTable orders = $OrdersTable(this);
   late final $CustomersTable customers = $CustomersTable(this);
   late final $DeliveryPartnersTable deliveryPartners =
@@ -5550,6 +5810,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final CustomersDao customersDao = CustomersDao(this as AppDatabase);
   late final DeliveryPartnersDao deliveryPartnersDao =
       DeliveryPartnersDao(this as AppDatabase);
+  late final DriversDao driversDao = DriversDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5566,6 +5827,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         sessions,
         carts,
         cartItems,
+        drivers,
         orders,
         customers,
         deliveryPartners
@@ -8330,6 +8592,203 @@ typedef $$CartItemsTableProcessedTableManager = ProcessedTableManager<
     CartItem,
     PrefetchHooks Function(
         {bool cartId, bool itemId, bool itemVariantId, bool itemToppingId})>;
+typedef $$DriversTableCreateCompanionBuilder = DriversCompanion Function({
+  Value<int> id,
+  required String name,
+});
+typedef $$DriversTableUpdateCompanionBuilder = DriversCompanion Function({
+  Value<int> id,
+  Value<String> name,
+});
+
+final class $$DriversTableReferences
+    extends BaseReferences<_$AppDatabase, $DriversTable, Driver> {
+  $$DriversTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$OrdersTable, List<Order>> _ordersRefsTable(
+          _$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(db.orders,
+          aliasName: $_aliasNameGenerator(db.drivers.id, db.orders.driverId));
+
+  $$OrdersTableProcessedTableManager get ordersRefs {
+    final manager = $$OrdersTableTableManager($_db, $_db.orders)
+        .filter((f) => f.driverId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_ordersRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
+
+class $$DriversTableFilterComposer
+    extends Composer<_$AppDatabase, $DriversTable> {
+  $$DriversTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  Expression<bool> ordersRefs(
+      Expression<bool> Function($$OrdersTableFilterComposer f) f) {
+    final $$OrdersTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.orders,
+        getReferencedColumn: (t) => t.driverId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$OrdersTableFilterComposer(
+              $db: $db,
+              $table: $db.orders,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$DriversTableOrderingComposer
+    extends Composer<_$AppDatabase, $DriversTable> {
+  $$DriversTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+}
+
+class $$DriversTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DriversTable> {
+  $$DriversTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  Expression<T> ordersRefs<T extends Object>(
+      Expression<T> Function($$OrdersTableAnnotationComposer a) f) {
+    final $$OrdersTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.orders,
+        getReferencedColumn: (t) => t.driverId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$OrdersTableAnnotationComposer(
+              $db: $db,
+              $table: $db.orders,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$DriversTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $DriversTable,
+    Driver,
+    $$DriversTableFilterComposer,
+    $$DriversTableOrderingComposer,
+    $$DriversTableAnnotationComposer,
+    $$DriversTableCreateCompanionBuilder,
+    $$DriversTableUpdateCompanionBuilder,
+    (Driver, $$DriversTableReferences),
+    Driver,
+    PrefetchHooks Function({bool ordersRefs})> {
+  $$DriversTableTableManager(_$AppDatabase db, $DriversTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DriversTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DriversTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DriversTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> name = const Value.absent(),
+          }) =>
+              DriversCompanion(
+            id: id,
+            name: name,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String name,
+          }) =>
+              DriversCompanion.insert(
+            id: id,
+            name: name,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) =>
+                  (e.readTable(table), $$DriversTableReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: ({ordersRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (ordersRefs) db.orders],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (ordersRefs)
+                    await $_getPrefetchedData<Driver, $DriversTable, Order>(
+                        currentTable: table,
+                        referencedTable:
+                            $$DriversTableReferences._ordersRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$DriversTableReferences(db, table, p0).ordersRefs,
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.driverId == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$DriversTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $DriversTable,
+    Driver,
+    $$DriversTableFilterComposer,
+    $$DriversTableOrderingComposer,
+    $$DriversTableAnnotationComposer,
+    $$DriversTableCreateCompanionBuilder,
+    $$DriversTableUpdateCompanionBuilder,
+    (Driver, $$DriversTableReferences),
+    Driver,
+    PrefetchHooks Function({bool ordersRefs})>;
 typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
   Value<int> id,
   required int cartId,
@@ -8351,6 +8810,8 @@ typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
   Value<String> status,
   Value<String?> orderType,
   Value<String?> deliveryPartner,
+  Value<int?> driverId,
+  Value<String?> driverName,
 });
 typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<int> id,
@@ -8373,6 +8834,8 @@ typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<String> status,
   Value<String?> orderType,
   Value<String?> deliveryPartner,
+  Value<int?> driverId,
+  Value<String?> driverName,
 });
 
 final class $$OrdersTableReferences
@@ -8388,6 +8851,20 @@ final class $$OrdersTableReferences
     final manager = $$CartsTableTableManager($_db, $_db.carts)
         .filter((f) => f.id.sqlEquals($_column));
     final item = $_typedResult.readTableOrNull(_cartIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+
+  static $DriversTable _driverIdTable(_$AppDatabase db) => db.drivers
+      .createAlias($_aliasNameGenerator(db.orders.driverId, db.drivers.id));
+
+  $$DriversTableProcessedTableManager? get driverId {
+    final $_column = $_itemColumn<int>('driver_id');
+    if ($_column == null) return null;
+    final manager = $$DriversTableTableManager($_db, $_db.drivers)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_driverIdTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: [item]));
@@ -8464,6 +8941,9 @@ class $$OrdersTableFilterComposer
       column: $table.deliveryPartner,
       builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<String> get driverName => $composableBuilder(
+      column: $table.driverName, builder: (column) => ColumnFilters(column));
+
   $$CartsTableFilterComposer get cartId {
     final $$CartsTableFilterComposer composer = $composerBuilder(
         composer: this,
@@ -8476,6 +8956,26 @@ class $$OrdersTableFilterComposer
             $$CartsTableFilterComposer(
               $db: $db,
               $table: $db.carts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$DriversTableFilterComposer get driverId {
+    final $$DriversTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.driverId,
+        referencedTable: $db.drivers,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DriversTableFilterComposer(
+              $db: $db,
+              $table: $db.drivers,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -8562,6 +9062,9 @@ class $$OrdersTableOrderingComposer
       column: $table.deliveryPartner,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get driverName => $composableBuilder(
+      column: $table.driverName, builder: (column) => ColumnOrderings(column));
+
   $$CartsTableOrderingComposer get cartId {
     final $$CartsTableOrderingComposer composer = $composerBuilder(
         composer: this,
@@ -8574,6 +9077,26 @@ class $$OrdersTableOrderingComposer
             $$CartsTableOrderingComposer(
               $db: $db,
               $table: $db.carts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$DriversTableOrderingComposer get driverId {
+    final $$DriversTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.driverId,
+        referencedTable: $db.drivers,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DriversTableOrderingComposer(
+              $db: $db,
+              $table: $db.drivers,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -8649,6 +9172,9 @@ class $$OrdersTableAnnotationComposer
   GeneratedColumn<String> get deliveryPartner => $composableBuilder(
       column: $table.deliveryPartner, builder: (column) => column);
 
+  GeneratedColumn<String> get driverName => $composableBuilder(
+      column: $table.driverName, builder: (column) => column);
+
   $$CartsTableAnnotationComposer get cartId {
     final $$CartsTableAnnotationComposer composer = $composerBuilder(
         composer: this,
@@ -8661,6 +9187,26 @@ class $$OrdersTableAnnotationComposer
             $$CartsTableAnnotationComposer(
               $db: $db,
               $table: $db.carts,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$DriversTableAnnotationComposer get driverId {
+    final $$DriversTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.driverId,
+        referencedTable: $db.drivers,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$DriversTableAnnotationComposer(
+              $db: $db,
+              $table: $db.drivers,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -8681,7 +9227,7 @@ class $$OrdersTableTableManager extends RootTableManager<
     $$OrdersTableUpdateCompanionBuilder,
     (Order, $$OrdersTableReferences),
     Order,
-    PrefetchHooks Function({bool cartId})> {
+    PrefetchHooks Function({bool cartId, bool driverId})> {
   $$OrdersTableTableManager(_$AppDatabase db, $OrdersTable table)
       : super(TableManagerState(
           db: db,
@@ -8713,6 +9259,8 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<String> status = const Value.absent(),
             Value<String?> orderType = const Value.absent(),
             Value<String?> deliveryPartner = const Value.absent(),
+            Value<int?> driverId = const Value.absent(),
+            Value<String?> driverName = const Value.absent(),
           }) =>
               OrdersCompanion(
             id: id,
@@ -8735,6 +9283,8 @@ class $$OrdersTableTableManager extends RootTableManager<
             status: status,
             orderType: orderType,
             deliveryPartner: deliveryPartner,
+            driverId: driverId,
+            driverName: driverName,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -8757,6 +9307,8 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<String> status = const Value.absent(),
             Value<String?> orderType = const Value.absent(),
             Value<String?> deliveryPartner = const Value.absent(),
+            Value<int?> driverId = const Value.absent(),
+            Value<String?> driverName = const Value.absent(),
           }) =>
               OrdersCompanion.insert(
             id: id,
@@ -8779,12 +9331,14 @@ class $$OrdersTableTableManager extends RootTableManager<
             status: status,
             orderType: orderType,
             deliveryPartner: deliveryPartner,
+            driverId: driverId,
+            driverName: driverName,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>
                   (e.readTable(table), $$OrdersTableReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: ({cartId = false}) {
+          prefetchHooksCallback: ({cartId = false, driverId = false}) {
             return PrefetchHooks(
               db: db,
               explicitlyWatchedTables: [],
@@ -8810,6 +9364,15 @@ class $$OrdersTableTableManager extends RootTableManager<
                         $$OrdersTableReferences._cartIdTable(db).id,
                   ) as T;
                 }
+                if (driverId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.driverId,
+                    referencedTable: $$OrdersTableReferences._driverIdTable(db),
+                    referencedColumn:
+                        $$OrdersTableReferences._driverIdTable(db).id,
+                  ) as T;
+                }
 
                 return state;
               },
@@ -8832,7 +9395,7 @@ typedef $$OrdersTableProcessedTableManager = ProcessedTableManager<
     $$OrdersTableUpdateCompanionBuilder,
     (Order, $$OrdersTableReferences),
     Order,
-    PrefetchHooks Function({bool cartId})>;
+    PrefetchHooks Function({bool cartId, bool driverId})>;
 typedef $$CustomersTableCreateCompanionBuilder = CustomersCompanion Function({
   Value<int> id,
   Value<String?> serverId,
@@ -9201,6 +9764,8 @@ class $AppDatabaseManager {
       $$CartsTableTableManager(_db, _db.carts);
   $$CartItemsTableTableManager get cartItems =>
       $$CartItemsTableTableManager(_db, _db.cartItems);
+  $$DriversTableTableManager get drivers =>
+      $$DriversTableTableManager(_db, _db.drivers);
   $$OrdersTableTableManager get orders =>
       $$OrdersTableTableManager(_db, _db.orders);
   $$CustomersTableTableManager get customers =>
@@ -9235,6 +9800,7 @@ mixin _$SessionDaoMixin on DatabaseAccessor<AppDatabase> {
 }
 mixin _$OrdersDaoMixin on DatabaseAccessor<AppDatabase> {
   $CartsTable get carts => attachedDatabase.carts;
+  $DriversTable get drivers => attachedDatabase.drivers;
   $OrdersTable get orders => attachedDatabase.orders;
   $ItemsTable get items => attachedDatabase.items;
   $ItemVariantsTable get itemVariants => attachedDatabase.itemVariants;
@@ -9247,4 +9813,7 @@ mixin _$CustomersDaoMixin on DatabaseAccessor<AppDatabase> {
 mixin _$DeliveryPartnersDaoMixin on DatabaseAccessor<AppDatabase> {
   $DeliveryPartnersTable get deliveryPartners =>
       attachedDatabase.deliveryPartners;
+}
+mixin _$DriversDaoMixin on DatabaseAccessor<AppDatabase> {
+  $DriversTable get drivers => attachedDatabase.drivers;
 }

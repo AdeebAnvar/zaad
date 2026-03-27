@@ -11,11 +11,17 @@ class DeliveryLogLoaded extends DeliveryLogState {
   final String? selectedPartner;
   /// Partners from local DB / sync (same source as delivery service popup).
   final List<DeliveryPartner> deliveryPartners;
+  /// Drivers from local DB / sync (for Normal delivery assignment).
+  final List<Driver> drivers;
+  /// Selected Normal-delivery order ids (bulk assign). Only used when [selectedPartner] is NORMAL.
+  final Set<int> normalSelection;
 
   DeliveryLogLoaded(
     this.orders,
     this.selectedPartner,
     this.deliveryPartners,
+    this.drivers,
+    this.normalSelection,
   );
 }
 

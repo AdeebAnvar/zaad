@@ -303,7 +303,7 @@ class CartCubit extends Cubit<CartState> {
         cardAmount: 0,
         onlineAmount: 0,
         createdAt: DateTime.now(),
-        status: 'kot',
+        status: orderType == 'delivery' ? 'pending' : 'kot',
         orderType: orderType,
         deliveryPartner: deliveryPartner,
       );
@@ -455,7 +455,7 @@ class CartCubit extends Cubit<CartState> {
       cardAmount: payments['card'] ?? 0.0,
       onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
       createdAt: DateTime.now(),
-      status: 'completed',
+      status: orderType == 'delivery' ? 'pending' : 'completed',
       orderType: orderType,
       deliveryPartner: deliveryPartner,
     );
@@ -582,7 +582,7 @@ class CartCubit extends Cubit<CartState> {
       cardAmount: payments['card'] ?? 0.0,
       onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
       createdAt: existingOrder.createdAt,
-      status: 'completed',
+      status: existingOrder.orderType == 'delivery' ? existingOrder.status : 'completed',
       orderType: existingOrder.orderType,
       deliveryPartner: existingOrder.deliveryPartner,
     );

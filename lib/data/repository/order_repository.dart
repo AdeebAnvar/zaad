@@ -18,5 +18,8 @@ abstract class OrderRepository {
     String? customerPhone,
     DateTime? startDate,
     DateTime? endDate,
+    int? driverId,
   });
+
+  Future<List<Order>> getDeliveryOrdersWithDriver();
 }

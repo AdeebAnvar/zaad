@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:isolate';
 import 'package:drift/drift.dart';
+import 'package:pos/domain/models/driver_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:pos/core/sync/auto_sync_screen.dart';
@@ -118,6 +119,16 @@ class SyncService {
           DeliveryPartnersCompanion.insert(
             id: Value(dp.id),
             name: dp.name,
+          ),
+        );
+      }
+      currentPhase = 24;
+
+      for (final DriverModel d in payload.drivers) {
+        await db.driversDao.upsertDriver(
+          DriversCompanion.insert(
+            id: Value(d.id),
+            name: d.name,
           ),
         );
       }

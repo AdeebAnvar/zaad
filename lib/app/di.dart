@@ -6,12 +6,14 @@ import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/data/repository/user_repository.dart';
 import 'package:pos/data/repository/customer_repository.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
+import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/data/repository/kitchen_repository.dart';
 import 'package:pos/data/repository_impl/cart_repository_impl.dart';
 import 'package:pos/data/repository_impl/item_repository_impl.dart';
 import 'package:pos/data/repository_impl/order_repository_impl.dart';
 import 'package:pos/data/repository_impl/customer_repository_impl.dart';
 import 'package:pos/data/repository_impl/delivery_partner_repository_impl.dart';
+import 'package:pos/data/repository_impl/driver_repository_impl.dart';
 import 'package:pos/data/repository_impl/kitchen_repository_impl.dart';
 import 'package:pos/presentation/login/login_screen_cubit.dart';
 
@@ -61,6 +63,11 @@ class ZaadDI {
     if (!locator.isRegistered<DeliveryPartnerRepository>()) {
       locator.registerLazySingleton<DeliveryPartnerRepository>(
         () => DeliveryPartnerRepositoryImpl(locator<AppDatabase>()),
+      );
+    }
+    if (!locator.isRegistered<DriverRepository>()) {
+      locator.registerLazySingleton<DriverRepository>(
+        () => DriverRepositoryImpl(locator<AppDatabase>()),
       );
     }
 

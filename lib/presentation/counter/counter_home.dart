@@ -7,6 +7,7 @@ import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
+import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_cubit.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
@@ -49,6 +50,7 @@ class _CounterHomeState extends State<CounterHome> {
               create: (context) => DeliveryLogCubit(
                 locator<OrderRepository>(),
                 locator<DeliveryPartnerRepository>(),
+                locator<DriverRepository>(),
               ),
               child: const DeliveryLogScreen(),
             ),

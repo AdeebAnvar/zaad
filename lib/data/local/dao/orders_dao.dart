@@ -27,6 +27,8 @@ class Orders extends Table {
   /// 'take_away' | 'delivery' | 'dine_in'
   TextColumn get orderType => text().nullable()();
   TextColumn get deliveryPartner => text().nullable()();
+  IntColumn get driverId => integer().nullable().references(Drivers, #id)();
+  TextColumn get driverName => text().nullable()();
 }
 
 @DriftAccessor(tables: [
@@ -83,6 +85,15 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
         .write(order);
   }
 
+  /// Normal delivery orders that have a driver assigned (for driver log).
+  Future<List<Order>> getDeliveryOrdersWithDriver() {
+    return (select(orders)
+          ..where((o) => o.orderType.equals('delivery'))
+          ..where((o) => o.driverId.isNotNull())
+          ..orderBy([(o) => OrderingTerm.desc(o.createdAt)]))
+        .get();
+  }
+
   Future<List<Order>> filterOrders({
     String? invoiceNumber,
     String? referenceNumber,
@@ -92,6 +103,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     String? customerPhone,
     DateTime? startDate,
     DateTime? endDate,
+    int? driverId,
   }) {
     var query = select(orders);
 
@@ -131,6 +143,10 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       // Add one day to include the entire end date
       final endDateTime = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
       query = query..where((o) => o.createdAt.isSmallerOrEqualValue(endDateTime));
+    }
+
+    if (driverId != null) {
+      query = query..where((o) => o.driverId.equals(driverId));
     }
 
     return (query..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();

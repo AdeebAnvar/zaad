@@ -26,6 +26,7 @@ class TakeAwayLogScreen extends StatelessWidget {
       child: CustomScaffold(
         title: 'Take Away Log',
         appBarScreen: 'take_away_log',
+        floatingActionButton: _MobileTakeAwayFilterFab(),
         body: BlocBuilder<TakeAwayLogCubit, TakeAwayLogState>(
           builder: (context, state) {
             if (state is TakeAwayLogLoading) {
@@ -52,20 +53,18 @@ class TakeAwayLogScreen extends StatelessWidget {
               return LayoutBuilder(
                 builder: (context, constraints) {
                   final isMobile = constraints.maxWidth < 768;
-                  return Stack(
-                    children: [
-                      RefreshIndicator(
-                        onRefresh: () => context.read<TakeAwayLogCubit>().refreshOrders(),
-                        child: SingleChildScrollView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          child: Padding(
-                            padding: AppPadding.screenAll,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (!isMobile) const _FilterBar(),
-                                if (!isMobile) const SizedBox(height: 16),
-                                if (state.orders.isEmpty)
+                  return RefreshIndicator(
+                    onRefresh: () => context.read<TakeAwayLogCubit>().refreshOrders(),
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: Padding(
+                        padding: AppPadding.screenAll,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (!isMobile) const _FilterBar(),
+                            if (!isMobile) const SizedBox(height: 16),
+                            if (state.orders.isEmpty)
                               const Center(
                                 child: Padding(
                                   padding: EdgeInsets.all(32.0),
@@ -100,42 +99,10 @@ class TakeAwayLogScreen extends StatelessWidget {
                                   }).toList(),
                                 );
                               }),
-                              ],
-                            ),
-                          ),
+                          ],
                         ),
                       ),
-                      if (isMobile)
-                        Positioned(
-                          right: 16,
-                          bottom: 16,
-                          child: FloatingActionButton(
-                            onPressed: () => showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              shape: const RoundedRectangleBorder(
-                                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                              ),
-                              builder: (_) => DraggableScrollableSheet(
-                                initialChildSize: 0.6,
-                                minChildSize: 0.4,
-                                maxChildSize: 0.9,
-                                expand: false,
-                                builder: (_, scrollController) => SingleChildScrollView(
-                                  controller: scrollController,
-                                  child: Padding(
-                                    padding: AppPadding.screenAll,
-                                    child: const _FilterBar(),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            backgroundColor: AppColors.primaryColor,
-                            child: const Icon(Icons.filter_list, color: Colors.white),
-                            tooltip: 'Filters',
-                          ),
-                        ),
-                    ],
+                    ),
                   );
                 },
               );
@@ -145,6 +112,49 @@ class TakeAwayLogScreen extends StatelessWidget {
           },
         ),
       ),
+    );
+  }
+}
+
+class _MobileTakeAwayFilterFab extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 768;
+    final state = context.watch<TakeAwayLogCubit>().state;
+    if (!isMobile || state is! TakeAwayLogLoaded) {
+      return const SizedBox.shrink();
+    }
+    return FloatingActionButton(
+      onPressed: () {
+        final takeAwayLogCubit = context.read<TakeAwayLogCubit>();
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.white,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          builder: (_) => BlocProvider.value(
+            value: takeAwayLogCubit,
+            child: DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              minChildSize: 0.4,
+              maxChildSize: 0.9,
+              expand: false,
+              builder: (_, scrollController) => SingleChildScrollView(
+                controller: scrollController,
+                child: Padding(
+                  padding: AppPadding.screenAll,
+                  child: const _FilterBar(),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      backgroundColor: AppColors.primaryColor,
+      tooltip: 'Filters',
+      child: const Icon(Icons.filter_list, color: Colors.white),
     );
   }
 }
@@ -343,8 +353,6 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -365,12 +373,18 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _header(),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                height: 1,
+                color: AppColors.divider.withValues(alpha: 0.65),
+              ),
+              const SizedBox(height: 12),
               _infoRow(),
               const SizedBox(height: 14),
               _netTotal(),
@@ -398,16 +412,12 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
           children: [
             Text(
               order.status.toUpperCase(),
-              style: const TextStyle(
-                fontSize: 11,
-                color: Colors.grey,
-                fontWeight: FontWeight.w600,
-              ),
+              style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: AppColors.hintFontColor),
             ),
             const SizedBox(height: 2),
             Text(
               formattedDate,
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
+              style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
             ),
           ],
         ),
@@ -417,10 +427,10 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
 
   Widget _tag() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF2F3A56),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: const Row(
         children: [
@@ -443,11 +453,12 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
 
   Widget _infoRow() {
     final order = widget.order;
-    return Row(
+    return Wrap(
+      spacing: 20,
+      runSpacing: 10,
       children: [
-        _infoBlock('Receipt No', order.invoiceNumber),
-        const SizedBox(width: 48),
-        _infoBlock('Reference', order.referenceNumber ?? 'N/A'),
+        SizedBox(width: 220, child: _infoBlock('Receipt No', order.invoiceNumber)),
+        SizedBox(width: 220, child: _infoBlock('Reference', order.referenceNumber ?? 'N/A')),
       ],
     );
   }
@@ -458,12 +469,14 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
       children: [
         Text(
           label,
-          style: const TextStyle(fontSize: 11, color: Colors.grey),
+          style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 3),
         Text(
           value,
-          style: const TextStyle(fontWeight: FontWeight.w600),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: AppStyles.getMediumTextStyle(fontSize: 15, color: AppColors.textColor),
         ),
       ],
     );
@@ -516,62 +529,66 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
   Widget _actions(BuildContext context) {
     final order = widget.order;
 
-    return Row(
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        _icon(
-          Icons.remove_red_eye_outlined,
-          tooltip: 'View',
+        _cleanActionButton(
+          icon: Icons.remove_red_eye_outlined,
+          label: 'View',
           onTap: () => _handleView(context, order),
         ),
-        _icon(
-          Icons.print_outlined,
-          tooltip: 'Print',
+        _cleanActionButton(
+          icon: Icons.print_outlined,
+          label: 'Print',
           onTap: () => _handlePrint(context, order),
         ),
-        _icon(
-          Icons.edit_outlined,
-          tooltip: 'Edit',
+        _cleanActionButton(
+          icon: Icons.edit_outlined,
+          label: 'Edit',
           onTap: () => _handleEdit(context, order),
         ),
-        _icon(
-          Icons.delete_outline,
-          bg: Colors.red,
-          tooltip: 'Delete',
+        _cleanActionButton(
+          icon: Icons.delete_outline,
+          label: 'Delete',
           onTap: () => _handleDelete(context, order),
+          danger: true,
         ),
-        const Spacer(),
-        CustomButton(
-          width: 100,
-          onPressed: () {},
-          text: 'Move',
+        _cleanActionButton(
+          icon: Icons.drive_file_move_outline,
+          label: 'Move',
+          onTap: () {},
         ),
       ],
     );
   }
 
-  Widget _icon(
-    IconData icon, {
-    required String tooltip,
-    Color bg = AppColors.primaryColor,
-    VoidCallback? onTap,
+  Widget _cleanActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool danger = false,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Tooltip(
-        message: tooltip,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            height: 38,
-            width: 38,
-            decoration: BoxDecoration(
-              color: onTap == null ? Colors.grey.shade300 : bg,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 18, color: Colors.white),
-          ),
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(
+        icon,
+        size: 18,
+        color: danger ? Colors.red : AppColors.primaryColor,
+      ),
+      label: Text(
+        label,
+        style: AppStyles.getMediumTextStyle(
+          fontSize: 13,
+          color: danger ? Colors.red : AppColors.primaryColor,
         ),
+      ),
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        side: BorderSide(
+          color: danger ? Colors.red.withValues(alpha: 0.35) : AppColors.primaryColor.withValues(alpha: 0.25),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }

@@ -30,6 +30,8 @@ class OrderRepositoryImpl implements OrderRepository {
         status: Value(order.status),
         orderType: Value(order.orderType),
         deliveryPartner: Value(order.deliveryPartner),
+        driverId: Value(order.driverId),
+        driverName: Value(order.driverName),
       ),
     );
   }
@@ -88,6 +90,8 @@ class OrderRepositoryImpl implements OrderRepository {
         status: Value(order.status),
         orderType: Value(order.orderType),
         deliveryPartner: Value(order.deliveryPartner),
+        driverId: Value(order.driverId),
+        driverName: Value(order.driverName),
       ),
     );
   }
@@ -102,6 +106,7 @@ class OrderRepositoryImpl implements OrderRepository {
     String? customerPhone,
     DateTime? startDate,
     DateTime? endDate,
+    int? driverId,
   }) {
     return db.ordersDao.filterOrders(
       invoiceNumber: invoiceNumber,
@@ -112,6 +117,12 @@ class OrderRepositoryImpl implements OrderRepository {
       customerPhone: customerPhone,
       startDate: startDate,
       endDate: endDate,
+      driverId: driverId,
     );
+  }
+
+  @override
+  Future<List<Order>> getDeliveryOrdersWithDriver() {
+    return db.ordersDao.getDeliveryOrdersWithDriver();
   }
 }

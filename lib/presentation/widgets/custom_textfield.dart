@@ -308,3 +308,41 @@ class _CustomTextFieldState extends State<CustomTextField> {
     FocusManager.instance.primaryFocus?.unfocus();
   }
 }
+
+/// Border / padding aligned with [CustomTextField] (12px radius, 1.5px border, white fill).
+class CustomFormFieldDecoration {
+  CustomFormFieldDecoration._();
+
+  static InputDecoration dropdownDecoration(BuildContext context) {
+    final theme = Theme.of(context);
+    final borderColor = theme.dividerColor.withOpacity(0.5);
+    const radius = 12.0;
+    const width = 1.5;
+    return InputDecoration(
+      filled: true,
+      fillColor: Colors.white,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 13),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(radius),
+        borderSide: BorderSide(width: width, color: borderColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(radius),
+        borderSide: BorderSide(width: width, color: borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(radius),
+        borderSide: BorderSide(width: width, color: theme.primaryColor),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(radius),
+        borderSide: BorderSide(width: width, color: theme.colorScheme.error),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(radius),
+        borderSide: BorderSide(width: width, color: theme.colorScheme.error),
+      ),
+    );
+  }
+}

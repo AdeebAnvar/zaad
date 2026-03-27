@@ -12,6 +12,7 @@ part 'dao/category_dao.dart';
 part 'dao/item_dao.dart';
 part 'dao/session_dao.dart';
 part 'dao/cart_dao.dart';
+part 'dao/drivers_dao.dart';
 part 'dao/orders_dao.dart';
 part 'dao/customers_dao.dart';
 part 'dao/delivery_partners_dao.dart';
@@ -29,6 +30,7 @@ part 'dao/delivery_partners_dao.dart';
     Sessions,
     Carts,
     CartItems,
+    Drivers,
     Orders,
     Customers,
     DeliveryPartners,
@@ -42,13 +44,14 @@ part 'dao/delivery_partners_dao.dart';
     OrdersDao,
     CustomersDao,
     DeliveryPartnersDao,
+    DriversDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration {
@@ -128,6 +131,11 @@ class AppDatabase extends _$AppDatabase {
         if (from < 13) {
           // Online payment for delivery orders
           await m.addColumn(orders, orders.onlineAmount);
+        }
+        if (from < 14) {
+          await m.createTable(drivers);
+          await safeAddColumn(orders, orders.driverId);
+          await safeAddColumn(orders, orders.driverName);
         }
       },
     );

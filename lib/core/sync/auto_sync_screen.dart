@@ -12,6 +12,7 @@ import 'package:pos/data/repository/sync_repository.dart';
 import 'package:pos/domain/models/category_model.dart';
 import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/domain/models/delivery_partner_model.dart';
+import 'package:pos/domain/models/driver_model.dart';
 import 'package:pos/domain/models/item_model.dart';
 import 'package:pos/domain/models/kitchen_model.dart';
 
@@ -154,7 +155,8 @@ Future<SyncPayload> fetchSyncData(String serverUrl) async {
   final items = await repo.fetchItems();
   final customers = await repo.fetchCustomers();
   final deliveryPartners = await repo.fetchDeliveryPartners(serverUrl);
-  return SyncPayload(categories, kitchens, items, customers, deliveryPartners);
+  final drivers = await repo.fetchDrivers(serverUrl);
+  return SyncPayload(categories, kitchens, items, customers, deliveryPartners, drivers);
 }
 
 class SyncPayload {
@@ -163,6 +165,7 @@ class SyncPayload {
   final List<ItemModel> items;
   final List<CustomerModel> customers;
   final List<DeliveryPartnerModel> deliveryPartners;
+  final List<DriverModel> drivers;
 
   SyncPayload(
     this.categories,
@@ -170,6 +173,7 @@ class SyncPayload {
     this.items,
     this.customers,
     this.deliveryPartners,
+    this.drivers,
   );
 }
 

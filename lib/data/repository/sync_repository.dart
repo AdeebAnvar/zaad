@@ -4,6 +4,7 @@ import 'package:pos/domain/models/item_variant_model.dart';
 import '../../domain/models/category_model.dart';
 import '../../domain/models/customer_model.dart';
 import '../../domain/models/delivery_partner_model.dart';
+import '../../domain/models/driver_model.dart';
 import '../../domain/models/item_model.dart';
 import '../../domain/models/kitchen_model.dart';
 
@@ -16,6 +17,17 @@ class SyncRepository {
       DeliveryPartnerModel(id: 3, name: 'Dunzo'),
       DeliveryPartnerModel(id: 4, name: 'Uber Eats'),
       DeliveryPartnerModel(id: 5, name: 'Rapido'),
+    ];
+  }
+
+  /// Delivery drivers (synced from backend; replace with real API when available).
+  Future<List<DriverModel>> fetchDrivers(String serverUrl) async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    return const [
+      DriverModel(id: 1, name: 'Driver A'),
+      DriverModel(id: 2, name: 'Driver B'),
+      DriverModel(id: 3, name: 'Driver C'),
+      DriverModel(id: 4, name: 'Driver D'),
     ];
   }
 

@@ -507,6 +507,13 @@ class PaymentDialog extends StatefulWidget {
 class _PaymentDialogState extends State<PaymentDialog> {
   final _formKey = GlobalKey<FormState>();
 
+  /// Third-party apps (NOON, etc.). Own fleet uses delivery partner name `NORMAL`.
+  bool get _isPartnerDelivery =>
+      widget.isDelivery &&
+      widget.deliveryPartner != null &&
+      widget.deliveryPartner!.trim().isNotEmpty &&
+      widget.deliveryPartner!.trim().toUpperCase() != 'NORMAL';
+
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
@@ -544,7 +551,13 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _finalAmount = widget.totalAmount;
     _updateFinalAmount();
     if (widget.isDelivery) {
-      _onlineController.text = _finalAmount.toStringAsFixed(2);
+      if (_isPartnerDelivery) {
+        _onlineController.text = _finalAmount.toStringAsFixed(2);
+        _creditController.clear();
+      } else {
+        _creditController.text = _finalAmount.toStringAsFixed(2);
+        _onlineController.clear();
+      }
     }
     _loadCustomers();
     _cashFocusNode.addListener(_onPaymentFocusCash);
@@ -811,7 +824,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         ),
                       ),
                     SizedBox(height: 20),
-                    if (widget.isDelivery)
+                    if (widget.isDelivery && _isPartnerDelivery)
                       SizedBox(
                         width: 260,
                         child: CustomTextField(
@@ -1051,7 +1064,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
       Expanded(child: _paymentField('CARD', _cardController, _cardFocusNode)),
       const SizedBox(width: 12),
       Expanded(child: _paymentField('CREDIT', _creditController, _creditFocusNode)),
-      if (widget.isDelivery) ...[
+      if (widget.isDelivery && _isPartnerDelivery) ...[
         const SizedBox(width: 12),
         Expanded(child: _paymentField('ONLINE', _onlineController, _onlineFocusNode)),
       ],
@@ -1178,7 +1191,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 onPressed: _isSubmitting
                     ? null
                     : () async {
-                        final isNormalDelivery = widget.deliveryPartner == 'NORMAL';
+                        final isNormalDelivery = widget.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
                         if (isNormalDelivery && _phoneController.text.trim().isEmpty) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
