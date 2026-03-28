@@ -57,6 +57,12 @@ class _CounterHomeState extends State<CounterHome> {
           ),
         );
         break;
+      case 4:
+        AppNavigator.pushNamed(Routes.dineIn);
+        break;
+      case 5:
+        AppNavigator.pushNamed(Routes.dineInLog);
+        break;
     }
   }
 
@@ -313,6 +319,8 @@ const _titles = [
   "Take Away Log",
   "Delivery Sale",
   "Delivery Sale Log",
+  "Dine In",
+  "Dine In Log",
 ];
 
 class AppScaffold extends StatelessWidget {

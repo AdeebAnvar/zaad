@@ -35,7 +35,9 @@ class _SaleScreenState extends State<SaleScreen> {
   Widget build(BuildContext context) {
     final title = widget.orderType == 'delivery' && widget.deliveryPartner != null
         ? 'Delivery - ${widget.deliveryPartner}'
-        : 'Take Away';
+        : widget.orderType == 'dine_in'
+            ? 'Dine In'
+            : 'Take Away';
     return CustomScaffold(
       title: title,
       appBarScreen: widget.orderType == 'delivery' ? 'delivery' : 'take_away',
@@ -62,11 +64,14 @@ class SaleScreenFunction {
       ),
       builder: (_) => BlocProvider.value(
         value: cartCubit,
-        child: CartPanel(onCloseCart: (sheetClosed) {
-          if (sheetClosed) {
-            Navigator.pop(context);
-          }
-        }),
+        child: CartPanel(
+          closeOnComplete: cartCubit.orderType == 'dine_in',
+          onCloseCart: (sheetClosed) {
+            if (sheetClosed) {
+              Navigator.pop(context);
+            }
+          },
+        ),
       ),
     );
   }

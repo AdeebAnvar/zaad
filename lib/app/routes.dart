@@ -18,6 +18,15 @@ import 'package:pos/presentation/crm/crm_screen.dart';
 import 'package:pos/presentation/crm/crm_customer_details_screen.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_ui.dart';
+import 'package:pos/presentation/delivery/delivery_sale_screen.dart';
+import 'package:pos/presentation/driver_log/driver_log_screen.dart';
+import 'package:pos/presentation/delivery_log/delivery_log_cubit.dart';
+import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
+import 'package:pos/data/repository/delivery_partner_repository.dart';
+import 'package:pos/data/repository/driver_repository.dart';
+import 'package:pos/presentation/dine_in/dine_in_screen.dart';
+import 'package:pos/presentation/dine_in_log/dine_in_log_cubit.dart';
+import 'package:pos/presentation/dine_in_log/dine_in_log_ui.dart';
 import 'package:pos/presentation/settings/settings_screen.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -28,6 +37,11 @@ class Routes {
   static const orders = "/orders";
   static const counter = "/counter";
   static const takeAwayLog = "/take_away_log";
+  static const deliverySale = "/delivery_sale";
+  static const deliveryLog = "/delivery_log";
+  static const driverLog = "/driver_log";
+  static const dineIn = "/dine_in";
+  static const dineInLog = "/dine_in_log";
   static const recentSales = "/recent_sales";
   static const crm = "/crm";
   static const crmCustomerDetails = "/crm/customer_details";
@@ -47,6 +61,7 @@ class Routes {
       final orderId = args?['orderId'] as int?;
       final orderType = args?['orderType'] as String? ?? 'take_away';
       final deliveryPartner = args?['deliveryPartner'] as String?;
+      final referenceNumber = args?['referenceNumber'] as String?;
 
       return BlocProvider<CartCubit>(
         create: (context) {
@@ -59,6 +74,7 @@ class Routes {
             locator<PrintService>(),
             orderType: orderType,
             deliveryPartner: deliveryPartner,
+            initialReferenceNumber: referenceNumber,
           );
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (orderId != null) {
@@ -81,6 +97,21 @@ class Routes {
     takeAwayLog: (_) => BlocProvider(
           create: (context) => TakeAwayLogCubit(locator<OrderRepository>()),
           child: const TakeAwayLogScreen(),
+        ),
+    deliverySale: (_) => const DeliverySaleScreen(),
+    deliveryLog: (_) => BlocProvider(
+          create: (_) => DeliveryLogCubit(
+            locator<OrderRepository>(),
+            locator<DeliveryPartnerRepository>(),
+            locator<DriverRepository>(),
+          ),
+          child: const DeliveryLogScreen(),
+        ),
+    driverLog: (_) => const DriverLogScreen(),
+    dineIn: (_) => const DineInScreen(),
+    dineInLog: (_) => BlocProvider(
+          create: (context) => DineInLogCubit(locator<OrderRepository>()),
+          child: const DineInLogScreen(),
         ),
   };
 }

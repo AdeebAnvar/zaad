@@ -20,11 +20,15 @@ class CartCubit extends Cubit<CartState> {
     this.printService, {
     this.orderType = 'take_away',
     this.deliveryPartner,
-  }) : super(CartState([]));
+    this.initialReferenceNumber,
+  }) : super(CartState([])) {
+    _currentKOTReference = initialReferenceNumber;
+  }
 
   /// 'take_away' | 'delivery' | 'dine_in'
   final String orderType;
   final String? deliveryPartner;
+  final String? initialReferenceNumber;
   final CartRepository cartRepo;
   final ItemRepository itemRepo;
   final OrderRepository orderRepo;
@@ -376,7 +380,12 @@ class CartCubit extends Cubit<CartState> {
       (sum, item) => sum + item.total,
     );
 
-    final existingKOT = await orderRepo.getKOTByReference(_currentKOTReference!);
+    Order? existingKOT;
+    if (_currentKOTOrderId != null) {
+      existingKOT = await orderRepo.getOrderById(_currentKOTOrderId!);
+    } else {
+      existingKOT = await orderRepo.getKOTByReference(_currentKOTReference!);
+    }
     if (existingKOT != null) {
       final updatedOrder = existingKOT.copyWith(
         totalAmount: totalAmount,

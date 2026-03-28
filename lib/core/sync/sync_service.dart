@@ -134,27 +134,50 @@ class SyncService {
       }
       currentPhase = 25;
 
+      // ---------- DINING FLOORS / TABLES ---------- (5% of total, from 25% to 30%)
+      for (final f in payload.diningFloors) {
+        await db.diningTablesDao.upsertFloor(
+          DiningFloorsCompanion.insert(
+            id: Value(f.id),
+            name: f.name,
+            sortOrder: Value(f.sortOrder),
+          ),
+        );
+      }
+      for (final t in payload.diningTables) {
+        await db.diningTablesDao.upsertTable(
+          DiningTablesCompanion.insert(
+            id: Value(t.id),
+            floorId: t.floorId,
+            code: t.code,
+            chairs: Value(t.chairs),
+            status: Value(t.status),
+          ),
+        );
+      }
+      currentPhase = 30;
+
       // ---------- CUSTOMERS ---------- (5% of total, from 25% to 30%)
       _emit(SyncStatus(
         phase: SyncPhase.items,
         message: 'Syncing customers...',
-        current: 25,
+        current: 30,
         total: totalPhases,
       ));
 
       final customers = payload.customers;
-      currentPhase = 27; // Customers fetch progress
+      currentPhase = 32; // Customers fetch progress
 
       int customerIndex = 0;
       final customerTotal = customers.length;
       for (final c in customers) {
         customerIndex++;
-        final customerProgress = (customerIndex / customerTotal) * 5; // 5% for customers (25-30%)
+        final customerProgress = (customerIndex / customerTotal) * 5; // 5% for customers (30-35%)
 
         _emit(SyncStatus(
           phase: SyncPhase.items,
           message: 'Also fetching customers... ($customerIndex / $customerTotal)',
-          current: (25 + customerProgress).toInt(),
+          current: (30 + customerProgress).toInt(),
           total: totalPhases,
         ));
 
@@ -172,17 +195,17 @@ class SyncService {
         );
       }
 
-      currentPhase = 30; // Customers completed (30% total)
+      currentPhase = 35; // Customers completed
 
-      // ---------- ITEMS ---------- (70% of total, from 30% to 100%)
+      // ---------- ITEMS ---------- (65% of total, from 35% to 100%)
       int index = 0;
       final itemsTotal = payload.items.length;
       for (final i in payload.items) {
         index++;
         await Future.delayed(Duration.zero);
 
-        // Calculate progress: 30% + (70% * (index / itemsTotal))
-        final itemProgress = 30 + (70 * (index / itemsTotal));
+        // Calculate progress: 35% + (65% * (index / itemsTotal))
+        final itemProgress = 35 + (65 * (index / itemsTotal));
 
         _emit(SyncStatus(
           phase: SyncPhase.items,

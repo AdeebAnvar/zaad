@@ -48,6 +48,26 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
       route: "/take_away_log",
     ),
     DrawerMenuItem(
+      icon: Icons.local_shipping_outlined,
+      title: "Delivery Sale",
+      route: "/delivery_sale",
+    ),
+    DrawerMenuItem(
+      icon: Icons.receipt_long_outlined,
+      title: "Delivery Log",
+      route: "/delivery_log",
+    ),
+    DrawerMenuItem(
+      icon: Icons.table_restaurant_outlined,
+      title: "Dine In",
+      route: "/dine_in",
+    ),
+    DrawerMenuItem(
+      icon: Icons.receipt_long,
+      title: "Dine In Log",
+      route: "/dine_in_log",
+    ),
+    DrawerMenuItem(
       icon: Icons.person_outlined,
       title: "CRM",
       route: "/crm",

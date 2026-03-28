@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:multi_expansion_card/multi_expansion_card.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/utils/dine_in_sale_navigation.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/repository/customer_repository.dart';
@@ -173,6 +174,7 @@ class CartPanel extends StatelessWidget {
                                                   if (closeOnComplete) {
                                                     Navigator.maybePop(context);
                                                   }
+                                                  schedulePopSaleScreenToDineIn(context);
                                                 }
                                               } catch (e) {
                                                 if (context.mounted) showErrorDialog(context, e);
@@ -220,6 +222,7 @@ class CartPanel extends StatelessWidget {
                                                 if (closeOnComplete) {
                                                   Navigator.maybePop(context);
                                                 }
+                                                schedulePopSaleScreenToDineIn(context);
                                               }
                                             } catch (e) {
                                               if (context.mounted) showErrorDialog(context, e);
@@ -360,6 +363,14 @@ class CartPanel extends StatelessWidget {
                             text: 'Save',
                             onPressed: () async {
                               final value = referenceController.text.trim();
+                              if (value.isEmpty) {
+                                if (parentContext.mounted) {
+                                  ScaffoldMessenger.of(parentContext).showSnackBar(
+                                    const SnackBar(content: Text('Enter a reference number for KOT')),
+                                  );
+                                }
+                                return;
+                              }
                               try {
                                 final printFailed = await cartCubit.saveKOT(value);
                                 if (!context.mounted) return;
@@ -371,6 +382,7 @@ class CartPanel extends StatelessWidget {
                                 if (closeOnComplete && parentContext.mounted) {
                                   Navigator.of(parentContext).pop();
                                 }
+                                schedulePopSaleScreenToDineIn(parentContext);
                               } catch (e) {
                                 if (context.mounted) {
                                   showErrorDialog(context, e);
@@ -441,6 +453,9 @@ class CartPanel extends StatelessWidget {
             if (context.mounted && closeOnComplete) {
               Navigator.of(context).pop(); // close sheet
             }
+            if (context.mounted) {
+              schedulePopSaleScreenToDineIn(context);
+            }
           } catch (e) {
             if (dialogContext.mounted) {
               showErrorDialog(dialogContext, e);
@@ -489,10 +504,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   /// Third-party apps (NOON, etc.). Own fleet uses delivery partner name `NORMAL`.
   bool get _isPartnerDelivery =>
-      widget.isDelivery &&
-      widget.deliveryPartner != null &&
-      widget.deliveryPartner!.trim().isNotEmpty &&
-      widget.deliveryPartner!.trim().toUpperCase() != 'NORMAL';
+      widget.isDelivery && widget.deliveryPartner != null && widget.deliveryPartner!.trim().isNotEmpty && widget.deliveryPartner!.trim().toUpperCase() != 'NORMAL';
 
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -575,6 +587,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
         _creditController.text = _finalAmount.toStringAsFixed(2);
         _onlineController.clear();
       }
+    } else {
+      // Take away & dine in: default full amount to cash so SUBMIT can pass validation.
+      _cashController.text = _finalAmount.toStringAsFixed(2);
     }
 
     _loadCustomers();
@@ -1201,8 +1216,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         if (isNormalDelivery && _phoneController.text.trim().isEmpty) {
                           if (mounted) {
                             CustomSnackBar.showError(
-                              message:
-                                  'Customer number (Contact Number) is required for Normal delivery',
+                              message: 'Customer number (Contact Number) is required for Normal delivery',
                             );
                           }
                           return;
@@ -1218,15 +1232,13 @@ class _PaymentDialogState extends State<PaymentDialog> {
                           if (remaining > 0.01) {
                             if (mounted) {
                               CustomSnackBar.showError(
-                                message:
-                                    'Amount payable must be 0. Add ${remaining.toStringAsFixed(2)} more.',
+                                message: 'Amount payable must be 0. Add ${remaining.toStringAsFixed(2)} more.',
                               );
                             }
                           } else if (total > _finalAmount + 0.01) {
                             if (mounted) {
                               CustomSnackBar.showError(
-                                message:
-                                    'Payment total (${total.toStringAsFixed(2)}) exceeds amount payable (${_finalAmount.toStringAsFixed(2)}).',
+                                message: 'Payment total (${total.toStringAsFixed(2)}) exceeds amount payable (${_finalAmount.toStringAsFixed(2)}).',
                               );
                             }
                           } else {
