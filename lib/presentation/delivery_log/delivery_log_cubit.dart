@@ -91,7 +91,12 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     try {
       final partners = await deliveryPartnerRepo.getAll();
       final drivers = await driverRepo.getAll();
-      var orders = await orderRepo.filterOrders(orderType: 'delivery');
+      final partnerFilter = _selectedPartner?.trim();
+      var orders = await orderRepo.filterOrders(
+        orderType: 'delivery',
+        deliveryPartner:
+            partnerFilter != null && partnerFilter.isNotEmpty ? partnerFilter : null,
+      );
       orders = _filterDeliveryLogList(orders);
       _normalSelection.removeWhere((id) => !orders.any((o) => o.id == id));
       emit(DeliveryLogLoaded(

@@ -1,6 +1,3 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -16,29 +13,7 @@ import 'package:pos/presentation/sale/desktop/desktop_cart_item_tile.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
-
-// #region agent log
-void _dbgNav({
-  required String hypothesisId,
-  required String location,
-  required String message,
-  Map<String, dynamic>? data,
-}) {
-  try {
-    final payload = <String, dynamic>{
-      "sessionId": "4f647b",
-      "runId": "payment-pop-debug",
-      "hypothesisId": hypothesisId,
-      "location": location,
-      "message": message,
-      "data": data ?? const {},
-      "timestamp": DateTime.now().millisecondsSinceEpoch,
-    };
-
-    File("debug-4f647b.log").writeAsStringSync("${jsonEncode(payload)}\n", mode: FileMode.append);
-  } catch (_) {}
-}
-// #endregion
+import 'package:pos/presentation/widgets/custom_toast.dart';
 
 class CartPanel extends StatelessWidget {
   const CartPanel({
@@ -156,6 +131,7 @@ class CartPanel extends StatelessWidget {
                           final isEditingPaidOrder = cartCubit.isEditingPaidOrder;
                           final isOpenedForEdit = cartCubit.isOpenedForEdit;
                           final isDelivery = cartCubit.orderType == 'delivery';
+                          final shouldSaveAsEdit = isOpenedForEdit || isEditingPaidOrder;
 
                           // Delivery: only Save button (no KOT, no Pay) — Save opens payment dialog
                           if (isDelivery || isEditingPaidOrder) {
@@ -167,7 +143,7 @@ class CartPanel extends StatelessWidget {
                                       await _showPaymentDialog(
                                         context,
                                         totalAmount,
-                                        isEditing: isEditingPaidOrder,
+                                        isEditing: shouldSaveAsEdit,
                                         isDelivery: isDelivery,
                                         deliveryPartner: cartCubit.deliveryPartner,
                                       );
@@ -424,6 +400,7 @@ class CartPanel extends StatelessWidget {
   }) async {
     // Capture while [context] is stable; avoid context.read after async gaps in [onSave].
     final cartCubit = context.read<CartCubit>();
+    final prefill = await cartCubit.getPaymentPrefillForEdit();
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => PaymentDialog(
@@ -432,6 +409,7 @@ class CartPanel extends StatelessWidget {
         parentContext: context,
         isDelivery: isDelivery,
         deliveryPartner: deliveryPartner,
+        prefill: prefill,
         onSave: (customerDetails, discount, payments) async {
           try {
             List<String> printFailed;
@@ -484,6 +462,7 @@ class PaymentDialog extends StatefulWidget {
   final BuildContext parentContext;
   final bool isDelivery;
   final String? deliveryPartner;
+  final Map<String, dynamic>? prefill;
   final Function(
     Map<String, dynamic> customer,
     Map<String, dynamic> discount,
@@ -497,6 +476,7 @@ class PaymentDialog extends StatefulWidget {
     required this.parentContext,
     this.isDelivery = false,
     this.deliveryPartner,
+    this.prefill,
     required this.onSave,
   });
 
@@ -548,9 +528,46 @@ class _PaymentDialogState extends State<PaymentDialog> {
   @override
   void initState() {
     super.initState();
+    final prefill = widget.prefill;
+
     _finalAmount = widget.totalAmount;
+
+    if (prefill != null) {
+      _nameController.text = (prefill['name'] as String?)?.trim() ?? '';
+      _phoneController.text = (prefill['phone'] as String?)?.trim() ?? '';
+      _emailController.text = (prefill['email'] as String?)?.trim() ?? '';
+      _genderController.text = (prefill['gender'] as String?)?.trim() ?? '';
+      _onlineOrderNumberController.text = (prefill['onlineOrderNumber'] as String?)?.trim() ?? '';
+
+      final savedDisc = (prefill['discountAmount'] as num?)?.toDouble() ?? 0.0;
+      final savedDiscType = prefill['discountType'] as String?;
+      if (savedDisc > 0 && savedDiscType == 'percentage') {
+        _discountType = 'percentage';
+        final subtotal = widget.totalAmount;
+        final pct = subtotal > 0 ? (savedDisc / subtotal * 100) : 0.0;
+        _discountPercentController.text = pct > 0 ? pct.toStringAsFixed(2) : savedDisc.toString();
+        _discountAmountController.clear();
+      } else if (savedDisc > 0) {
+        _discountType = 'amount';
+        _discountAmountController.text = savedDisc.toString();
+        _discountPercentController.clear();
+      }
+    }
+
     _updateFinalAmount();
-    if (widget.isDelivery) {
+
+    final cashP = (prefill?['cash'] as num?)?.toDouble() ?? 0.0;
+    final creditP = (prefill?['credit'] as num?)?.toDouble() ?? 0.0;
+    final cardP = (prefill?['card'] as num?)?.toDouble() ?? 0.0;
+    final onlineP = (prefill?['online'] as num?)?.toDouble() ?? 0.0;
+    final hasSavedPayments = cashP + creditP + cardP + onlineP > 0.005;
+
+    if (hasSavedPayments) {
+      if (cashP > 0) _cashController.text = cashP.toStringAsFixed(2);
+      if (creditP > 0) _creditController.text = creditP.toStringAsFixed(2);
+      if (cardP > 0) _cardController.text = cardP.toStringAsFixed(2);
+      if (onlineP > 0) _onlineController.text = onlineP.toStringAsFixed(2);
+    } else if (widget.isDelivery) {
       if (_isPartnerDelivery) {
         _onlineController.text = _finalAmount.toStringAsFixed(2);
         _creditController.clear();
@@ -559,6 +576,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
         _onlineController.clear();
       }
     }
+
     _loadCustomers();
     _cashFocusNode.addListener(_onPaymentFocusCash);
     _cardFocusNode.addListener(_onPaymentFocusCard);
@@ -1152,18 +1170,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
               // CLOSE - light grey bg, dark blue border and text
               TextButton(
                 onPressed: () async {
-                  // #region agent log
-                  _dbgNav(
-                    hypothesisId: "D",
-                    location: "desktop_cart_panel.dart:PaymentDialog._footer",
-                    message: "CLOSE pressed",
-                    data: {
-                      "closeSheetOnClose": widget.closeSheetOnClose,
-                      "dialogCanPopBefore": Navigator.canPop(context),
-                      "parentCanPopBefore": Navigator.canPop(widget.parentContext),
-                    },
-                  );
-                  // #endregion
                   Navigator.of(context, rootNavigator: true).pop();
                   if (widget.closeSheetOnClose && widget.parentContext.mounted) {
                     await Navigator.maybePop(widget.parentContext);
@@ -1194,11 +1200,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         final isNormalDelivery = widget.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
                         if (isNormalDelivery && _phoneController.text.trim().isEmpty) {
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Customer number (Contact Number) is required for Normal delivery'),
-                                backgroundColor: Colors.red,
-                              ),
+                            CustomSnackBar.showError(
+                              message:
+                                  'Customer number (Contact Number) is required for Normal delivery',
                             );
                           }
                           return;
@@ -1213,33 +1217,22 @@ class _PaymentDialogState extends State<PaymentDialog> {
                           final remaining = _finalAmount - total;
                           if (remaining > 0.01) {
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
+                              CustomSnackBar.showError(
+                                message:
                                     'Amount payable must be 0. Add ${remaining.toStringAsFixed(2)} more.',
-                                  ),
-                                  backgroundColor: Colors.red.shade700,
-                                ),
                               );
                             }
                           } else if (total > _finalAmount + 0.01) {
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
+                              CustomSnackBar.showError(
+                                message:
                                     'Payment total (${total.toStringAsFixed(2)}) exceeds amount payable (${_finalAmount.toStringAsFixed(2)}).',
-                                  ),
-                                  backgroundColor: Colors.red.shade700,
-                                ),
                               );
                             }
                           } else {
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Payment total must match amount payable.'),
-                                  backgroundColor: Colors.red,
-                                ),
+                              CustomSnackBar.showError(
+                                message: 'Payment total must match amount payable.',
                               );
                             }
                           }
@@ -1248,16 +1241,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         setState(() => _isSubmitting = true);
                         try {
                           await _saveNewCustomerIfNeeded();
-                          // #region agent log
-                          _dbgNav(
-                            hypothesisId: "E",
-                            location: "desktop_cart_panel.dart:PaymentDialog._footer",
-                            message: "SUBMIT before widget.onSave",
-                            data: {
-                              "dialogCanPopBefore": Navigator.canPop(context),
-                            },
-                          );
-                          // #endregion
                           await widget.onSave(
                             {
                               'name': _nameController.text,
@@ -1278,16 +1261,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
                               'other': double.tryParse(_otherController.text) ?? 0,
                             },
                           );
-                          // #region agent log
-                          _dbgNav(
-                            hypothesisId: "E",
-                            location: "desktop_cart_panel.dart:PaymentDialog._footer",
-                            message: "SUBMIT after widget.onSave, before pop",
-                            data: {
-                              "dialogCanPopBefore": Navigator.canPop(context),
-                            },
-                          );
-                          // #endregion
                         } finally {
                           if (mounted) {
                             setState(() => _isSubmitting = false);

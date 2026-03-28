@@ -54,6 +54,31 @@ class CartCubit extends Cubit<CartState> {
   /// True when this screen was opened for editing an order (e.g. from Take Away Log). Hide reference/KOT popup.
   bool get isOpenedForEdit => _openedForEdit;
 
+  Future<Map<String, dynamic>?> getPaymentPrefillForEdit() async {
+    if (!_openedForEdit || _editingOrderId == null) {
+      return null;
+    }
+
+    final order = await orderRepo.getOrderById(_editingOrderId!);
+    if (order == null) {
+      return null;
+    }
+
+    return <String, dynamic>{
+      "name": order.customerName,
+      "phone": order.customerPhone,
+      "email": order.customerEmail,
+      "gender": order.customerGender,
+      "onlineOrderNumber": order.referenceNumber,
+      "cash": order.cashAmount,
+      "credit": order.creditAmount,
+      "card": order.cardAmount,
+      "online": order.onlineAmount,
+      "discountAmount": order.discountAmount,
+      "discountType": order.discountType,
+    };
+  }
+
   double get cartDiscountAmount => _cartDiscountAmount;
   String? get cartDiscountType => _cartDiscountType;
   Future<void> addItemToCart(
@@ -365,7 +390,9 @@ class CartCubit extends Cubit<CartState> {
   /// Load cart for editing an order (e.g. from Take Away Log). Does not persist as active cart.
   Future<void> loadCartFromOrder(int orderId) async {
     final order = await orderRepo.getOrderById(orderId);
-    if (order == null) return;
+    if (order == null) {
+      return;
+    }
 
     // Editing an order is not "new item" flow — clear session's active cart so we don't restore this later
     await _clearPersistedCartId();
@@ -392,8 +419,9 @@ class CartCubit extends Cubit<CartState> {
       _currentKOTOrderId = order.id;
       _editingOrderId = order.id; // Pay will update this order (not create new)
       _editingOrderStatus = order.status;
-    } else if (order.status == 'placed' || order.status == 'completed') {
-      // Track that we're editing a paid order
+    } else if (order.status == 'placed' || order.status == 'completed' || order.orderType == 'delivery') {
+      // Delivery-log edit should always update the existing order, regardless of status.
+      // Paid take-away edits also update existing order.
       _editingOrderId = order.id;
       _editingOrderStatus = order.status;
     }

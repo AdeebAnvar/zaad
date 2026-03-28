@@ -4,18 +4,25 @@ class CustomSheet {
   static Future<T?> show<T>({
     required BuildContext context,
     required Widget child,
+    double maxChildSize = 0.85,
+    double minChildSize = 0.4,
+    double initialChildSize = 0.5,
+    bool expand = false,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(20),
   }) {
-    return showModalBottomSheet(
+    return showModalBottomSheet<T>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) {
         return DraggableScrollableSheet(
-          maxChildSize: 0.85,
-          minChildSize: 0.4,
+          maxChildSize: maxChildSize,
+          minChildSize: minChildSize,
+          initialChildSize: initialChildSize,
+          expand: expand,
           builder: (_, controller) {
             return Container(
-              padding: const EdgeInsets.all(20),
+              padding: padding,
               decoration: const BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20)),

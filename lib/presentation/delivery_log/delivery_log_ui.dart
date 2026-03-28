@@ -13,10 +13,15 @@ import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_cubit.dart';
 import 'package:pos/presentation/driver_log/driver_log_screen.dart';
+import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
+import 'package:pos/presentation/widgets/custom_loading.dart';
+import 'package:pos/presentation/widgets/custom_outlined_button.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
+import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
+import 'package:pos/presentation/widgets/custom_toast.dart';
 
 class DeliveryLogScreen extends StatelessWidget {
   const DeliveryLogScreen({super.key});
@@ -30,18 +35,23 @@ class DeliveryLogScreen extends StatelessWidget {
       body: BlocBuilder<DeliveryLogCubit, DeliveryLogState>(
         builder: (context, state) {
           if (state is DeliveryLogLoading) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: CustomLoading());
           }
           if (state is DeliveryLogError) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text('Error: ${state.message}'),
+                  Text(
+                    'Error: ${state.message}',
+                    style: AppStyles.getRegularTextStyle(fontSize: 15, color: AppColors.textColor),
+                    textAlign: TextAlign.center,
+                  ),
                   const SizedBox(height: 16),
-                  ElevatedButton(
+                  CustomButton(
+                    width: 120,
                     onPressed: () => context.read<DeliveryLogCubit>().loadOrders(),
-                    child: const Text('Retry'),
+                    text: 'Retry',
                   ),
                 ],
               ),
@@ -92,12 +102,12 @@ class DeliveryLogScreen extends StatelessWidget {
                               ),
                             ),
                           if (state.orders.isEmpty)
-                            const Center(
+                            Center(
                               child: Padding(
-                                padding: EdgeInsets.all(32.0),
+                                padding: const EdgeInsets.all(32.0),
                                 child: Text(
                                   'No delivery orders found',
-                                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                                  style: AppStyles.getRegularTextStyle(fontSize: 16, color: AppColors.hintFontColor),
                                 ),
                               ),
                             )
@@ -118,15 +128,21 @@ class DeliveryLogScreen extends StatelessWidget {
                                 children: state.orders
                                     .asMap()
                                     .entries
-                                    .map((e) => SizedBox(
-                                          width: cardWidth,
-                                          child: _DeliveryCard(
-                                            order: e.value,
-                                            serialNo: e.key + 1,
-                                            normalTab: normalTab,
-                                            selected: state.normalSelection.contains(e.value.id),
-                                          ),
-                                        ))
+                                    .map((e) {
+                                      final o = e.value;
+                                      final isNormalOrder =
+                                          o.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
+                                      return SizedBox(
+                                        width: cardWidth,
+                                        child: _DeliveryCard(
+                                          order: o,
+                                          serialNo: e.key + 1,
+                                          showNormalBulkCheckbox:
+                                              normalTab && isNormalOrder,
+                                          selected: state.normalSelection.contains(o.id),
+                                        ),
+                                      );
+                                    })
                                     .toList(),
                               );
                             }),
@@ -156,33 +172,23 @@ class _MobileDeliveryFilterFab extends StatelessWidget {
     return FloatingActionButton(
       onPressed: () {
         final deliveryLogCubit = context.read<DeliveryLogCubit>();
-        showModalBottomSheet(
+        CustomSheet.show(
           context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.white,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          builder: (_) => BlocProvider.value(
+          maxChildSize: 0.9,
+          minChildSize: 0.4,
+          initialChildSize: 0.6,
+          padding: EdgeInsets.zero,
+          child: BlocProvider.value(
             value: deliveryLogCubit,
-            child: DraggableScrollableSheet(
-              initialChildSize: 0.6,
-              minChildSize: 0.4,
-              maxChildSize: 0.9,
-              expand: false,
-              builder: (_, scrollController) => BlocBuilder<DeliveryLogCubit, DeliveryLogState>(
+            child: Padding(
+              padding: AppPadding.screenAll,
+              child: BlocBuilder<DeliveryLogCubit, DeliveryLogState>(
                 builder: (context, sheetState) {
-                  return SingleChildScrollView(
-                    controller: scrollController,
-                    child: Padding(
-                      padding: AppPadding.screenAll,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const _DeliveryFilterBar(),
-                        ],
-                      ),
-                    ),
+                  return const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _DeliveryFilterBar(),
+                    ],
                   );
                 },
               ),
@@ -216,15 +222,11 @@ class _NormalDriverAssignBarState extends State<_NormalDriverAssignBar> {
 
   Future<void> _confirmAndAssign(BuildContext context) async {
     if (widget.selection.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select one or more orders (checkbox).')),
-      );
+      CustomSnackBar.showWarning(message: 'Select one or more orders (checkbox).');
       return;
     }
     if (_driverId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Choose a driver.')),
-      );
+      CustomSnackBar.showWarning(message: 'Choose a driver.');
       return;
     }
     Driver? driver;
@@ -236,22 +238,12 @@ class _NormalDriverAssignBarState extends State<_NormalDriverAssignBar> {
     }
     if (driver == null) return;
     final driverName = driver.name;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Assign driver'),
-        content: Text(
+    final ok = await showAppConfirmDialog(
+      context,
+      title: 'Assign driver',
+      message:
           'Assign $driverName to ${widget.selection.length} order(s) and set status to Assigned?',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryColor, foregroundColor: Colors.white),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
+      confirmText: 'Confirm',
     );
     if (ok != true || !context.mounted) return;
     final err = await context.read<DeliveryLogCubit>().assignDriverToOrders(
@@ -261,10 +253,10 @@ class _NormalDriverAssignBarState extends State<_NormalDriverAssignBar> {
         );
     if (!context.mounted) return;
     if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      CustomSnackBar.showError(message: err);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Driver assigned to ${widget.selection.length} order(s).')),
+      CustomSnackBar.showSuccess(
+        message: 'Driver assigned to ${widget.selection.length} order(s).',
       );
     }
   }
@@ -479,9 +471,8 @@ class _PartnerTabs extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     child: Text(
                       t.label,
-                      style: TextStyle(
+                      style: AppStyles.getSemiBoldTextStyle(
                         fontSize: 13,
-                        fontWeight: FontWeight.w600,
                         color: isSelected ? Colors.white : AppColors.primaryColor,
                       ),
                     ),
@@ -496,16 +487,29 @@ class _PartnerTabs extends StatelessWidget {
   }
 }
 
+/// Name and phone when both exist (matches filter bar style); otherwise whichever is set.
+String _deliveryLogCustomerLabel(Order order) {
+  final name = order.customerName?.trim();
+  final phone = order.customerPhone?.trim();
+  final hasName = name != null && name.isNotEmpty;
+  final hasPhone = phone != null && phone.isNotEmpty;
+  if (hasName && hasPhone) return '$name - $phone';
+  if (hasPhone) return phone;
+  if (hasName) return name;
+  return '-';
+}
+
 class _DeliveryCard extends StatefulWidget {
   final Order order;
   final int serialNo;
-  final bool normalTab;
+  /// Bulk driver assign (Normal tab only); only for orders with partner NORMAL.
+  final bool showNormalBulkCheckbox;
   final bool selected;
 
   const _DeliveryCard({
     required this.order,
     required this.serialNo,
-    this.normalTab = false,
+    this.showNormalBulkCheckbox = false,
     this.selected = false,
   });
 
@@ -568,30 +572,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     required String title,
     required String message,
   }) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            style: TextButton.styleFrom(foregroundColor: AppColors.primaryColor),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primaryColor,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await showAppConfirmDialog(context, title: title, message: message);
     return confirmed == true;
   }
 
@@ -628,7 +609,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  if (widget.normalTab)
+                  if (widget.showNormalBulkCheckbox)
                     Padding(
                       padding: const EdgeInsets.only(right: 6),
                       child: Checkbox(
@@ -651,9 +632,10 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                             children: [
                               const Icon(Icons.local_shipping, size: 14, color: Colors.white),
                               const SizedBox(width: 6),
-                              Text('DELIVERY - ${partnerLabel.toUpperCase()}',
-                                  style: const TextStyle(
-                                      fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600)),
+                              Text(
+                                'DELIVERY - ${partnerLabel.toUpperCase()}',
+                                style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: Colors.white),
+                              ),
                             ],
                           ),
                         ),
@@ -692,7 +674,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                   ),
                   SizedBox(
                     width: 220,
-                    child: _infoRow('Customer', order.customerPhone ?? order.customerName ?? '-'),
+                    child: _infoRow('Customer', _deliveryLogCustomerLabel(order)),
                   ),
                   if (isNormal)
                     SizedBox(
@@ -720,34 +702,32 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _cleanActionButton(
+                  CustomOutlinedIconButton(
                     icon: Icons.remove_red_eye_outlined,
                     label: 'View',
-                    onTap: () => _handleView(context, order),
+                    onPressed: () => _handleView(context, order),
                   ),
-                  _cleanActionButton(
+                  CustomOutlinedIconButton(
                     icon: Icons.print_outlined,
                     label: 'Print',
-                    onTap: () => _handlePrint(context, order),
+                    onPressed: () => _handlePrint(context, order),
                   ),
-                  _cleanActionButton(
+                  CustomOutlinedIconButton(
                     icon: Icons.edit_outlined,
                     label: 'Edit',
-                    onTap: () => _handleEdit(context, order),
+                    onPressed: () => _handleEdit(context, order),
                   ),
-                  _cleanActionButton(
+                  CustomOutlinedIconButton(
                     icon: Icons.delete_outline,
                     label: 'Delete',
-                    onTap: () => _handleDelete(context, order),
                     danger: true,
+                    onPressed: () => _handleDelete(context, order),
                   ),
-                  _cleanActionButton(
+                  CustomOutlinedIconButton(
                     icon: Icons.drive_file_move_outline,
                     label: 'Move',
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Move - Coming soon')),
-                      );
+                    onPressed: () {
+                      CustomSnackBar.showInfo(message: 'Move - Coming soon');
                     },
                   ),
                 ],
@@ -829,7 +809,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Status', style: TextStyle(fontSize: 11, color: Colors.grey)),
+        Text('Status', style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor)),
         const SizedBox(height: 4),
         DropdownButtonFormField<String>(
           key: ValueKey<String>('status_${widget.order.id}_$_statusDropdownRevision'),
@@ -856,7 +836,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
             final err = await context.read<DeliveryLogCubit>().updateOrderStatus(widget.order.id, newStatus);
             if (!mounted) return;
             if (err != null) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+              CustomSnackBar.showError(message: err);
               setState(() => _statusDropdownRevision++);
             }
           },
@@ -876,7 +856,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Payment Type', style: TextStyle(fontSize: 11, color: Colors.grey)),
+        Text('Payment Type', style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor)),
         const SizedBox(height: 4),
         DropdownButtonFormField<String>(
           key: ValueKey<String>('pay_${widget.order.id}_$_paymentDropdownRevision'),
@@ -906,36 +886,6 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     );
   }
 
-  Widget _cleanActionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    bool danger = false,
-  }) {
-    return OutlinedButton.icon(
-      onPressed: onTap,
-      icon: Icon(
-        icon,
-        size: 18,
-        color: danger ? Colors.red : AppColors.primaryColor,
-      ),
-      label: Text(
-        label,
-        style: AppStyles.getMediumTextStyle(
-          fontSize: 13,
-          color: danger ? Colors.red : AppColors.primaryColor,
-        ),
-      ),
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        side: BorderSide(
-          color: danger ? Colors.red.withOpacity(0.35) : AppColors.primaryColor.withOpacity(0.25),
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
-
   void _handleEdit(BuildContext context, Order order) {
     Navigator.pushNamed(
       context,
@@ -955,37 +905,28 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     final printService = locator<PrintService>();
     final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
     if (cartItems == null || cartItems.isEmpty) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No items to print')));
+      if (context.mounted) CustomSnackBar.showWarning(message: 'No items to print');
       return;
     }
     try {
       await printService.printFinalBill(order: order, cartItems: cartItems);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill sent to printer')));
+      if (context.mounted) CustomSnackBar.showSuccess(message: 'Bill sent to printer');
     } catch (e) {
       if (context.mounted) showErrorDialog(context, e);
     }
   }
 
-  void _handleDelete(BuildContext context, Order order) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Order'),
-        content: Text('Are you sure you want to delete order ${order.invoiceNumber}?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          CustomButton(
-            width: 100,
-            backgroundColor: Colors.red,
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await context.read<DeliveryLogCubit>().deleteOrder(order.id);
-            },
-            text: 'Delete',
-          ),
-        ],
-      ),
+  Future<void> _handleDelete(BuildContext context, Order order) async {
+    final ok = await showAppConfirmDialog(
+      context,
+      title: 'Delete Order',
+      message: 'Are you sure you want to delete order ${order.invoiceNumber}?',
+      confirmText: 'Delete',
+      confirmBackgroundColor: Colors.red,
     );
+    if (ok == true && context.mounted) {
+      await context.read<DeliveryLogCubit>().deleteOrder(order.id);
+    }
   }
 
   Future<void> _handleView(BuildContext context, Order order) async {
@@ -994,7 +935,11 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
     if (cartItems == null || cartItems.isEmpty) {
       if (!context.mounted) return;
-      showDialog(context: context, builder: (_) => const AlertDialog(title: Text('Order Details'), content: Text('No items found in this order.')));
+      await showAppMessageDialog(
+        context,
+        title: 'Order Details',
+        message: 'No items found in this order.',
+      );
       return;
     }
     final List<Map<String, dynamic>> itemsWithDetails = [];
@@ -1005,30 +950,35 @@ class _DeliveryCardState extends State<_DeliveryCard> {
       itemsWithDetails.add({'cartItem': cartItem, 'item': item, 'variant': variant, 'topping': topping});
     }
     if (context.mounted) {
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: Text('Order ${order.invoiceNumber}'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (order.deliveryPartner != null) Text('Partner: ${order.deliveryPartner}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
-                ...itemsWithDetails.map((m) {
-                  final item = m['item'] as Item?;
-                  final cartItem = m['cartItem'] as CartItem;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text('${item?.name ?? "?"} x${cartItem.quantity} - ₹${cartItem.total.toStringAsFixed(2)}'),
-                  );
-                }),
-              ],
-            ),
+      await showAppMessageDialog(
+        context,
+        title: 'Order ${order.invoiceNumber}',
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (order.deliveryPartner != null)
+                Text(
+                  'Partner: ${order.deliveryPartner}',
+                  style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
+                ),
+              const SizedBox(height: 12),
+              ...itemsWithDetails.map((m) {
+                final item = m['item'] as Item?;
+                final cartItem = m['cartItem'] as CartItem;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    '${item?.name ?? "?"} x${cartItem.quantity} - ₹${cartItem.total.toStringAsFixed(2)}',
+                    style: AppStyles.getRegularTextStyle(fontSize: 14),
+                  ),
+                );
+              }),
+            ],
           ),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
         ),
+        okText: 'Close',
       );
     }
   }
