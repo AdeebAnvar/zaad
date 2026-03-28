@@ -15,8 +15,10 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     emit(DineInLogLoading());
     try {
       final orders = await orderRepo.filterOrders(orderType: 'dine_in');
-      final active = orders.where((o) => o.status != 'completed' && o.status != 'cancelled').toList();
-      emit(DineInLogLoaded(active));
+      // Show KOT + paid + other active; exclude cancelled (same idea as floor + history).
+      final visible = orders.where((o) => o.status != 'cancelled').toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      emit(DineInLogLoaded(visible));
     } catch (e) {
       emit(DineInLogError(e.toString()));
     }
@@ -41,7 +43,12 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         startDate: startDate,
         endDate: endDate,
       );
-      orders = orders.where((o) => o.status != 'completed' && o.status != 'cancelled').toList();
+      if (status == null || status.isEmpty || status == 'All') {
+        orders = orders.where((o) => o.status != 'cancelled').toList();
+      } else {
+        orders = orders.where((o) => o.status == status).toList();
+      }
+      orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       emit(DineInLogLoaded(orders));
     } catch (e) {
       emit(DineInLogError(e.toString()));

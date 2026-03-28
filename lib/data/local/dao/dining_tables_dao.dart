@@ -33,4 +33,6 @@ class DiningTablesDao extends DatabaseAccessor<AppDatabase> with _$DiningTablesD
 
   Future<List<DiningTable>> getTablesByFloor(int floorId) =>
       (select(diningTables)..where((t) => t.floorId.equals(floorId))..orderBy([(t) => OrderingTerm.asc(t.code)])).get();
+
+  Future<List<DiningTable>> getAllDiningTables() => select(diningTables).get();
 }

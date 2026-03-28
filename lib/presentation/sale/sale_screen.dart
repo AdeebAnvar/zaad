@@ -64,11 +64,14 @@ class SaleScreenFunction {
       ),
       builder: (_) => BlocProvider.value(
         value: cartCubit,
-        child: CartPanel(onCloseCart: (sheetClosed) {
-          if (sheetClosed) {
-            Navigator.pop(context);
-          }
-        }),
+        child: CartPanel(
+          closeOnComplete: cartCubit.orderType == 'dine_in',
+          onCloseCart: (sheetClosed) {
+            if (sheetClosed) {
+              Navigator.pop(context);
+            }
+          },
+        ),
       ),
     );
   }

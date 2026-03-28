@@ -1,12 +1,10 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:multi_expansion_card/multi_expansion_card.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/utils/dine_in_sale_navigation.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/repository/customer_repository.dart';
@@ -16,29 +14,6 @@ import 'package:pos/presentation/sale/desktop/desktop_cart_item_tile.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
-
-// #region agent log
-void _dbgNav({
-  required String hypothesisId,
-  required String location,
-  required String message,
-  Map<String, dynamic>? data,
-}) {
-  try {
-    final payload = <String, dynamic>{
-      "sessionId": "4f647b",
-      "runId": "payment-pop-debug",
-      "hypothesisId": hypothesisId,
-      "location": location,
-      "message": message,
-      "data": data ?? const {},
-      "timestamp": DateTime.now().millisecondsSinceEpoch,
-    };
-
-    File("debug-4f647b.log").writeAsStringSync("${jsonEncode(payload)}\n", mode: FileMode.append);
-  } catch (_) {}
-}
-// #endregion
 
 class CartPanel extends StatelessWidget {
   const CartPanel({
@@ -197,6 +172,7 @@ class CartPanel extends StatelessWidget {
                                                   if (closeOnComplete) {
                                                     Navigator.maybePop(context);
                                                   }
+                                                  schedulePopSaleScreenToDineIn(context);
                                                 }
                                               } catch (e) {
                                                 if (context.mounted) showErrorDialog(context, e);
@@ -244,6 +220,7 @@ class CartPanel extends StatelessWidget {
                                                 if (closeOnComplete) {
                                                   Navigator.maybePop(context);
                                                 }
+                                                schedulePopSaleScreenToDineIn(context);
                                               }
                                             } catch (e) {
                                               if (context.mounted) showErrorDialog(context, e);
@@ -384,6 +361,14 @@ class CartPanel extends StatelessWidget {
                             text: 'Save',
                             onPressed: () async {
                               final value = referenceController.text.trim();
+                              if (value.isEmpty) {
+                                if (parentContext.mounted) {
+                                  ScaffoldMessenger.of(parentContext).showSnackBar(
+                                    const SnackBar(content: Text('Enter a reference number for KOT')),
+                                  );
+                                }
+                                return;
+                              }
                               try {
                                 final printFailed = await cartCubit.saveKOT(value);
                                 if (!context.mounted) return;
@@ -395,6 +380,7 @@ class CartPanel extends StatelessWidget {
                                 if (closeOnComplete && parentContext.mounted) {
                                   Navigator.of(parentContext).pop();
                                 }
+                                schedulePopSaleScreenToDineIn(parentContext);
                               } catch (e) {
                                 if (context.mounted) {
                                   showErrorDialog(context, e);
@@ -462,6 +448,9 @@ class CartPanel extends StatelessWidget {
 
             if (context.mounted && closeOnComplete) {
               Navigator.of(context).pop(); // close sheet
+            }
+            if (context.mounted) {
+              schedulePopSaleScreenToDineIn(context);
             }
           } catch (e) {
             if (dialogContext.mounted) {
@@ -558,6 +547,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
         _creditController.text = _finalAmount.toStringAsFixed(2);
         _onlineController.clear();
       }
+    } else {
+      // Take away & dine in: default full amount to cash so SUBMIT can pass validation.
+      _cashController.text = _finalAmount.toStringAsFixed(2);
     }
     _loadCustomers();
     _cashFocusNode.addListener(_onPaymentFocusCash);
@@ -1152,18 +1144,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
               // CLOSE - light grey bg, dark blue border and text
               TextButton(
                 onPressed: () async {
-                  // #region agent log
-                  _dbgNav(
-                    hypothesisId: "D",
-                    location: "desktop_cart_panel.dart:PaymentDialog._footer",
-                    message: "CLOSE pressed",
-                    data: {
-                      "closeSheetOnClose": widget.closeSheetOnClose,
-                      "dialogCanPopBefore": Navigator.canPop(context),
-                      "parentCanPopBefore": Navigator.canPop(widget.parentContext),
-                    },
-                  );
-                  // #endregion
                   Navigator.of(context, rootNavigator: true).pop();
                   if (widget.closeSheetOnClose && widget.parentContext.mounted) {
                     await Navigator.maybePop(widget.parentContext);
@@ -1248,16 +1228,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         setState(() => _isSubmitting = true);
                         try {
                           await _saveNewCustomerIfNeeded();
-                          // #region agent log
-                          _dbgNav(
-                            hypothesisId: "E",
-                            location: "desktop_cart_panel.dart:PaymentDialog._footer",
-                            message: "SUBMIT before widget.onSave",
-                            data: {
-                              "dialogCanPopBefore": Navigator.canPop(context),
-                            },
-                          );
-                          // #endregion
                           await widget.onSave(
                             {
                               'name': _nameController.text,
@@ -1278,16 +1248,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
                               'other': double.tryParse(_otherController.text) ?? 0,
                             },
                           );
-                          // #region agent log
-                          _dbgNav(
-                            hypothesisId: "E",
-                            location: "desktop_cart_panel.dart:PaymentDialog._footer",
-                            message: "SUBMIT after widget.onSave, before pop",
-                            data: {
-                              "dialogCanPopBefore": Navigator.canPop(context),
-                            },
-                          );
-                          // #endregion
                         } finally {
                           if (mounted) {
                             setState(() => _isSubmitting = false);
