@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/custom_loading.dart';
 
 class CustomDialog {
@@ -36,22 +37,15 @@ class CustomDialog {
       context: context,
       barrierDismissible: true,
       builder: (ctx) {
-        final screenWidth = MediaQuery.of(context).size.width;
-        final screenHeight = MediaQuery.of(context).size.height;
-
-        // Responsive width
-        double dialogWidth = screenWidth * 0.9;
-        if (screenWidth > 1200)
-          dialogWidth = 600;
-        else if (screenWidth > 800) dialogWidth = 500;
+        final screenHeight = MediaQuery.sizeOf(ctx).height;
 
         return Dialog(
           backgroundColor: Colors.white,
-          insetPadding: const EdgeInsets.all(16),
+          insetPadding: AppDialogLayout.insetPadding(ctx),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxWidth: dialogWidth,
+              maxWidth: AppDialogLayout.maxContentWidth(ctx),
               maxHeight: screenHeight * 0.9,
             ),
             child: Padding(
@@ -63,7 +57,7 @@ class CustomDialog {
                     if (title != null) ...[
                       Text(
                         title,
-                        style: Theme.of(context).textTheme.headlineMedium,
+                        style: Theme.of(ctx).textTheme.headlineMedium,
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 20),

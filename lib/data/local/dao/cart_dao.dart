@@ -74,6 +74,15 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
     return (select(carts)..where((c) => c.id.equals(cartId))).getSingleOrNull();
   }
 
+  Future<void> updateCartOrderInfo(int cartId, {required String orderType, String? deliveryPartner}) {
+    return (update(carts)..where((c) => c.id.equals(cartId))).write(
+      CartsCompanion(
+        orderType: Value(orderType),
+        deliveryPartner: Value(deliveryPartner),
+      ),
+    );
+  }
+
   /* ───────── CART ITEMS ───────── */
 
   Future<int> addCartItem(CartItemsCompanion data) {
@@ -94,10 +103,42 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
     return (delete(cartItems)..where((c) => c.id.equals(id))).go();
   }
 
+  /// Move existing lines to another cart (split / merge bills).
+  Future<void> reassignCartItemsToCart(List<int> cartItemIds, int targetCartId) async {
+    if (cartItemIds.isEmpty) return;
+    await (update(cartItems)..where((c) => c.id.isIn(cartItemIds)))
+        .write(CartItemsCompanion(cartId: Value(targetCartId)));
+  }
+
   Future<List<CartItem>> getItemsByCart(int cartId) {
     return (select(cartItems)
           ..where((c) => c.cartId.equals(cartId))
           ..orderBy([(c) => OrderingTerm.desc(c.id)]))
         .get();
+  }
+
+  /// One query: line counts per cart (for order log cards, split visibility).
+  Future<Map<int, int>> countCartItemsByCartIds(List<int> cartIds) async {
+    if (cartIds.isEmpty) return {};
+    final map = {for (final id in cartIds) id: 0};
+    final rows = await (select(cartItems)..where((c) => c.cartId.isIn(cartIds))).get();
+    for (final row in rows) {
+      map[row.cartId] = (map[row.cartId] ?? 0) + 1;
+    }
+    return map;
+  }
+
+  /// Highest numeric suffix for cart invoices starting with [prefix] (pairs with [OrdersDao.maxInvoiceNumericSuffixForPrefix]).
+  Future<int> maxInvoiceNumericSuffixForPrefix(String prefix) async {
+    final rows = await (select(carts)..where((c) => c.invoiceNumber.like('$prefix%'))).get();
+    var max = 0;
+    for (final c in rows) {
+      final inv = c.invoiceNumber;
+      if (!inv.startsWith(prefix)) continue;
+      final tail = inv.substring(prefix.length);
+      final v = int.tryParse(tail);
+      if (v != null && v > max) max = v;
+    }
+    return max;
   }
 }

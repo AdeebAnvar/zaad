@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/navigation.dart';
 import 'package:pos/app/routes.dart';
@@ -215,8 +216,92 @@ class _DineInScreenState extends State<DineInScreen> {
       args: {
         'orderType': 'dine_in',
         'referenceNumber': reference,
+        'fromDineIn': true,
       },
     ).then((_) => _load());
+  }
+
+  /// Active dine-in orders whose reference maps to this table on the current floor (same rules as allocation).
+  List<Order> _ordersForTable(DiningTable table) {
+    if (_floors.isEmpty || _selectedFloorIndex < 0 || _selectedFloorIndex >= _floors.length) {
+      return [];
+    }
+    final floorId = _floors[_selectedFloorIndex].id;
+    final keysOnFloor = _tables.map((t) => _tableKey(t.code)).toSet();
+    final tableCode = _tableKey(table.code);
+
+    final list = _activeDineInOrders.where((o) {
+      final ref = o.referenceNumber;
+      final leadFloor = _extractLeadingFloorId(ref);
+      final normalized = _stripLeadingFloorId(ref);
+      final code = _tableKey(_extractTableCode(normalized));
+      if (code != tableCode || !keysOnFloor.contains(code)) return false;
+
+      if (leadFloor != null) {
+        if (leadFloor != floorId) return false;
+      } else {
+        final floorsForCode = _tableCodeToFloorIds[tableCode];
+        if (floorsForCode == null || floorsForCode.length != 1 || floorsForCode.first != floorId) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
+  }
+
+  Future<void> _showTableOrders(DiningTable table) async {
+    final orders = _ordersForTable(table);
+    final useBottomSheet = MediaQuery.sizeOf(context).width < 900;
+
+    Future<void> openOrder(Order order) async {
+      Navigator.of(context).pop();
+      await AppNavigator.pushNamed(
+        Routes.counter,
+        args: {
+          'orderId': order.id,
+          'orderType': 'dine_in',
+          'fromDineIn': true,
+        },
+      );
+      if (mounted) await _load();
+    }
+
+    final panel = _DineInTableOrdersPanel(
+      tableCode: table.code,
+      orders: orders,
+      onOrderTap: openOrder,
+    );
+
+    if (!mounted) return;
+    if (useBottomSheet) {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(ctx).height * 0.62,
+            child: panel,
+          ),
+        ),
+      );
+    } else {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440, maxHeight: 520),
+            child: panel,
+          ),
+        ),
+      );
+    }
   }
 
   Future<int?> _showChairAssignmentDialog({
@@ -282,23 +367,23 @@ class _DineInScreenState extends State<DineInScreen> {
                               crossAxisCount: isMobile ? 2 : cols,
                               crossAxisSpacing: 12,
                               mainAxisSpacing: 12,
-                              childAspectRatio: isMobile ? 1 : 1.05,
+                              // Mobile: square cells (1.0) were too short for _TableCard (chair rows + table + footer).
+                              childAspectRatio: isMobile ? 0.65 : 1.05,
                             ),
                             itemBuilder: (_, i) {
                               final t = _tables[i];
                               final tableCode = _tableKey(t.code);
                               final activeOrders = _activeOrdersPerTable[tableCode] ?? 0;
                               final occupiedPax = _occupiedPaxForTable(t);
-                              final allocated = activeOrders > 0 || t.status.toLowerCase() == 'allocated';
                               final canAddOrder = occupiedPax < t.chairs;
                               return _TableCard(
                                 key: ValueKey('dine_table_${t.id}_$occupiedPax'),
                                 code: t.code,
                                 chairs: t.chairs,
                                 occupiedPax: occupiedPax,
-                                allocated: allocated,
                                 activeOrders: activeOrders,
                                 canAddOrder: canAddOrder,
+                                onViewOrders: () => _showTableOrders(t),
                                 onAdd: () => _openCounterForTable(t),
                               );
                             },
@@ -366,6 +451,88 @@ class _DineInScreenState extends State<DineInScreen> {
           );
         },
       ),
+    );
+  }
+}
+
+/// Lists active dine-in orders for one table; used inside a bottom sheet (mobile) or dialog (wide).
+class _DineInTableOrdersPanel extends StatelessWidget {
+  const _DineInTableOrdersPanel({
+    required this.tableCode,
+    required this.orders,
+    required this.onOrderTap,
+  });
+
+  final String tableCode;
+  final List<Order> orders;
+  final ValueChanged<Order> onOrderTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 4, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Orders — Table $tableCode',
+                  style: AppStyles.getSemiBoldTextStyle(fontSize: 18),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: orders.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      'No active orders on this table.',
+                      style: AppStyles.getRegularTextStyle(fontSize: 14, color: AppColors.hintFontColor),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  itemCount: orders.length,
+                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
+                  itemBuilder: (context, i) {
+                    final o = orders[i];
+                    final dateStr = DateFormat('dd MMM yyyy, HH:mm').format(o.createdAt);
+                    final ref = (o.referenceNumber ?? '').trim();
+                    return ListTile(
+                      leading: Icon(Icons.receipt_long_outlined, color: AppColors.primaryColor),
+                      title: Text(
+                        o.invoiceNumber,
+                        style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
+                      ),
+                      subtitle: Text(
+                        [
+                          o.status.toUpperCase(),
+                          dateStr,
+                          '₹ ${o.finalAmount.toStringAsFixed(2)}',
+                          if (ref.isNotEmpty) ref,
+                        ].join(' · '),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
+                      ),
+                      onTap: () => onOrderTap(o),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }
@@ -557,9 +724,9 @@ class _TableCard extends StatelessWidget {
     required this.code,
     required this.chairs,
     required this.occupiedPax,
-    required this.allocated,
     required this.activeOrders,
     required this.canAddOrder,
+    required this.onViewOrders,
     required this.onAdd,
   });
 
@@ -568,9 +735,9 @@ class _TableCard extends StatelessWidget {
 
   /// Guests / pax from orders (clamped to [chairs]); first N seats show as ordered (red), rest available (green).
   final int occupiedPax;
-  final bool allocated;
   final int activeOrders;
   final bool canAddOrder;
+  final VoidCallback onViewOrders;
   final VoidCallback onAdd;
 
   static const Color _cardAccentFree = Color(0xFF64748B);
@@ -601,19 +768,38 @@ class _TableCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    code,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: accent),
+                  ),
                 ),
-                child: Text(code, style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: accent)),
               ),
-              const Spacer(),
+              Tooltip(
+                message: 'Orders on this table',
+                child: IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  icon: Icon(Icons.receipt_long_outlined, size: 22, color: AppColors.primaryColor),
+                  onPressed: onViewOrders,
+                ),
+              ),
               Tooltip(
                 message: canAddOrder ? 'Add customer order' : 'All seats occupied',
                 child: IconButton(
-                  icon: Icon(canAddOrder ? Icons.add_circle_outline : Icons.block),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  icon: Icon(canAddOrder ? Icons.add_circle_outline : Icons.block, size: 22),
                   color: canAddOrder ? AppColors.primaryColor : AppColors.hintFontColor,
                   onPressed: canAddOrder ? onAdd : null,
                 ),
@@ -647,13 +833,6 @@ class _TableCard extends StatelessWidget {
               facingDown: false,
             ),
           const Spacer(),
-          Text(
-            (allocated || busy) ? 'Accommodating' : 'Free',
-            style: AppStyles.getMediumTextStyle(
-              fontSize: 12,
-              color: (allocated || busy) ? _chairSeatOrdered : accent,
-            ),
-          ),
           if (activeOrders > 0)
             Text(
               '$activeOrders active order${activeOrders > 1 ? 's' : ''}',
@@ -681,14 +860,26 @@ class _ChairRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: List.generate(count, (i) {
-        final seatIndex = startSeatIndex + i;
-        final ordered = seatIndex < occupiedSeats;
-        final tint = ordered ? _chairSeatOrdered : _chairSeatAvailable;
-        return _ChairSeat(tint: tint, facingDown: facingDown);
-      }),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.center,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(count, (i) {
+                final seatIndex = startSeatIndex + i;
+                final ordered = seatIndex < occupiedSeats;
+                final tint = ordered ? _chairSeatOrdered : _chairSeatAvailable;
+                return _ChairSeat(tint: tint, facingDown: facingDown);
+              }),
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -50,7 +50,8 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
     DrawerMenuItem(
       icon: Icons.local_shipping_outlined,
       title: "Delivery Sale",
-      route: "/delivery_sale",
+      route: "/counter",
+      arguments: {'orderType': 'delivery', 'deliveryPartner': 'NORMAL'},
     ),
     DrawerMenuItem(
       icon: Icons.receipt_long_outlined,
@@ -129,7 +130,7 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
                   return _menuItem(
                     icon: item.icon,
                     title: item.title,
-                    onTap: () => _navigate(item.route),
+                    onTap: () => _navigate(item.route, arguments: item.arguments),
                     color: item.color ?? AppColors.textColor,
                   );
                 },
@@ -232,12 +233,13 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
   }
 
   // ================= ACTIONS =================
-  void _navigate(String route) {
+  void _navigate(String route, {Map<String, dynamic>? arguments}) {
     AppNavigator.pop(); // close drawer
 
-    if (AppNavigator.currentRoute == route) return;
+    // Same route without args (e.g. dashboard): avoid redundant replace.
+    if (arguments == null && AppNavigator.currentRoute == route) return;
 
-    AppNavigator.pushReplacementNamed(route);
+    AppNavigator.pushReplacementNamed(route, args: arguments);
   }
 
   void _logout() async {
@@ -270,11 +272,14 @@ class DrawerMenuItem {
   final String title;
   final String route;
   final Color? color;
+  /// Optional [Navigator] arguments (e.g. delivery counter: orderType + partner).
+  final Map<String, dynamic>? arguments;
 
   const DrawerMenuItem({
     required this.icon,
     required this.title,
     required this.route,
     this.color,
+    this.arguments,
   });
 }

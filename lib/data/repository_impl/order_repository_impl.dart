@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:pos/core/utils/invoice_number_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 
@@ -124,5 +125,14 @@ class OrderRepositoryImpl implements OrderRepository {
   @override
   Future<List<Order>> getDeliveryOrdersWithDriver() {
     return db.ordersDao.getDeliveryOrdersWithDriver();
+  }
+
+  @override
+  Future<String> getNextInvoiceNumber(String orderType) async {
+    final prefix = invoicePrefixForOrderType(orderType);
+    final oMax = await db.ordersDao.maxInvoiceNumericSuffixForPrefix(prefix);
+    final cMax = await db.cartsDao.maxInvoiceNumericSuffixForPrefix(prefix);
+    final next = (oMax > cMax ? oMax : cMax) + 1;
+    return formatShortInvoice(prefix, next);
   }
 }

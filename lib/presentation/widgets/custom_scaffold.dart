@@ -13,6 +13,9 @@ class CustomScaffold extends StatefulWidget {
   /// 'dashboard' | 'take_away' | 'take_away_log' — drives app bar nav icons to other screens.
   final String? appBarScreen;
 
+  /// When set (e.g. counter opened from Dine In floor plan), shows a leading back arrow that runs this callback.
+  final VoidCallback? onBack;
+
   const CustomScaffold({
     super.key,
     required this.title,
@@ -20,6 +23,7 @@ class CustomScaffold extends StatefulWidget {
     this.floatingActionButton,
     this.floatingActionButtonLocation,
     this.appBarScreen,
+    this.onBack,
   });
 
   @override
@@ -74,7 +78,7 @@ class _CustomScaffoldState extends State<CustomScaffold> {
     final drawerWidth = size.width > 600 ? size.width / 5 : size.width / 1.4;
 
     return Scaffold(
-      appBar: CustomAppBar(title: widget.title, screen: widget.appBarScreen),
+      appBar: CustomAppBar(title: widget.title, screen: widget.appBarScreen, onBack: widget.onBack),
       drawer: PosDrawer(
         width: drawerWidth,
         companyLogo: user?.companyLogoLocal ?? "",

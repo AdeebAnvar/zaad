@@ -151,4 +151,18 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
 
     return (query..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();
   }
+
+  /// Highest numeric suffix for invoices starting with [prefix] (e.g. `TA` → `TA01` → 1).
+  Future<int> maxInvoiceNumericSuffixForPrefix(String prefix) async {
+    final rows = await (select(orders)..where((o) => o.invoiceNumber.like('$prefix%'))).get();
+    var max = 0;
+    for (final o in rows) {
+      final inv = o.invoiceNumber;
+      if (!inv.startsWith(prefix)) continue;
+      final tail = inv.substring(prefix.length);
+      final v = int.tryParse(tail);
+      if (v != null && v > max) max = v;
+    }
+    return max;
+  }
 }

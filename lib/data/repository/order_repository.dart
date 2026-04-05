@@ -22,4 +22,7 @@ abstract class OrderRepository {
   });
 
   Future<List<Order>> getDeliveryOrdersWithDriver();
+
+  /// Next short receipt id for the channel (`TA01`, `DI02`, `DL01`, …).
+  Future<String> getNextInvoiceNumber(String orderType);
 }

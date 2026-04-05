@@ -204,7 +204,7 @@ class CartCubit extends Cubit<CartState> {
   Future<void> _ensureCart() async {
     if (_activeCartId != null) return;
 
-    final invoice = _generateInvoiceNumber();
+    final invoice = await orderRepo.getNextInvoiceNumber(orderType);
 
     _activeCartId = await cartRepo.createCart(
       invoice,
@@ -313,11 +313,11 @@ class CartCubit extends Cubit<CartState> {
       await orderRepo.updateOrder(updatedOrder);
       _currentKOTOrderId = existingKOT.id;
     } else {
-      // Create new KOT - always generate new invoice number for new KOT
+      // Create new KOT - new short receipt id per channel
       final order = Order(
         id: 0,
         cartId: _activeCartId!,
-        invoiceNumber: _generateInvoiceNumber(),
+        invoiceNumber: await orderRepo.getNextInvoiceNumber(orderType),
         referenceNumber: referenceNumber,
         totalAmount: totalAmount,
         discountAmount: 0,
@@ -470,7 +470,7 @@ class CartCubit extends Cubit<CartState> {
     }
 
     // Create order record
-    final invoiceNum = _invoiceNumber ?? _generateInvoiceNumber();
+    final invoiceNum = _invoiceNumber ?? await orderRepo.getNextInvoiceNumber(orderType);
     final refNumber = orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty
         ? onlineOrderNumber
         : (_currentKOTReference ?? invoiceNum);
@@ -635,13 +635,6 @@ class CartCubit extends Cubit<CartState> {
     _editingOrderStatus = null;
     await _clearCartStateOnly();
     return printFailed;
-  }
-
-  String _generateInvoiceNumber() {
-    final now = DateTime.now();
-    // Add a random component to ensure uniqueness even when called in quick succession
-    final random = DateTime.now().microsecondsSinceEpoch % 10000;
-    return 'INV-${now.millisecondsSinceEpoch}-$random';
   }
 
   Future<void> applyDiscount(

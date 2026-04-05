@@ -83,7 +83,22 @@ class CartRepositoryImpl implements CartRepository {
   }
 
   @override
+  Future<Map<int, int>> countCartItemsByCartIds(List<int> cartIds) {
+    return db.cartsDao.countCartItemsByCartIds(cartIds);
+  }
+
+  @override
+  Future<void> reassignCartItemsToCart(List<int> cartItemIds, int targetCartId) {
+    return db.cartsDao.reassignCartItemsToCart(cartItemIds, targetCartId);
+  }
+
+  @override
   Future<Cart?> getCartByCartId(int cartId) async {
     return db.cartsDao.getCartByCartId(cartId);
+  }
+
+  @override
+  Future<void> updateCartOrderInfo(int cartId, {required String orderType, String? deliveryPartner}) {
+    return db.cartsDao.updateCartOrderInfo(cartId, orderType: orderType, deliveryPartner: deliveryPartner);
   }
 }

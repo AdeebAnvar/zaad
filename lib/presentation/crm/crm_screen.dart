@@ -9,6 +9,8 @@ import 'package:pos/presentation/crm/crm_cubit.dart';
 import 'package:pos/presentation/crm/crm_customer_details_screen.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
+import 'package:pos/presentation/widgets/custom_sheet.dart';
+import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPanelDecoration;
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/app/navigation.dart';
 
@@ -68,17 +70,17 @@ class CrmScreen extends StatelessWidget {
                                   const Spacer(),
                                   IconButton(
                                     icon: const Icon(Icons.filter_list, color: AppColors.primaryColor),
-                                    onPressed: () => showModalBottomSheet(
-                                      context: context,
-                                      isScrollControlled: true,
-                                      shape: const RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                                      ),
-                                      builder: (_) => Padding(
-                                        padding: AppPadding.screenAll,
-                                        child: const _FilterBar(),
-                                      ),
-                                    ),
+                                    onPressed: () {
+                                      CustomSheet.show(
+                                        context: context,
+                                        maxChildSize: 0.92,
+                                        padding: EdgeInsets.zero,
+                                        child: Padding(
+                                          padding: AppPadding.screenAll,
+                                          child: const _FilterBar(),
+                                        ),
+                                      );
+                                    },
                                     tooltip: 'Filters',
                                   ),
                                 ],
@@ -165,18 +167,7 @@ class _FilterBarState extends State<_FilterBar> {
   Widget build(BuildContext context) {
     return Container(
       padding: AppPadding.card,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: filterPanelDecoration(borderRadius: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -234,6 +225,7 @@ class _FilterBarState extends State<_FilterBar> {
                         CustomButton(
                           text: 'Clear',
                           width: 100,
+                          elevation: 0,
                           onPressed: () {
                             _searchController.clear();
                             _nameController.clear();

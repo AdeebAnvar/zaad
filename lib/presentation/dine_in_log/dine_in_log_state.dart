@@ -7,8 +7,9 @@ class DineInLogInitial extends DineInLogState {}
 class DineInLogLoading extends DineInLogState {}
 
 class DineInLogLoaded extends DineInLogState {
-  DineInLogLoaded(this.orders);
+  DineInLogLoaded(this.orders, this.cartLineCountsByCartId);
   final List<Order> orders;
+  final Map<int, int> cartLineCountsByCartId;
 }
 
 class DineInLogError extends DineInLogState {

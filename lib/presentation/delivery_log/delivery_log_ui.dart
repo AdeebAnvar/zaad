@@ -7,6 +7,7 @@ import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
+import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
@@ -20,7 +21,9 @@ import 'package:pos/presentation/widgets/custom_loading.dart';
 import 'package:pos/presentation/widgets/custom_outlined_button.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
+import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPanelDecoration;
 import 'package:pos/presentation/widgets/custom_textfield.dart';
+import 'package:pos/presentation/widgets/move_order_dialog.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 
 class DeliveryLogScreen extends StatelessWidget {
@@ -175,8 +178,6 @@ class _MobileDeliveryFilterFab extends StatelessWidget {
         CustomSheet.show(
           context: context,
           maxChildSize: 0.9,
-          minChildSize: 0.4,
-          initialChildSize: 0.6,
           padding: EdgeInsets.zero,
           child: BlocProvider.value(
             value: deliveryLogCubit,
@@ -351,16 +352,7 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
   Widget build(BuildContext context) {
     return Container(
       padding: AppPadding.card,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-          )
-        ],
-      ),
+      decoration: filterPanelDecoration(),
       child: Wrap(
         spacing: 16,
         runSpacing: 12,
@@ -394,7 +386,7 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
               controller: _usersController,
             ),
           ),
-          CustomButton(width: 100, onPressed: _applyFilters, text: 'Submit'),
+          CustomButton(width: 100, onPressed: _applyFilters, text: 'Submit', elevation: 0),
         ],
       ),
     );
@@ -487,18 +479,6 @@ class _PartnerTabs extends StatelessWidget {
   }
 }
 
-/// Name and phone when both exist (matches filter bar style); otherwise whichever is set.
-String _deliveryLogCustomerLabel(Order order) {
-  final name = order.customerName?.trim();
-  final phone = order.customerPhone?.trim();
-  final hasName = name != null && name.isNotEmpty;
-  final hasPhone = phone != null && phone.isNotEmpty;
-  if (hasName && hasPhone) return '$name - $phone';
-  if (hasPhone) return phone;
-  if (hasName) return name;
-  return '-';
-}
-
 class _DeliveryCard extends StatefulWidget {
   final Order order;
   final int serialNo;
@@ -519,6 +499,8 @@ class _DeliveryCard extends StatefulWidget {
 
 class _DeliveryCardState extends State<_DeliveryCard> {
   bool _hovered = false;
+  /// Collapsed by default: customer details hidden; dropdowns and actions always visible.
+  bool _expanded = false;
   String _status = '';
   String _paymentType = '';
 
@@ -649,93 +631,162 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                height: 1,
-                color: AppColors.divider.withOpacity(0.7),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 20,
-                runSpacing: 10,
-                children: [
-                  SizedBox(
-                    width: 220,
-                    child: _infoRow('S.No', '${widget.serialNo}'),
-                  ),
-                  SizedBox(
-                    width: 220,
-                    child: _infoRow('Receipt No', order.invoiceNumber),
-                  ),
-                  SizedBox(
-                    width: 220,
-                    child: _infoRow('Order Number', order.referenceNumber ?? '-'),
-                  ),
-                  SizedBox(
-                    width: 220,
-                    child: _infoRow('Customer', _deliveryLogCustomerLabel(order)),
-                  ),
-                  if (isNormal)
-                    SizedBox(
-                      width: 220,
-                      child: _infoRow(
-                        'Assigned driver',
-                        (order.driverName != null && order.driverName!.trim().isNotEmpty)
-                            ? order.driverName!
-                            : '—',
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: _statusDropdown()),
-                  const SizedBox(width: 12),
-                  Expanded(child: _paymentTypeDropdown()),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  CustomOutlinedIconButton(
-                    icon: Icons.remove_red_eye_outlined,
-                    label: 'View',
-                    onPressed: () => _handleView(context, order),
-                  ),
-                  CustomOutlinedIconButton(
-                    icon: Icons.print_outlined,
-                    label: 'Print',
-                    onPressed: () => _handlePrint(context, order),
-                  ),
-                  CustomOutlinedIconButton(
-                    icon: Icons.edit_outlined,
-                    label: 'Edit',
-                    onPressed: () => _handleEdit(context, order),
-                  ),
-                  CustomOutlinedIconButton(
-                    icon: Icons.delete_outline,
-                    label: 'Delete',
-                    danger: true,
-                    onPressed: () => _handleDelete(context, order),
-                  ),
-                  CustomOutlinedIconButton(
-                    icon: Icons.drive_file_move_outline,
-                    label: 'Move',
-                    onPressed: () {
-                      CustomSnackBar.showInfo(message: 'Move - Coming soon');
-                    },
-                  ),
-                ],
-              ),
+              _buildCardBody(context, order: order, isNormal: isNormal),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildCardBody(
+    BuildContext context, {
+    required Order order,
+    required bool isNormal,
+  }) {
+    final hasCustomer = orderHasCustomerDetails(order);
+    final customerLabel = orderLogCustomerLabel(order);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          height: 1,
+          color: AppColors.divider.withOpacity(0.7),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 20,
+          runSpacing: 10,
+          children: [
+            SizedBox(
+              width: 220,
+              child: _infoRow('S.No', '${widget.serialNo}'),
+            ),
+            SizedBox(
+              width: 220,
+              child: _infoRow('Receipt No', order.invoiceNumber),
+            ),
+            SizedBox(
+              width: 220,
+              child: _infoRow('Order Number', order.referenceNumber ?? '-'),
+            ),
+            if (isNormal)
+              SizedBox(
+                width: 220,
+                child: _infoRow(
+                  'Assigned driver',
+                  (order.driverName != null && order.driverName!.trim().isNotEmpty)
+                      ? order.driverName!
+                      : '—',
+                ),
+              ),
+          ],
+        ),
+        if (hasCustomer)
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _expanded
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: 220,
+                        child: _infoRow('Customer', customerLabel.isEmpty ? '—' : customerLabel),
+                      ),
+                      InkWell(
+                        onTap: () => setState(() => _expanded = false),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'View less',
+                                style: AppStyles.getMediumTextStyle(fontSize: 13, color: AppColors.hintFontColor),
+                              ),
+                              const SizedBox(width: 2),
+                              Icon(Icons.keyboard_arrow_up_rounded, color: AppColors.hintFontColor, size: 22),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : InkWell(
+                    onTap: () => setState(() => _expanded = true),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'View more',
+                            style: AppStyles.getMediumTextStyle(fontSize: 13, color: AppColors.primaryColor),
+                          ),
+                          const SizedBox(width: 2),
+                          Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primaryColor, size: 22),
+                        ],
+                      ),
+                    ),
+                  ),
+          ),
+        const SizedBox(height: 14),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: _statusDropdown()),
+            const SizedBox(width: 12),
+            Expanded(child: _paymentTypeDropdown()),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            CustomOutlinedIconButton(
+              icon: Icons.remove_red_eye_outlined,
+              label: 'View',
+              onPressed: () => _handleView(context, order),
+            ),
+            CustomOutlinedIconButton(
+              icon: Icons.print_outlined,
+              label: 'Print',
+              onPressed: () => _handlePrint(context, order),
+            ),
+            CustomOutlinedIconButton(
+              icon: Icons.edit_outlined,
+              label: 'Edit',
+              onPressed: () => _handleEdit(context, order),
+            ),
+            CustomOutlinedIconButton(
+              icon: Icons.delete_outline,
+              label: 'Delete',
+              danger: true,
+              onPressed: () => _handleDelete(context, order),
+            ),
+            CustomOutlinedIconButton(
+              icon: Icons.drive_file_move_outline,
+              label: 'Move',
+              onPressed: () {
+                showMoveOrderDialog(
+                  context,
+                  order: order,
+                  sourceOrderType: 'delivery',
+                  onSuccess: () => context.read<DeliveryLogCubit>().refreshOrders(),
+                );
+              },
+            ),
+          ],
+        ),
+      ],
     );
   }
 

@@ -6,15 +6,22 @@ import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
+import 'package:pos/presentation/widgets/app_snackbar.dart';
+import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
+import 'package:pos/presentation/widgets/custom_sheet.dart';
+import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPanelDecoration;
 import 'package:pos/presentation/widgets/custom_textfield.dart';
+import 'package:pos/presentation/widgets/move_order_dialog.dart';
+import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
 
 class TakeAwayLogScreen extends StatelessWidget {
   const TakeAwayLogScreen({super.key});
@@ -126,28 +133,16 @@ class _MobileTakeAwayFilterFab extends StatelessWidget {
     }
     return FloatingActionButton(
       onPressed: () {
-        final takeAwayLogCubit = context.read<TakeAwayLogCubit>();
-        showModalBottomSheet(
+        final cubit = context.read<TakeAwayLogCubit>();
+        CustomSheet.show(
           context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.white,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          builder: (_) => BlocProvider.value(
-            value: takeAwayLogCubit,
-            child: DraggableScrollableSheet(
-              initialChildSize: 0.6,
-              minChildSize: 0.4,
-              maxChildSize: 0.9,
-              expand: false,
-              builder: (_, scrollController) => SingleChildScrollView(
-                controller: scrollController,
-                child: Padding(
-                  padding: AppPadding.screenAll,
-                  child: const _FilterBar(),
-                ),
-              ),
+          // maxChildSize: 0.92,
+          padding: EdgeInsets.zero,
+          child: Padding(
+            padding: AppPadding.screenAll,
+            child: BlocProvider.value(
+              value: cubit,
+              child: const _FilterBar(),
             ),
           ),
         );
@@ -225,117 +220,119 @@ class _FilterBarState extends State<_FilterBar> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: AppPadding.card,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-          )
-        ],
-      ),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 12,
-        children: [
-          SizedBox(
-            width: 220,
-            child: CustomTextField(
-              controller: _invoiceController,
-              labelText: 'Receipt No.',
-            ),
-          ),
-          SizedBox(
-            width: 220,
-            child: CustomTextField(
-              controller: _referenceController,
-              labelText: 'Reference No.',
-            ),
-          ),
-          SizedBox(
-            width: 180,
-            child: AutoCompleteTextField<String>(
-              defaultText: 'Select Status',
-              displayStringFunction: (v) => v,
-              items: _statusOptions,
-              onSelected: (v) {
-                setState(() {
-                  _statusController.text = v;
-                });
-              },
-              controller: _statusController,
-            ),
-          ),
-          SizedBox(
-            width: 200,
-            child: InkWell(
-              onTap: () => _selectDate(context, true),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _startDate == null ? 'Start Date' : DateFormat('dd-MM-yyyy').format(_startDate!),
-                        style: TextStyle(
-                          color: _startDate == null ? Colors.grey : Colors.black,
-                        ),
-                      ),
-                    ),
-                  ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW = constraints.maxWidth;
+        final fieldW = maxW < 640 ? maxW : 220.0;
+        final narrowField = maxW < 640 ? maxW : 200.0;
+        final statusW = maxW < 640 ? maxW : 180.0;
+        final btnW = maxW < 640 ? maxW : 120.0;
+        return Container(
+          padding: AppPadding.card,
+          decoration: filterPanelDecoration(),
+          child: Wrap(
+            spacing: 16,
+            runSpacing: 12,
+            children: [
+              SizedBox(
+                width: fieldW,
+                child: CustomTextField(
+                  controller: _invoiceController,
+                  labelText: 'Receipt No.',
                 ),
               ),
-            ),
-          ),
-          SizedBox(
-            width: 200,
-            child: InkWell(
-              onTap: () => _selectDate(context, false),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _endDate == null ? 'End Date' : DateFormat('dd-MM-yyyy').format(_endDate!),
-                        style: TextStyle(
-                          color: _endDate == null ? Colors.grey : Colors.black,
-                        ),
-                      ),
-                    ),
-                  ],
+              SizedBox(
+                width: fieldW,
+                child: CustomTextField(
+                  controller: _referenceController,
+                  labelText: 'Reference No.',
                 ),
               ),
-            ),
+              SizedBox(
+                width: statusW,
+                child: AutoCompleteTextField<String>(
+                  defaultText: 'Select Status',
+                  displayStringFunction: (v) => v,
+                  items: _statusOptions,
+                  onSelected: (v) {
+                    setState(() {
+                      _statusController.text = v;
+                    });
+                  },
+                  controller: _statusController,
+                ),
+              ),
+              SizedBox(
+                width: narrowField,
+                child: InkWell(
+                  onTap: () => _selectDate(context, true),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _startDate == null ? 'Start Date' : DateFormat('dd-MM-yyyy').format(_startDate!),
+                            style: TextStyle(
+                              color: _startDate == null ? Colors.grey : Colors.black,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: narrowField,
+                child: InkWell(
+                  onTap: () => _selectDate(context, false),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _endDate == null ? 'End Date' : DateFormat('dd-MM-yyyy').format(_endDate!),
+                            style: TextStyle(
+                              color: _endDate == null ? Colors.grey : Colors.black,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              CustomButton(
+                width: btnW,
+                onPressed: _applyFilters,
+                text: 'Filter',
+                elevation: 0,
+              ),
+              CustomButton(
+                width: btnW,
+                onPressed: _clearFilters,
+                text: 'Clear',
+                backgroundColor: Colors.grey,
+                elevation: 0,
+              ),
+            ],
           ),
-          CustomButton(
-            width: 120,
-            onPressed: _applyFilters,
-            text: 'Filter',
-          ),
-          CustomButton(
-            width: 120,
-            onPressed: _clearFilters,
-            text: 'Clear',
-            backgroundColor: Colors.grey,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -350,6 +347,7 @@ class TakeAwayCard extends StatefulWidget {
 
 class _TakeAwayCardState extends State<TakeAwayCard> {
   bool _hovered = false;
+  bool _customerExpanded = false;
 
   @override
   Widget build(BuildContext context) {
@@ -386,6 +384,7 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
               ),
               const SizedBox(height: 12),
               _infoRow(),
+              if (orderHasCustomerDetails(widget.order)) _customerPeekSection(),
               const SizedBox(height: 14),
               _netTotal(),
               const SizedBox(height: 14),
@@ -450,6 +449,62 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
   }
 
   /* ───────── INFO ROW ───────── */
+
+  Widget _customerPeekSection() {
+    final label = orderLogCustomerLabel(widget.order);
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: _customerExpanded
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: 220,
+                  child: _infoBlock('Customer', label.isEmpty ? '—' : label),
+                ),
+                InkWell(
+                  onTap: () => setState(() => _customerExpanded = false),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'View less',
+                          style: AppStyles.getMediumTextStyle(fontSize: 13, color: AppColors.hintFontColor),
+                        ),
+                        const SizedBox(width: 2),
+                        Icon(Icons.keyboard_arrow_up_rounded, color: AppColors.hintFontColor, size: 22),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : InkWell(
+              onTap: () => setState(() => _customerExpanded = true),
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'View more',
+                      style: AppStyles.getMediumTextStyle(fontSize: 13, color: AppColors.primaryColor),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primaryColor, size: 22),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
 
   Widget _infoRow() {
     final order = widget.order;
@@ -557,7 +612,12 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
         _cleanActionButton(
           icon: Icons.drive_file_move_outline,
           label: 'Move',
-          onTap: () {},
+          onTap: () => showMoveOrderDialog(
+            context,
+            order: order,
+            sourceOrderType: 'take_away',
+            onSuccess: () => context.read<TakeAwayLogCubit>().refreshOrders(),
+          ),
         ),
       ],
     );
@@ -611,9 +671,7 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
     final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
     if (cartItems == null || cartItems.isEmpty) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No items to print')),
-        );
+        showAppSnackBar(context, 'No items to print');
       }
       return;
     }
@@ -621,9 +679,7 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
       final printFailed = await printService.printFinalBill(order: order, cartItems: cartItems);
       if (context.mounted) {
         if (printFailed.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bill sent to printer')),
-          );
+          showAppSnackBar(context, 'Bill sent to printer');
         } else {
           showPrintFailedDialog(context, printFailed);
         }
@@ -635,31 +691,17 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
     }
   }
 
-  void _handleDelete(BuildContext context, Order order) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete Order'),
-        content: Text(
-          'Are you sure you want to delete order ${order.invoiceNumber}?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          CustomButton(
-            width: 100,
-            backgroundColor: Colors.red,
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              await context.read<TakeAwayLogCubit>().deleteOrder(order.id);
-            },
-            text: 'Delete',
-          ),
-        ],
-      ),
+  Future<void> _handleDelete(BuildContext context, Order order) async {
+    final ok = await showAppConfirmDialog(
+      context,
+      title: 'Delete Order',
+      message: 'Are you sure you want to delete order ${order.invoiceNumber}?',
+      confirmText: 'Delete',
+      confirmBackgroundColor: Colors.red,
     );
+    if (ok == true && context.mounted) {
+      await context.read<TakeAwayLogCubit>().deleteOrder(order.id);
+    }
   }
 
   Future<void> _handleView(BuildContext context, Order order) async {
@@ -670,12 +712,10 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
 
     if (cartItems == null || cartItems.isEmpty) {
       if (!context.mounted) return;
-      showDialog(
-        context: context,
-        builder: (_) => const AlertDialog(
-          title: Text('Order Details'),
-          content: Text('No items found in this order.'),
-        ),
+      await showAppMessageDialog(
+        context,
+        title: 'Order Details',
+        message: 'No items found in this order.',
       );
       return;
     }
@@ -698,353 +738,11 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
     if (context.mounted) {
       showDialog(
         context: context,
-        builder: (_) => _OrderDetailsDialog(
+        builder: (_) => OrderLogDetailsDialog(
           order: order,
           itemsWithDetails: itemsWithDetails,
         ),
       );
     }
-  }
-}
-
-class _OrderDetailsDialog extends StatelessWidget {
-  final Order order;
-  final List<Map<String, dynamic>> itemsWithDetails;
-
-  const _OrderDetailsDialog({
-    required this.order,
-    required this.itemsWithDetails,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final theme = Theme.of(context);
-
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(16),
-      child: Center(
-        child: Container(
-          width: width > 1000
-              ? 760
-              : width > 700
-                  ? 640
-                  : width * 0.96,
-          constraints: const BoxConstraints(maxHeight: 720),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: const [
-              BoxShadow(blurRadius: 40, color: Colors.black26),
-            ],
-          ),
-          child: Column(
-            children: [
-              _header(context),
-              const Divider(height: 1),
-              Expanded(child: _content()),
-              _footer(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /* ───────── HEADER ───────── */
-
-  Widget _header(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Text(
-              'Order Details',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
-          )
-        ],
-      ),
-    );
-  }
-
-  /* ───────── CONTENT ───────── */
-
-  Widget _content() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionTitle('Order Information'),
-          _orderInfo(),
-          if (_hasCustomerDetails()) ...[
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 16),
-            _sectionTitle('Customer Details'),
-            _customerInfo(),
-          ],
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 16),
-          _sectionTitle('Items'),
-          const SizedBox(height: 12),
-          ...itemsWithDetails.map(_itemCard),
-        ],
-      ),
-    );
-  }
-
-  Widget _sectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(
-        title,
-        style: const TextStyle(fontWeight: FontWeight.w700),
-      ),
-    );
-  }
-
-  /* ───────── ORDER INFO ───────── */
-
-  Widget _orderInfo() {
-    return Column(
-      children: [
-        _infoRow('Receipt No', order.invoiceNumber),
-        _infoRow('Reference No', order.referenceNumber ?? 'N/A'),
-        _infoRow('Status', order.status),
-        _infoRow(
-          'Date',
-          DateFormat('dd-MM-yyyy HH:mm').format(order.createdAt),
-        ),
-      ],
-    );
-  }
-
-  /* ───────── CUSTOMER INFO ───────── */
-
-  bool _hasCustomerDetails() {
-    return order.customerName != null || order.customerPhone != null || order.customerEmail != null || order.customerGender != null;
-  }
-
-  Widget _customerInfo() {
-    return Column(
-      children: [
-        if (order.customerName != null) _infoRow('Name', order.customerName!),
-        if (order.customerPhone != null) _infoRow('Phone', order.customerPhone!),
-        if (order.customerEmail != null) _infoRow('Email', order.customerEmail!),
-        if (order.customerGender != null) _infoRow('Gender', order.customerGender!),
-      ],
-    );
-  }
-
-  Widget _infoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 140,
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-          Expanded(child: Text(value)),
-        ],
-      ),
-    );
-  }
-
-  /* ───────── ITEM CARD ───────── */
-
-  Widget _itemCard(Map<String, dynamic> data) {
-    final cartItem = data['cartItem'] as CartItem;
-    final item = data['item'] as Item?;
-    final variant = data['variant'] as ItemVariant?;
-    final topping = data['topping'] as ItemTopping?;
-
-    final unitPrice = variant?.price ?? item?.price ?? 0;
-    final hasDiscount = cartItem.discount > 0;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          /// Item name
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  item?.name ?? 'Unknown Item',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              Text(
-                'x${cartItem.quantity}',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-
-          if (variant != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                'Variant: ${variant.name}',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              ),
-            ),
-
-          if (topping != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                'Topping: ${topping.name} (+₹${topping.price.toStringAsFixed(2)})',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade700,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-
-          if (cartItem.notes?.isNotEmpty ?? false)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                'Note: ${cartItem.notes}',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.orange.shade700,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-
-          const SizedBox(height: 12),
-
-          /// Price row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '₹ ${unitPrice.toStringAsFixed(2)}',
-                style: const TextStyle(fontSize: 13),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (hasDiscount)
-                    Text(
-                      cartItem.discountType == 'percentage' ? '${cartItem.discount}% OFF' : '₹ ${cartItem.discount.toStringAsFixed(2)} OFF',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.green.shade700,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  Text(
-                    '₹ ${cartItem.total.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  /* ───────── FOOTER ───────── */
-
-  Widget _footer() {
-    final hasDiscount = order.discountAmount > 0;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
-        boxShadow: const [
-          BoxShadow(
-            blurRadius: 16,
-            color: Colors.black12,
-            offset: Offset(0, -4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          if (hasDiscount) ...[
-            _totalRow('Subtotal', order.totalAmount),
-            const SizedBox(height: 6),
-            _totalRow(
-              'Discount',
-              -order.discountAmount,
-              highlight: true,
-            ),
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 12),
-          ],
-          _totalRow(
-            hasDiscount ? 'Final Amount' : 'Total Amount',
-            order.finalAmount > 0 ? order.finalAmount : order.totalAmount,
-            bold: true,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _totalRow(
-    String label,
-    double amount, {
-    bool bold = false,
-    bool highlight = false,
-  }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: bold ? 18 : 16,
-            fontWeight: bold ? FontWeight.bold : FontWeight.w500,
-            color: highlight ? Colors.green.shade700 : null,
-          ),
-        ),
-        Text(
-          '₹ ${amount.abs().toStringAsFixed(2)}',
-          style: TextStyle(
-            fontSize: bold ? 18 : 16,
-            fontWeight: bold ? FontWeight.bold : FontWeight.w600,
-            color: highlight ? Colors.green.shade700 : null,
-          ),
-        ),
-      ],
-    );
   }
 }

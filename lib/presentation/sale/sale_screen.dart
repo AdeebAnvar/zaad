@@ -12,10 +12,18 @@ import 'package:pos/presentation/widgets/custom_scaffold.dart';
 const double kTabletWidth = 900;
 
 class SaleScreen extends StatefulWidget {
-  const SaleScreen({this.orderType = 'take_away', this.deliveryPartner, super.key});
+  const SaleScreen({
+    this.orderType = 'take_away',
+    this.deliveryPartner,
+    this.fromDineIn = false,
+    super.key,
+  });
 
   final String orderType;
   final String? deliveryPartner;
+
+  /// Counter was opened from the Dine In floor plan (show back arrow to return there).
+  final bool fromDineIn;
 
   @override
   State<SaleScreen> createState() => _SaleScreenState();
@@ -41,6 +49,7 @@ class _SaleScreenState extends State<SaleScreen> {
     return CustomScaffold(
       title: title,
       appBarScreen: widget.orderType == 'delivery' ? 'delivery' : 'take_away',
+      onBack: widget.fromDineIn ? () => Navigator.of(context).pop() : null,
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isMobile = constraints.maxWidth < kTabletWidth;

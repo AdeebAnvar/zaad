@@ -1,9 +1,28 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/utils/order_display_utils.dart';
+import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/customer_repository.dart';
 import 'package:pos/domain/models/customer_model.dart';
-import 'package:pos/data/local/drift_database.dart';
 
 part 'crm_state.dart';
+
+bool _orderMatchesCustomer(Order order, CustomerModel customer) {
+  final pCust = normalizePhoneDigits(customer.phone);
+  final pOrder = normalizePhoneDigits(order.customerPhone);
+  if (pCust != null && pCust.isNotEmpty && pOrder != null && pOrder == pCust) {
+    return true;
+  }
+  if (customer.email != null &&
+      customer.email!.isNotEmpty &&
+      (order.customerEmail?.trim().toLowerCase() == customer.email!.trim().toLowerCase())) {
+    return true;
+  }
+  if (customer.name.isNotEmpty &&
+      (order.customerName?.trim().toLowerCase() == customer.name.trim().toLowerCase())) {
+    return true;
+  }
+  return false;
+}
 
 class CrmCubit extends Cubit<CrmState> {
   final CustomerRepository _customerRepo;
@@ -15,16 +34,11 @@ class CrmCubit extends Cubit<CrmState> {
     emit(CrmLoading());
     try {
       final customers = await _customerRepo.getAllLocalCustomers();
+      final allOrders = await _db.ordersDao.getAllOrders();
       final customersWithOrders = <CustomerWithOrders>[];
 
       for (final customer in customers) {
-        // Get all orders and filter by customer
-        final allOrders = await _db.ordersDao.getAllOrders();
-        final orders = allOrders.where((order) =>
-          (customer.name.isNotEmpty && order.customerName?.toLowerCase() == customer.name.toLowerCase()) ||
-          (customer.phone != null && customer.phone!.isNotEmpty && order.customerPhone == customer.phone) ||
-          (customer.email != null && customer.email!.isNotEmpty && order.customerEmail?.toLowerCase() == customer.email?.toLowerCase())
-        ).toList();
+        final orders = allOrders.where((order) => _orderMatchesCustomer(order, customer)).toList();
 
         customersWithOrders.add(CustomerWithOrders(
           customer: customer,
@@ -49,16 +63,11 @@ class CrmCubit extends Cubit<CrmState> {
     emit(CrmLoading());
     try {
       final customers = await _customerRepo.searchCustomers(query);
+      final allOrders = await _db.ordersDao.getAllOrders();
       final customersWithOrders = <CustomerWithOrders>[];
 
       for (final customer in customers) {
-        // Get all orders and filter by customer
-        final allOrders = await _db.ordersDao.getAllOrders();
-        final orders = allOrders.where((order) =>
-          (customer.name.isNotEmpty && order.customerName?.toLowerCase() == customer.name.toLowerCase()) ||
-          (customer.phone != null && customer.phone!.isNotEmpty && order.customerPhone == customer.phone) ||
-          (customer.email != null && customer.email!.isNotEmpty && order.customerEmail?.toLowerCase() == customer.email?.toLowerCase())
-        ).toList();
+        final orders = allOrders.where((order) => _orderMatchesCustomer(order, customer)).toList();
 
         customersWithOrders.add(CustomerWithOrders(
           customer: customer,
@@ -93,16 +102,11 @@ class CrmCubit extends Cubit<CrmState> {
         customers = await _customerRepo.getAllLocalCustomers();
       }
 
+      final allOrders = await _db.ordersDao.getAllOrders();
       final customersWithOrders = <CustomerWithOrders>[];
 
       for (final customer in customers) {
-        // Get all orders and filter by customer
-        final allOrders = await _db.ordersDao.getAllOrders();
-        final orders = allOrders.where((order) =>
-          (customer.name.isNotEmpty && order.customerName?.toLowerCase() == customer.name.toLowerCase()) ||
-          (customer.phone != null && customer.phone!.isNotEmpty && order.customerPhone == customer.phone) ||
-          (customer.email != null && customer.email!.isNotEmpty && order.customerEmail?.toLowerCase() == customer.email?.toLowerCase())
-        ).toList();
+        final orders = allOrders.where((order) => _orderMatchesCustomer(order, customer)).toList();
 
         customersWithOrders.add(CustomerWithOrders(
           customer: customer,
@@ -122,13 +126,10 @@ class CrmCubit extends Cubit<CrmState> {
     final customer = await _customerRepo.getCustomerById(customerId);
     if (customer == null) return [];
 
-    // Get all orders and filter by customer
     final allOrders = await _db.ordersDao.getAllOrders();
-    return allOrders.where((order) =>
-      (customer.name.isNotEmpty && order.customerName?.toLowerCase() == customer.name.toLowerCase()) ||
-      (customer.phone != null && customer.phone!.isNotEmpty && order.customerPhone == customer.phone) ||
-      (customer.email != null && customer.email!.isNotEmpty && order.customerEmail?.toLowerCase() == customer.email?.toLowerCase())
-    ).toList();
+    final list = allOrders.where((order) => _orderMatchesCustomer(order, customer)).toList();
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
   }
 }
 

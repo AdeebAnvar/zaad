@@ -162,23 +162,23 @@ class CartPanel extends StatelessWidget {
                                   onPressed: state.items.isEmpty
                                       ? () {}
                                       : () async {
-                                          if (isOpenedForEdit) {
-                                            final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
-                                            if (hasRef) {
-                                              try {
-                                                final printFailed = await cartCubit.saveKOTWithExistingReference();
-                                                if (context.mounted) {
-                                                  if (printFailed.isNotEmpty) {
-                                                    showPrintFailedDialog(context, printFailed);
-                                                  }
-                                                  if (closeOnComplete) {
-                                                    Navigator.maybePop(context);
-                                                  }
-                                                  schedulePopSaleScreenToDineIn(context);
+                                          final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
+                                          final skipKotReferenceDialog =
+                                              hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
+                                          if (skipKotReferenceDialog) {
+                                            try {
+                                              final printFailed = await cartCubit.saveKOTWithExistingReference();
+                                              if (context.mounted) {
+                                                if (printFailed.isNotEmpty) {
+                                                  showPrintFailedDialog(context, printFailed);
                                                 }
-                                              } catch (e) {
-                                                if (context.mounted) showErrorDialog(context, e);
+                                                if (closeOnComplete) {
+                                                  Navigator.maybePop(context);
+                                                }
+                                                schedulePopSaleScreenToDineIn(context);
                                               }
+                                            } catch (e) {
+                                              if (context.mounted) showErrorDialog(context, e);
                                             }
                                           } else {
                                             showKOTDialog(context);
@@ -210,23 +210,23 @@ class CartPanel extends StatelessWidget {
                                 onPressed: state.items.isEmpty
                                     ? () {}
                                     : () async {
-                                        if (isOpenedForEdit) {
-                                          final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
-                                          if (hasRef) {
-                                            try {
-                                              final printFailed = await cartCubit.saveKOTWithExistingReference();
-                                              if (context.mounted) {
-                                                if (printFailed.isNotEmpty) {
-                                                  showPrintFailedDialog(context, printFailed);
-                                                }
-                                                if (closeOnComplete) {
-                                                  Navigator.maybePop(context);
-                                                }
-                                                schedulePopSaleScreenToDineIn(context);
+                                        final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
+                                        final skipKotReferenceDialog =
+                                            hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
+                                        if (skipKotReferenceDialog) {
+                                          try {
+                                            final printFailed = await cartCubit.saveKOTWithExistingReference();
+                                            if (context.mounted) {
+                                              if (printFailed.isNotEmpty) {
+                                                showPrintFailedDialog(context, printFailed);
                                               }
-                                            } catch (e) {
-                                              if (context.mounted) showErrorDialog(context, e);
+                                              if (closeOnComplete) {
+                                                Navigator.maybePop(context);
+                                              }
+                                              schedulePopSaleScreenToDineIn(context);
                                             }
+                                          } catch (e) {
+                                            if (context.mounted) showErrorDialog(context, e);
                                           }
                                         } else {
                                           showKOTDialog(context);

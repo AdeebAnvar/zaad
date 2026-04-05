@@ -1,4 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 
@@ -38,26 +39,23 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
   }) async {
     emit(RecentSalesLoading());
     try {
-      // First filter by status, date, invoice, reference
+      final dbOrderType = orderTypeFilterToDb(orderType);
+
+      // First filter by status, date, invoice, reference, order type (all channels)
       var orders = await orderRepo.filterOrders(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
-        status: status,
+        status: status == null || status == 'All' ? null : status,
+        orderType: dbOrderType,
         startDate: startDate,
         endDate: endDate,
       );
 
-      // Recent Sales = paid orders only. Show only completed (unless filter specifies otherwise)
+      // Recent Sales default: completed only. If user picks a status, respect it (except hide kot noise).
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where((order) => order.status == 'completed').toList();
       } else {
         orders = orders.where((order) => order.status != 'kot').toList();
-      }
-
-      // Filter by order type if specified (this would need to be inferred from cart/other fields)
-      if (orderType != null && orderType.isNotEmpty) {
-        // TODO: Implement order type filtering based on cart or other fields
-        // For now, we'll skip this as order type is not stored directly
       }
 
       // Filter by payment method

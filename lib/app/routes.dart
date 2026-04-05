@@ -12,7 +12,7 @@ import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/orders/orders_screen.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
 import 'package:pos/presentation/sale/item_cubit.dart/items_cubit.dart';
-import 'package:pos/presentation/sale/sale_Screen.dart';
+import 'package:pos/presentation/sale/sale_screen.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_ui.dart';
 import 'package:pos/presentation/crm/crm_screen.dart';
 import 'package:pos/presentation/crm/crm_customer_details_screen.dart';
@@ -25,7 +25,6 @@ import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/presentation/dine_in/dine_in_screen.dart';
-import 'package:pos/presentation/dine_in_log/dine_in_log_cubit.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_log_ui.dart';
 import 'package:pos/presentation/settings/settings_screen.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -62,6 +61,7 @@ class Routes {
       final orderType = args?['orderType'] as String? ?? 'take_away';
       final deliveryPartner = args?['deliveryPartner'] as String?;
       final referenceNumber = args?['referenceNumber'] as String?;
+      final fromDineIn = args?['fromDineIn'] as bool? ?? false;
 
       return BlocProvider<CartCubit>(
         create: (context) {
@@ -90,7 +90,11 @@ class Routes {
             ItemRepositoryImpl(locator<AppDatabase>()),
             deliveryPartner: deliveryPartner,
           ),
-          child: SaleScreen(orderType: orderType, deliveryPartner: deliveryPartner),
+          child: SaleScreen(
+            orderType: orderType,
+            deliveryPartner: deliveryPartner,
+            fromDineIn: fromDineIn,
+          ),
         ),
       );
     },
@@ -109,9 +113,6 @@ class Routes {
         ),
     driverLog: (_) => const DriverLogScreen(),
     dineIn: (_) => const DineInScreen(),
-    dineInLog: (_) => BlocProvider(
-          create: (context) => DineInLogCubit(locator<OrderRepository>()),
-          child: const DineInLogScreen(),
-        ),
+    dineInLog: (_) => const DineInLogScreen(),
   };
 }

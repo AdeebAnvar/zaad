@@ -10,6 +10,8 @@ class CustomButton extends StatelessWidget {
   final EdgeInsets padding;
   final bool isLoading;
   final double? width;
+  /// Set to `0` for flat buttons (e.g. filter sheets — no shadow / M3 tint).
+  final double elevation;
 
   const CustomButton({
     super.key,
@@ -21,6 +23,7 @@ class CustomButton extends StatelessWidget {
     this.padding = const EdgeInsets.symmetric(vertical: 14),
     this.isLoading = false,
     this.width,
+    this.elevation = 2,
   });
 
   @override
@@ -37,7 +40,9 @@ class CustomButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(borderRadius),
           ),
           padding: padding,
-          elevation: 2,
+          elevation: elevation,
+          shadowColor: elevation <= 0 ? Colors.transparent : null,
+          surfaceTintColor: Colors.transparent,
         ),
         child: isLoading
             ? const SizedBox(
