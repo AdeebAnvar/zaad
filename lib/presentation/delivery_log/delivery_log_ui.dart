@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/data/repository/customer_repository.dart';
 import 'package:pos/domain/models/customer_model.dart';
@@ -25,6 +24,7 @@ import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPa
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
+import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class DeliveryLogScreen extends StatelessWidget {
   const DeliveryLogScreen({super.key});
@@ -562,7 +562,6 @@ class _DeliveryCardState extends State<_DeliveryCard> {
   Widget build(BuildContext context) {
     final order = widget.order;
     final partnerLabel = order.deliveryPartner ?? 'Normal';
-    final formattedDate = DateFormat('dd-MM-yyyy HH:mm:ss').format(order.createdAt);
     final isNormal = widget.order.deliveryPartner?.toUpperCase() == 'NORMAL';
 
     return MouseRegion(
@@ -622,9 +621,16 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                           ),
                         ),
                         const Spacer(),
-                        Text(
-                          formattedDate,
+                        RelativeTimeText(
+                          at: order.createdAt,
                           style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.delete_outline, color: Colors.red.shade700),
+                          tooltip: 'Delete order',
+                          onPressed: () => _handleDelete(context, order),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                         ),
                       ],
                     ),
@@ -765,12 +771,6 @@ class _DeliveryCardState extends State<_DeliveryCard> {
               icon: Icons.edit_outlined,
               label: 'Edit',
               onPressed: () => _handleEdit(context, order),
-            ),
-            CustomOutlinedIconButton(
-              icon: Icons.delete_outline,
-              label: 'Delete',
-              danger: true,
-              onPressed: () => _handleDelete(context, order),
             ),
             CustomOutlinedIconButton(
               icon: Icons.drive_file_move_outline,
@@ -960,8 +960,18 @@ class _DeliveryCardState extends State<_DeliveryCard> {
       return;
     }
     try {
-      await printService.printFinalBill(order: order, cartItems: cartItems);
-      if (context.mounted) CustomSnackBar.showSuccess(message: 'Bill sent to printer');
+      final printFailed = await printService.printFinalBill(
+        order: order,
+        cartItems: cartItems,
+        settledBill: true,
+      );
+      if (context.mounted) {
+        if (printFailed.isEmpty) {
+          CustomSnackBar.showSuccess(message: 'Bill sent to printer');
+        } else {
+          showPrintFailedDialog(context, printFailed);
+        }
+      }
     } catch (e) {
       if (context.mounted) showErrorDialog(context, e);
     }

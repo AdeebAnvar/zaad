@@ -22,6 +22,7 @@ import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPa
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
 import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
+import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class TakeAwayLogScreen extends StatelessWidget {
   const TakeAwayLogScreen({super.key});
@@ -400,22 +401,33 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
 
   Widget _header() {
     final order = widget.order;
-    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt);
 
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _tag(),
         const Spacer(),
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(
-              order.status.toUpperCase(),
-              style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  order.status.toUpperCase(),
+                  style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+                ),
+                IconButton(
+                  icon: Icon(Icons.delete_outline, color: Colors.red.shade700),
+                  tooltip: 'Delete order',
+                  onPressed: () => _handleDelete(context, order),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                ),
+              ],
             ),
-            const SizedBox(height: 2),
-            Text(
-              formattedDate,
+            RelativeTimeText(
+              at: order.createdAt,
               style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
             ),
           ],
@@ -604,12 +616,6 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
           onTap: () => _handleEdit(context, order),
         ),
         _cleanActionButton(
-          icon: Icons.delete_outline,
-          label: 'Delete',
-          onTap: () => _handleDelete(context, order),
-          danger: true,
-        ),
-        _cleanActionButton(
           icon: Icons.drive_file_move_outline,
           label: 'Move',
           onTap: () => showMoveOrderDialog(
@@ -676,7 +682,11 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
       return;
     }
     try {
-      final printFailed = await printService.printFinalBill(order: order, cartItems: cartItems);
+      final printFailed = await printService.printFinalBill(
+        order: order,
+        cartItems: cartItems,
+        settledBill: true,
+      );
       if (context.mounted) {
         if (printFailed.isEmpty) {
           showAppSnackBar(context, 'Bill sent to printer');

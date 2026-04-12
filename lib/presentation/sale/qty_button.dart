@@ -9,15 +9,15 @@ class QtyButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(7),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.all(5),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(7),
           border: Border.all(color: Colors.grey.shade300),
         ),
-        child: Icon(icon, size: 18),
+        child: Icon(icon, size: 24),
       ),
     );
   }

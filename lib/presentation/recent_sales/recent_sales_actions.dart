@@ -64,7 +64,11 @@ Future<void> printRecentSaleBill(BuildContext context, Order order) async {
     return;
   }
   try {
-    final printFailed = await printService.printFinalBill(order: order, cartItems: cartItems);
+    final printFailed = await printService.printFinalBill(
+      order: order,
+      cartItems: cartItems,
+      settledBill: true,
+    );
     if (context.mounted) {
       if (printFailed.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -17,6 +17,11 @@ class ItemRepositoryImpl implements ItemRepository {
   }
 
   @override
+  Future<List<ItemVariant>> fetchAllVariants() async {
+    return await db.itemDao.getAllVariants();
+  }
+
+  @override
   Future<List<ItemVariant>> fetchVariantsByItem(int itemId) async {
     return await db.itemDao.getVariantsByItem(itemId);
   }

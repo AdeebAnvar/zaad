@@ -121,6 +121,7 @@ class SyncRepository {
         sku: "BEV001",
         price: 40,
         stock: 100,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1708651343383-2d52c606d981?q=80&w=522&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 1,
@@ -142,6 +143,7 @@ class SyncRepository {
         sku: "BEV002",
         price: 40,
         stock: 80,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1531384370597-8590413be50a?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 1,
@@ -163,6 +165,7 @@ class SyncRepository {
         sku: "BEV003",
         price: 40,
         stock: 60,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1680404005217-a441afdefe83?q=80&w=1964&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 1,
@@ -184,6 +187,7 @@ class SyncRepository {
         sku: "BEV002",
         price: 50,
         stock: 80,
+        stockEnabled: true,
         imagePath: "",
         categoryId: 1,
         categoryName: "Beverages",
@@ -206,6 +210,7 @@ class SyncRepository {
         sku: "SNK001",
         price: 90,
         stock: 50,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1518013431117-eb1465fa5752?q=80&w=1170&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 2,
@@ -222,6 +227,7 @@ class SyncRepository {
         sku: "SNK002",
         price: 120,
         stock: 40,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1562967914-608f82629710?q=80&w=1173&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 2,
@@ -240,6 +246,7 @@ class SyncRepository {
         sku: "BAK001",
         price: 110,
         stock: 30,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1619531040576-f9416740661b?q=80&w=736&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 3,
@@ -256,6 +263,7 @@ class SyncRepository {
         sku: "BAK002",
         price: 80,
         stock: 25,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1691480162735-9b91238080f6?q=80&w=880&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 3,
@@ -274,6 +282,7 @@ class SyncRepository {
         sku: "DES001",
         price: 180,
         stock: 20,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 4,
@@ -290,6 +299,7 @@ class SyncRepository {
         sku: "DES002",
         price: 100,
         stock: 35,
+        stockEnabled: true,
         imagePath: "https://media.istockphoto.com/id/1396897706/photo/vanilla-soft-serve-ice-cream-cone.jpg?s=2048x2048&w=is&k=20&c=q_imtzh6iMr8Q7JFFgBpd-hpKlHYiEBn_8t8arlwD1Y=",
         categoryId: 4,
         categoryName: "Desserts",
@@ -312,6 +322,7 @@ class SyncRepository {
         sku: "PIZ001",
         price: 250,
         stock: 15,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1598023696416-0193a0bcd302?q=80&w=1236&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 5,
@@ -328,6 +339,7 @@ class SyncRepository {
         sku: "PIZ002",
         price: 320,
         stock: 12,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1602658014714-26b99d5a45cf?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 5,
@@ -346,6 +358,7 @@ class SyncRepository {
         sku: "BUR001",
         price: 120,
         stock: 25,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1520073201527-6b044ba2ca9f?q=80&w=712&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 6,
@@ -362,6 +375,7 @@ class SyncRepository {
         sku: "BUR002",
         price: 150,
         stock: 20,
+        stockEnabled: true,
         imagePath:
             "https://plus.unsplash.com/premium_photo-1683655058728-415f4f2674bf?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 6,
@@ -380,6 +394,7 @@ class SyncRepository {
         sku: "SAN001",
         price: 140,
         stock: 18,
+        stockEnabled: true,
         imagePath:
             "https://plus.unsplash.com/premium_photo-1673809798692-494b974088a4?q=80&w=764&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 7,
@@ -398,6 +413,7 @@ class SyncRepository {
         sku: "RIC001",
         price: 180,
         stock: 22,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1581184953987-5668072c8420?q=80&w=925&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 8,
@@ -416,6 +432,7 @@ class SyncRepository {
         sku: "SEA001",
         price: 260,
         stock: 10,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1556814901-18c866c057da?q=80&w=764&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 9,
@@ -434,6 +451,7 @@ class SyncRepository {
         sku: "COM001",
         price: 180,
         stock: 15,
+        stockEnabled: true,
         imagePath:
             "https://images.unsplash.com/photo-1700835880296-720183740e32?q=80&w=1171&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
         categoryId: 10,

@@ -11,6 +11,8 @@ class ItemModel {
   final String sku;
   final double price;
   int stock;
+  /// When true, [stock] is enforced in UI; when false, ignore stock.
+  final bool stockEnabled;
   final String imagePath;
   String localImagePath;
   final int categoryId;
@@ -27,6 +29,7 @@ class ItemModel {
     required this.sku,
     required this.price,
     required this.stock,
+    this.stockEnabled = false,
     required this.imagePath,
     this.localImagePath = '',
     required this.categoryId,
@@ -47,8 +50,10 @@ class ItemModel {
       otherName: json['other_name'] as String? ?? '',
       sku: json['sku'] as String,
       price: (json['price'] as num).toDouble(),
-      stock: json['stock'] as int,
+      stock: (json['stock'] as num?)?.toInt() ?? 0,
+      stockEnabled: _parseBool(json['stock_enabled'] ?? json['stockEnabled']),
       imagePath: json['image_path'] as String,
+
       localImagePath: json['local_image_path'] as String? ?? '',
       categoryId: json['category_id'] as int,
       categoryName: json['category_name'] as String,
@@ -70,6 +75,7 @@ class ItemModel {
       'sku': sku,
       'price': price,
       'stock': stock,
+      'stock_enabled': stockEnabled,
       'image_path': imagePath,
       'local_image_path': localImagePath,
       'category_id': categoryId,
@@ -86,4 +92,15 @@ class ItemModel {
 
   bool get hasVariants => variants.isNotEmpty;
   bool get hasToppings => toppings.isNotEmpty;
+
+  static bool _parseBool(dynamic v) {
+    if (v == null) return false;
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    if (v is String) {
+      final s = v.toLowerCase().trim();
+      return s == 'true' || s == '1' || s == 'yes';
+    }
+    return false;
+  }
 }

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/orders/orders_cubit.dart';
 import 'package:pos/presentation/widgets/custom_app_bar.dart';
+import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class OrdersScreen extends StatelessWidget {
   const OrdersScreen({super.key});
@@ -76,9 +76,6 @@ class _OrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateFormat = DateFormat('dd-MM-yyyy HH:mm:ss');
-    final formattedDate = dateFormat.format(order.createdAt);
-
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -123,7 +120,16 @@ class _OrderCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Date: $formattedDate'),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Date: '),
+                    RelativeTimeText(
+                      at: order.createdAt,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ],
+                ),
                 Text(
                   '₹ ${order.finalAmount.toStringAsFixed(2)}',
                   style: const TextStyle(

@@ -22,7 +22,7 @@ class MobileSaleLayout extends StatelessWidget {
               CustomTextField(
                 onChanged: (v) => context.read<ItemsCubit>().search(v),
                 labelText: 'Search/Scan Item',
-                // decoration: const InputDecoration(hintText: "Search items"),
+                textAlign: TextAlign.center,
               ),
               Padding(
                 padding: const EdgeInsets.only(top: 8.0, bottom: 8),

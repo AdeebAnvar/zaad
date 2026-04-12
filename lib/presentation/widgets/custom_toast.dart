@@ -207,25 +207,46 @@ class CustomSnackBar {
 
   /// Animated "Added to cart" confirmation (scale + fade).
   static void showAddedToCart({BuildContext? context}) {
+    _showAnimatedBottomBanner(
+      message: 'Added to cart',
+      icon: Icons.check_circle,
+    );
+  }
+
+  /// Same style as [showAddedToCart], for kitchen order save.
+  static void showKotSaved({BuildContext? context}) {
+    _showAnimatedBottomBanner(
+      message: 'KOT saved',
+      icon: Icons.check_circle,
+    );
+  }
+
+  static void _showAnimatedBottomBanner({
+    required String message,
+    required IconData icon,
+  }) {
     final overlayState = AppNavigator.navigatorKey.currentState?.overlay;
     _removeCurrentOverlay();
 
     _currentOverlay = OverlayEntry(
-      builder: (ctx) => const _AnimatedAddedToCartOverlay(),
+      builder: (ctx) => _AnimatedBottomBannerOverlay(message: message, icon: icon),
     );
     overlayState?.insert(_currentOverlay!);
     Future.delayed(const Duration(milliseconds: 1800), _removeCurrentOverlay);
   }
 }
 
-class _AnimatedAddedToCartOverlay extends StatefulWidget {
-  const _AnimatedAddedToCartOverlay();
+class _AnimatedBottomBannerOverlay extends StatefulWidget {
+  const _AnimatedBottomBannerOverlay({required this.message, required this.icon});
+
+  final String message;
+  final IconData icon;
 
   @override
-  State<_AnimatedAddedToCartOverlay> createState() => _AnimatedAddedToCartOverlayState();
+  State<_AnimatedBottomBannerOverlay> createState() => _AnimatedBottomBannerOverlayState();
 }
 
-class _AnimatedAddedToCartOverlayState extends State<_AnimatedAddedToCartOverlay> with SingleTickerProviderStateMixin {
+class _AnimatedBottomBannerOverlayState extends State<_AnimatedBottomBannerOverlay> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scale;
   late Animation<double> _opacity;
@@ -281,14 +302,14 @@ class _AnimatedAddedToCartOverlayState extends State<_AnimatedAddedToCartOverlay
                         ),
                       ],
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.check_circle, color: Colors.white, size: 24),
-                        SizedBox(width: 12),
+                        Icon(widget.icon, color: Colors.white, size: 24),
+                        const SizedBox(width: 12),
                         Text(
-                          'Added to cart',
-                          style: TextStyle(
+                          widget.message,
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,
                             fontWeight: FontWeight.w600,

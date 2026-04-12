@@ -28,6 +28,7 @@ import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPa
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
 import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
+import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class DineInLogScreen extends StatelessWidget {
   const DineInLogScreen({super.key});
@@ -391,8 +392,8 @@ class _DineInLogCardState extends State<DineInLogCard> {
 
   Widget _header() {
     final order = widget.order;
-    final formattedDate = DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt);
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -421,18 +422,30 @@ class _DineInLogCardState extends State<DineInLogCard> {
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                order.status.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.end,
-                style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      order.status.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                      style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.delete_outline, color: Colors.red.shade700),
+                    tooltip: 'Delete order',
+                    onPressed: () => _handleDelete(context, order),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                formattedDate,
+              RelativeTimeText(
+                at: order.createdAt,
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.end,
                 style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
               ),
@@ -630,12 +643,6 @@ class _DineInLogCardState extends State<DineInLogCard> {
                 onSuccess: () => context.read<DineInLogCubit>().refreshOrders(),
               ),
         ),
-        _actionBtn(
-          icon: Icons.delete_outline,
-          label: 'Delete',
-          onTap: () => _handleDelete(context, order),
-          danger: true,
-        ),
       ],
     );
   }
@@ -720,7 +727,11 @@ class _DineInLogCardState extends State<DineInLogCard> {
       return;
     }
     try {
-      final printFailed = await printService.printFinalBill(order: order, cartItems: cartItems);
+      final printFailed = await printService.printFinalBill(
+        order: order,
+        cartItems: cartItems,
+        settledBill: true,
+      );
       if (context.mounted) {
         if (printFailed.isEmpty) {
           showAppSnackBar(context, 'Bill sent to printer');

@@ -55,7 +55,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
 
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 17;
 
   @override
   MigrationStrategy get migration {
@@ -65,12 +65,12 @@ class AppDatabase extends _$AppDatabase {
           try {
             await m.addColumn(table, column);
           } on SqliteException catch (e) {
-            if (e.resultCode != 1 ||
-                !e.message.toLowerCase().contains('duplicate column')) {
+            if (e.resultCode != 1 || !e.message.toLowerCase().contains('duplicate column')) {
               rethrow;
             }
           }
         }
+
         if (from < 2) {
           // Add Orders table
           await m.createTable(orders);
@@ -144,6 +144,9 @@ class AppDatabase extends _$AppDatabase {
         if (from < 15) {
           await m.createTable(diningFloors);
           await m.createTable(diningTables);
+        }
+        if (from < 16) {
+          await safeAddColumn(items, items.stockEnabled);
         }
       },
     );

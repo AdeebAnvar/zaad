@@ -42,6 +42,9 @@ class DineInRefParser {
 
   static String buildReference(int floorId, String tableCode, int pax) => '$floorId|$tableCode | $pax pax';
 
+  /// Floor + table only (no pax). Used when seat handling is off: multiple orders per table without chair allocation.
+  static String buildTableOnlyReference(int floorId, String tableCode) => '$floorId|${tableCode.trim()}';
+
   /// Whether [o] is assigned to [floorId] + [tableCodeUpper] (same rules as floor plan).
   static bool orderMatchesFloorTable(
     Order o,

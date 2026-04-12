@@ -25,6 +25,8 @@ class Items extends Table {
   TextColumn get sku => text()();
   RealColumn get price => real()();
   IntColumn get stock => integer()();
+  /// When false, stock quantity is ignored in UI and sales logic.
+  BoolColumn get stockEnabled => boolean().withDefault(const Constant(false))();
   TextColumn get imagePath => text().nullable()();
   TextColumn get localImagePath => text().nullable()();
   TextColumn get categoryName => text()();

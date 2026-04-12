@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'dart:convert';
+import 'dart:io';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
@@ -13,75 +15,115 @@ import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 
 class CartItemTile extends StatelessWidget {
-  final CartItem cartItem;
-  final int index;
-  const CartItemTile({super.key, required this.cartItem, required this.index});
+  final int cartItemId;
+  const CartItemTile({super.key, required this.cartItemId});
 
   @override
   Widget build(BuildContext context) {
-    return _CartItemContent(cartItem: cartItem, index: index);
+    return BlocSelector<CartCubit, CartState, CartItem?>(
+      selector: (state) {
+        for (final e in state.items) {
+          if (e.id == cartItemId) return e;
+        }
+        return null;
+      },
+      builder: (context, cartItem) {
+        if (cartItem == null) return const SizedBox.shrink();
+        return _CartItemContent(cartItem: cartItem);
+      },
+    );
   }
 }
 
 class _CartItemContent extends StatefulWidget {
   final CartItem cartItem;
-  final int index;
 
   const _CartItemContent({
     required this.cartItem,
-    required this.index,
   });
 
   @override
   State<_CartItemContent> createState() => _CartItemContentState();
 }
 
-class _CartItemContentState extends State<_CartItemContent> {
+class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   Item? _item;
   ItemVariant? _variant;
   List<Map<String, dynamic>>? _toppings; // All toppings from JSON
   bool _isLoading = true;
   bool _isEditingUnitPrice = false;
   late TextEditingController _unitPriceController;
+  late final FocusNode _unitPriceFocusNode;
 
   @override
   void initState() {
     super.initState();
     _unitPriceController = TextEditingController();
+    _unitPriceFocusNode = FocusNode();
+    _unitPriceFocusNode.addListener(_onUnitPriceFocusChange);
     _loadItemData();
+  }
+
+  void _onUnitPriceFocusChange() {
+    if (!_unitPriceFocusNode.hasFocus && _isEditingUnitPrice) {
+      _commitUnitPriceEdit();
+    }
+  }
+
+  Future<void> _commitUnitPriceEdit() async {
+    if (!mounted || !_isEditingUnitPrice) return;
+    final cartCubit = context.read<CartCubit>();
+    final parsed = double.tryParse(_unitPriceController.text.trim());
+    if (parsed != null && parsed >= 0) {
+      await cartCubit.updateUnitPrice(widget.cartItem.id, parsed);
+    }
+    if (mounted) {
+      setState(() => _isEditingUnitPrice = false);
+    }
   }
 
   @override
   void didUpdateWidget(_CartItemContent oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Always reload if cart item ID changed (different cart item) or item details changed
+    // Reload when cart line identity or line payload tied to item metadata changes.
     if (oldWidget.cartItem.id != widget.cartItem.id ||
         oldWidget.cartItem.itemId != widget.cartItem.itemId ||
         oldWidget.cartItem.itemVariantId != widget.cartItem.itemVariantId ||
         oldWidget.cartItem.itemToppingId != widget.cartItem.itemToppingId ||
         oldWidget.cartItem.notes != widget.cartItem.notes) {
-      // Reset state when switching to a different cart item
-      _item = null;
-      _variant = null;
-      _toppings = null;
-      _isLoading = true;
+      // Only clear cached product when switching to a different catalog item (avoids full-row spinner flash on other updates).
+      if (oldWidget.cartItem.itemId != widget.cartItem.itemId) {
+        _item = null;
+        _variant = null;
+        _toppings = null;
+      }
       _loadItemData();
     }
   }
 
   @override
   void dispose() {
+    _unitPriceFocusNode.removeListener(_onUnitPriceFocusChange);
+    _unitPriceFocusNode.dispose();
     _unitPriceController.dispose();
     super.dispose();
   }
 
   Future<void> _loadItemData() async {
-    setState(() => _isLoading = true);
+    final needsFullSpinner = _item == null;
+    if (needsFullSpinner && mounted) {
+      setState(() => _isLoading = true);
+    }
     final itemRepo = locator<ItemRepository>();
 
     final item = await itemRepo.fetchItemByIdFromLocal(widget.cartItem.itemId);
     if (item == null) {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
       return;
     }
 
@@ -106,6 +148,7 @@ class _CartItemContentState extends State<_CartItemContent> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (_isLoading || _item == null) {
       return const SizedBox(
         height: 100,
@@ -120,275 +163,286 @@ class _CartItemContentState extends State<_CartItemContent> {
     final isNewlyAdded = cartCubit.isNewlyAddedCartItem(widget.cartItem.id);
 
     return Dismissible(
-      key: ValueKey(widget.cartItem.id),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (_) async {
-        if (isNewlyAdded) return true;
-        final isDeleted = await _showDeleteDialog(context);
-        return isDeleted; // true = dismiss, false = cancel
+      key: ValueKey('swipe_cart_${widget.cartItem.id}'),
+      direction: DismissDirection.horizontal,
+      // null = skip resize phase; Duration.zero still runs resize animation and can assert
+      // "dismissed Dismissible is still part of the tree" before Bloc removes the row.
+      resizeDuration: null,
+      movementDuration: const Duration(milliseconds: 200),
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          if (context.mounted) {
+            await _showLineNotesDialog(context, widget.cartItem);
+          }
+          return false;
+        }
+        if (isNewlyAdded) {
+          return true;
+        }
+        return await _showDeleteDialog(context);
       },
-      onDismissed: (_) async {
+      onDismissed: (_) {
+        if (!mounted) return;
         context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
       },
+      // Right → left: delete (revealed behind row when swiping toward the left).
       background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        decoration: BoxDecoration(
-          color: Colors.red.shade400,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Icon(Icons.delete, color: Colors.white),
-      ),
-      child: Container(
         margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(10),
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 24),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          color: Colors.grey.shade50,
-          border: Border.all(color: Colors.grey.shade200),
+          color: AppColors.primaryColor.withValues(alpha: 0.5),
+          border: Border.all(color: AppColors.primaryColor.withValues(alpha: 0.35)),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // IMAGE
-            CartItemImage(path: _item!.localImagePath),
+        child: Icon(Icons.sticky_note_2_outlined, color: AppColors.primaryColor),
+      ),
+      // Left → right: notes (revealed when swiping toward the right).
+      secondaryBackground: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: AppColors.danger.withValues(alpha: 0.5),
+          border: Border.all(color: AppColors.danger.withValues(alpha: 0.35)),
+        ),
+        child: Icon(Icons.delete_outline, color: AppColors.danger),
+      ),
+      child: RepaintBoundary(
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: Colors.grey.shade50,
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // IMAGE
+              CartItemImage(path: _item!.localImagePath),
 
-            const SizedBox(width: 10),
+              const SizedBox(width: 10),
 
-            // DETAILS
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _item!.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
-                  ),
-                  if (_variant != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        "Variant: ${_variant!.name}",
-                        style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
-                      ),
+              // DETAILS
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _item!.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
                     ),
-                  if (widget.cartItem.itemVariantId != null && _variant == null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        "Variant (₹ ${(widget.cartItem.total + widget.cartItem.discount).toStringAsFixed(2)} total)",
-                        style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
-                      ),
-                    ),
-                  Text(
-                    "SKU: ${_item!.sku}",
-                    style: AppStyles.getRegularTextStyle(fontSize: 11, color: Colors.grey),
-                  ),
-                  if (_toppings != null && _toppings!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: _toppings!.map((topping) {
-                          final name = topping['name'] ?? '';
-                          final price = topping['price'] ?? 0.0;
-                          final qty = topping['qty'] ?? 1;
-                          return Text(
-                            "Topping: $name × $qty (₹${(price * qty).toStringAsFixed(2)})",
-                            style: AppStyles.getRegularTextStyle(fontSize: 11, color: Colors.blue),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  const SizedBox(height: 6),
-
-                  // Price breakdown
-                  Builder(
-                    builder: (context) {
-                      // Calculate toppings total
-                      double toppingsTotal = 0;
-                      if (_toppings != null && _toppings!.isNotEmpty) {
-                        for (var topping in _toppings!) {
-                          final price = (topping['price'] ?? 0.0) as double;
-                          final qty = (topping['qty'] ?? 1) as int;
-                          toppingsTotal += price * qty;
-                        }
-                      }
-
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Product amount
-                          Row(
-                            children: [
-                              Text(
-                                "Product: ₹${(unitPrice * widget.cartItem.quantity).toStringAsFixed(2)}",
-                                style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
-                              ),
-                              if (toppingsTotal > 0) ...[
-                                const SizedBox(width: 8),
-                                Text(
-                                  "Toppings: ₹${(toppingsTotal * widget.cartItem.quantity).toStringAsFixed(2)}",
-                                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.blue),
-                                ),
-                              ],
-                            ],
-                          ),
-                          // Subtotal and discount
-                          if (widget.cartItem.discount > 0)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    "Subtotal: ₹${((unitPrice + toppingsTotal) * widget.cartItem.quantity).toStringAsFixed(2)}",
-                                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    "Disc: -₹${widget.cartItem.discount.toStringAsFixed(2)}",
-                                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          const SizedBox(height: 4),
-                          // Unit price (editable) and total for this variant
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              Widget unitWidget;
-                              if (_isEditingUnitPrice) {
-                                unitWidget = SizedBox(
-                                  width: 100,
-                                  child: TextField(
-                                    controller: _unitPriceController,
-                                    autofocus: true,
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.black87),
-                                    decoration: const InputDecoration(
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      border: OutlineInputBorder(),
-                                    ),
-                                    onSubmitted: (value) async {
-                                      final newValue = double.tryParse(value);
-                                      if (newValue != null && newValue >= 0) {
-                                        await cartCubit.updateUnitPrice(widget.cartItem.id, newValue);
-                                      }
-                                      if (mounted) {
-                                        setState(() => _isEditingUnitPrice = false);
-                                      }
-                                    },
-                                  ),
-                                );
-                              } else {
-                                unitWidget = GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _isEditingUnitPrice = true;
-                                      _unitPriceController.text = unitPrice.toStringAsFixed(2);
-                                    });
-                                  },
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          "Unit: ₹${unitPrice.toStringAsFixed(2)} × ${widget.cartItem.quantity}${toppingsTotal > 0 ? ' + toppings' : ''}",
-                                          style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Icon(Icons.edit, size: 12, color: Colors.grey.shade500),
-                                    ],
-                                  ),
-                                );
-                              }
-
-                              final totalWidget = Text(
-                                "Total: ₹ ${widget.cartItem.total.toStringAsFixed(2)}",
-                                style: AppStyles.getBoldTextStyle(fontSize: 15),
-                              );
-
-                              // Stack unit and total to avoid horizontal overflow on narrow sheets.
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  unitWidget,
-                                  const SizedBox(height: 4),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: totalWidget,
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-
-                  const SizedBox(height: 6),
-
-                  // ACTION ROW
-                  Row(
-                    children: [
-                      QtyButton(
-                        icon: Icons.remove,
-                        onTap: () async {
-                          if (isNewlyAdded) {
-                            context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
-                          } else {
-                            final proceed = await _showDeleteDialog(context);
-                            if (proceed && context.mounted) {
-                              context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
-                            }
-                          }
-                        },
-                      ),
+                    if (_variant != null)
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        padding: const EdgeInsets.only(top: 2),
                         child: Text(
-                          "${widget.cartItem.quantity}",
-                          style: AppStyles.getRegularTextStyle(fontSize: 16),
+                          "Variant: ${_variant!.name}",
+                          style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
                         ),
                       ),
-                      QtyButton(
-                        icon: Icons.add,
-                        onTap: () => context.read<CartCubit>().increaseQtyByCartItemId(widget.cartItem.id),
+                    if (widget.cartItem.itemVariantId != null && _variant == null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          "Variant (₹ ${(widget.cartItem.total + widget.cartItem.discount).toStringAsFixed(2)} total)",
+                          style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
+                        ),
                       ),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.percent, size: 18),
-                        onPressed: () => showDiscountDialog(context, widget.cartItem),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.restaurant_menu, size: 18),
-                        onPressed: () => _showToppingDialog(context, widget.cartItem),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        onPressed: () async {
-                          if (isNewlyAdded) {
-                            context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
-                          } else {
-                            final isDeleted = await _showDeleteDialog(context);
-                            if (isDeleted && context.mounted) {
-                              context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
-                            }
+                    const SizedBox(height: 6),
+
+                    // Price breakdown
+                    Builder(
+                      builder: (context) {
+                        // Calculate toppings total
+                        double toppingsTotal = 0;
+                        if (_toppings != null && _toppings!.isNotEmpty) {
+                          for (var topping in _toppings!) {
+                            final price = (topping['price'] ?? 0.0) as double;
+                            final qty = (topping['qty'] ?? 1) as int;
+                            toppingsTotal += price * qty;
                           }
-                        },
-                      ),
-                    ],
-                  ),
-                ],
+                          // #region agent log
+                          _dbgLog('cart_card_toppings_labels_hidden', {
+                            'cartItemId': widget.cartItem.id,
+                            'toppingsCount': _toppings!.length,
+                            'toppingsTotal': toppingsTotal,
+                          }, hypothesisId: 'H1');
+                          // #endregion
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Product amount
+                            Row(
+                              children: [
+                                Text(
+                                  "Product: ₹${(unitPrice * widget.cartItem.quantity).toStringAsFixed(2)}",
+                                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
+                                ),
+                              ],
+                            ),
+                            // Subtotal and discount
+                            if (widget.cartItem.discount > 0)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      "Subtotal: ₹${((unitPrice + toppingsTotal) * widget.cartItem.quantity).toStringAsFixed(2)}",
+                                      style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      "Disc: -₹${widget.cartItem.discount.toStringAsFixed(2)}",
+                                      style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            const SizedBox(height: 4),
+                            // Unit price (editable) and total for this variant
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                Widget unitWidget;
+                                if (_isEditingUnitPrice) {
+                                  unitWidget = SizedBox(
+                                    width: 100,
+                                    child: TextField(
+                                      controller: _unitPriceController,
+                                      focusNode: _unitPriceFocusNode,
+                                      autofocus: true,
+                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                      style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.black87),
+                                      decoration: const InputDecoration(
+                                        isDense: true,
+                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      onSubmitted: (_) => _commitUnitPriceEdit(),
+                                    ),
+                                  );
+                                } else {
+                                  unitWidget = GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        _isEditingUnitPrice = true;
+                                        _unitPriceController.text = unitPrice.toStringAsFixed(2);
+                                      });
+                                    },
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            "Unit: ₹${unitPrice.toStringAsFixed(2)} × ${widget.cartItem.quantity}${toppingsTotal > 0 ? ' + toppings' : ''}",
+                                            style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Icon(Icons.edit, size: 12, color: Colors.grey.shade500),
+                                      ],
+                                    ),
+                                  );
+                                }
+
+                                final totalWidget = Text(
+                                  "Total: ₹ ${widget.cartItem.total.toStringAsFixed(2)}",
+                                  style: AppStyles.getBoldTextStyle(fontSize: 15),
+                                );
+
+                                // Stack unit and total to avoid horizontal overflow on narrow sheets.
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    unitWidget,
+                                    const SizedBox(height: 4),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: totalWidget,
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 6),
+
+                    // ACTION ROW
+                    Row(
+                      children: [
+                        QtyButton(
+                          icon: Icons.remove,
+                          onTap: () async {
+                            if (isNewlyAdded) {
+                              context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
+                            } else {
+                              final proceed = await _showDeleteDialog(context);
+                              if (proceed && context.mounted) {
+                                context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
+                              }
+                            }
+                          },
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            "${widget.cartItem.quantity}",
+                            style: AppStyles.getRegularTextStyle(fontSize: 22),
+                          ),
+                        ),
+                        QtyButton(
+                          icon: Icons.add,
+                          onTap: () => context.read<CartCubit>().increaseQtyByCartItemId(widget.cartItem.id),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.percent, size: 18),
+                          onPressed: () => showDiscountDialog(context, widget.cartItem),
+                        ),
+                        IconButton(
+                          tooltip: 'Line notes',
+                          icon: Icon(
+                            Icons.sticky_note_2_outlined,
+                            size: 18,
+                            color: _cartItemHasPlainNotes(widget.cartItem) ? AppColors.primaryColor : null,
+                          ),
+                          onPressed: () => _showLineNotesDialog(context, widget.cartItem),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.restaurant_menu, size: 18),
+                          onPressed: () => _showToppingDialog(context, widget.cartItem),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          onPressed: () async {
+                            if (isNewlyAdded) {
+                              context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
+                            } else {
+                              final isDeleted = await _showDeleteDialog(context);
+                              if (isDeleted && context.mounted) {
+                                context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
+                              }
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -561,6 +615,158 @@ class _CartItemContentState extends State<_CartItemContent> {
     }
   }
 
+  /// Plain-text line notes (not toppings JSON in `notes`).
+  String _initialLineNotesPlain(CartItem cartItem) {
+    final n = cartItem.notes;
+    if (n == null || n.isEmpty) return '';
+    if (n.trimLeft().startsWith('[')) return '';
+    return n;
+  }
+
+  bool _cartItemHasPlainNotes(CartItem cartItem) {
+    return _initialLineNotesPlain(cartItem).trim().isNotEmpty;
+  }
+
+  // #region agent log
+  void _dbgLog(String message, Map<String, Object?> data, {String hypothesisId = 'H1'}) {
+    try {
+      final payload = {
+        'sessionId': 'bead4f',
+        'runId': 'hide-toppings-text-cart-card',
+        'hypothesisId': hypothesisId,
+        'location': 'desktop_cart_item_tile.dart',
+        'message': message,
+        'data': data,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+      File('debug-bead4f.log').writeAsStringSync('${jsonEncode(payload)}\n', mode: FileMode.append, flush: true);
+    } catch (_) {}
+  }
+  // #endregion
+
+  Future<void> _showLineNotesDialog(BuildContext context, CartItem cartItem) async {
+    final cartCubit = context.read<CartCubit>();
+    final hasToppings = cartCubit.getToppingsFromCartItem(cartItem)?.isNotEmpty == true;
+    final controller = TextEditingController(text: _initialLineNotesPlain(cartItem));
+    final notesFocusNode = FocusNode();
+
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return BlocProvider.value(
+            value: cartCubit,
+            child: Builder(
+              builder: (context) {
+                final theme = Theme.of(context);
+                final width = MediaQuery.of(context).size.width;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (notesFocusNode.canRequestFocus && !notesFocusNode.hasFocus) {
+                    notesFocusNode.requestFocus();
+                  }
+                });
+                return Dialog(
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: width > 600 ? 480 : width * 0.95,
+                    ),
+                    child: Material(
+                      color: Colors.white,
+                      elevation: theme.dialogTheme.elevation ?? 8,
+                      shadowColor: theme.shadowColor.withValues(alpha: 0.35),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        side: BorderSide(color: AppColors.divider),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.sticky_note_2_outlined, color: AppColors.primaryColor, size: 26),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Line notes',
+                                    style: AppStyles.getBoldTextStyle(fontSize: 20, color: AppColors.textColor),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: Icon(Icons.close, color: AppColors.textColor),
+                                  onPressed: () => Navigator.pop(dialogContext),
+                                ),
+                              ],
+                            ),
+                            if (hasToppings) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                'This line has toppings. Clear toppings before saving notes here, or topping data may be overwritten.',
+                                style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.orange.shade900),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            CustomTextField(
+                              controller: controller,
+                              focusNode: notesFocusNode,
+                              labelText: 'Notes',
+                              maxLines: 4,
+                              enabled: !hasToppings,
+                            ),
+                            const SizedBox(height: 24),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: CustomButton(
+                                    text: 'Save',
+                                    onPressed: hasToppings
+                                        ? null
+                                        : () async {
+                                            CartItem? current;
+                                            for (final e in cartCubit.state.items) {
+                                              if (e.id == cartItem.id) {
+                                                current = e;
+                                                break;
+                                              }
+                                            }
+                                            if (current == null) {
+                                              if (context.mounted) Navigator.pop(dialogContext);
+                                              return;
+                                            }
+                                            await cartCubit.updateCartItemLineNotes(current, controller.text);
+                                            if (context.mounted) Navigator.pop(dialogContext);
+                                          },
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(dialogContext),
+                                  child: const Text('Cancel'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      );
+    } finally {
+      notesFocusNode.dispose();
+      controller.dispose();
+    }
+  }
+
   void showDiscountDialog(BuildContext context, CartItem cartItem) {
     final cartCubit = context.read<CartCubit>();
 
@@ -571,8 +777,6 @@ class _CartItemContentState extends State<_CartItemContent> {
     final percentController = TextEditingController(
       text: cartItem.discountType == 'percentage' && cartItem.discount > 0 ? ((cartItem.discount / (cartItem.total + cartItem.discount)) * 100).toStringAsFixed(2) : '',
     );
-
-    final notesController = TextEditingController(text: cartItem.notes ?? '');
 
     String discountType = cartItem.discountType ?? 'amount';
 
@@ -677,15 +881,6 @@ class _CartItemContentState extends State<_CartItemContent> {
                                   ),
                           ),
 
-                          const SizedBox(height: 16),
-
-                          /// Notes
-                          CustomTextField(
-                            controller: notesController,
-                            labelText: 'Notes (optional)',
-                            maxLines: 3,
-                          ),
-
                           const SizedBox(height: 28),
 
                           /// Actions
@@ -695,7 +890,6 @@ class _CartItemContentState extends State<_CartItemContent> {
                                 child: CustomButton(
                                   text: 'Apply',
                                   onPressed: () {
-                                    final notes = notesController.text.trim();
                                     double value = 0;
 
                                     if (discountType == 'amount') {
@@ -708,7 +902,6 @@ class _CartItemContentState extends State<_CartItemContent> {
                                       cartItem,
                                       value > 0 ? value : 0,
                                       discountType == 'percentage',
-                                      notes: notes.isEmpty ? null : notes,
                                     );
 
                                     Navigator.pop(context);

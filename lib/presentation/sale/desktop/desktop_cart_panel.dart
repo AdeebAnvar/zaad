@@ -10,11 +10,21 @@ import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/repository/customer_repository.dart';
 import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
+import 'package:pos/presentation/sale/desktop/cart_preview_dialog.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_item_tile.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
+
+/// Rebuild the cart [SliverList] only when lines are added/removed/reordered — not on qty/total edits.
+bool _cartListStructureChanged(CartState prev, CartState curr) {
+  if (prev.items.length != curr.items.length) return true;
+  for (var i = 0; i < prev.items.length; i++) {
+    if (prev.items[i].id != curr.items[i].id) return true;
+  }
+  return false;
+}
 
 class CartPanel extends StatelessWidget {
   const CartPanel({
@@ -30,16 +40,13 @@ class CartPanel extends StatelessWidget {
   final void Function(bool closed)? onCloseCart;
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<CartCubit, CartState>(
-      builder: (context, state) {
-        final itemCount = state.items.length;
-
-        final totalAmount = state.items.fold<double>(0, (s, e) => s + e.total);
-
-        return Stack(
-          children: [
-            // ───────────── CART LIST ─────────────
-            Container(
+    return Stack(
+      children: [
+        // ───────────── CART LIST (structure only; line data via BlocSelector in each tile) ─────────────
+        BlocBuilder<CartCubit, CartState>(
+          buildWhen: _cartListStructureChanged,
+          builder: (context, state) {
+            return Container(
               padding: const EdgeInsets.fromLTRB(AppPadding.screenHorizontal, 12, AppPadding.screenHorizontal, 90),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -55,36 +62,41 @@ class CartPanel extends StatelessWidget {
                     )
                   : CustomScrollView(
                       controller: scrollController,
-                      key: ValueKey('cart_list_${state.items.map((e) => e.id).join('_')}'),
+                      key: const ValueKey('cart_scroll_view'),
                       slivers: [
-                        // Total payable at top (always visible when list is at top)
-
                         SliverList(
                           delegate: SliverChildBuilderDelegate(
                             (context, index) {
-                              final cartItem = state.items[index];
+                              final id = state.items[index].id;
                               return CartItemTile(
-                                index: index,
-                                key: ValueKey('cart_item_${cartItem.id}_${cartItem.total}_${cartItem.quantity}'),
-                                cartItem: cartItem,
+                                key: ValueKey<int>(id),
+                                cartItemId: id,
                               );
                             },
                             childCount: state.items.length,
                           ),
                         ),
-                        SliverToBoxAdapter(
+                        const SliverToBoxAdapter(
                           child: SizedBox(height: 90),
                         ),
                       ],
                     ),
-            ),
+            );
+          },
+        ),
 
-            // ───────────── BOTTOM SUMMARY BAR ─────────────
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
+        // ───────────── BOTTOM SUMMARY BAR ─────────────
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: BlocBuilder<CartCubit, CartState>(
+            builder: (context, state) {
+              final itemCount = state.items.length;
+
+              final totalAmount = state.items.fold<double>(0, (s, e) => s + e.total);
+
+              return Container(
                 padding: const EdgeInsets.symmetric(horizontal: AppPadding.screenHorizontal, vertical: 12),
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -136,7 +148,7 @@ class CartPanel extends StatelessWidget {
 
                           // Delivery: only Save button (no KOT, no Pay) — Save opens payment dialog
                           if (isDelivery || isEditingPaidOrder) {
-                            return CustomButton(
+                            final saveButton = CustomButton(
                               width: isNarrow ? constraints.maxWidth : 150,
                               onPressed: state.items.isEmpty
                                   ? () {}
@@ -152,15 +164,50 @@ class CartPanel extends StatelessWidget {
                                     },
                               text: "Save",
                             );
+                            final eye = IconButton(
+                              tooltip: 'View cart',
+                              icon: Icon(
+                                Icons.visibility_outlined,
+                                color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
+                              ),
+                              onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
+                            );
+                            if (isNarrow) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Align(alignment: Alignment.centerRight, child: eye),
+                                  const SizedBox(height: 4),
+                                  saveButton,
+                                ],
+                              );
+                            }
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                eye,
+                                const SizedBox(width: 4),
+                                saveButton,
+                              ],
+                            );
                           }
 
                           if (!isNarrow) {
                             return Row(
                               children: [
-                                CustomButton(
-                                  width: 120,
+                                IconButton(
+                                  tooltip: 'View cart',
+                                  icon: Icon(
+                                    Icons.visibility_outlined,
+                                    color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
+                                  ),
+                                  onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
+                                ),
+                                const SizedBox(width: 4),
+                                _KitchenOrderIconButton(
+                                  width: 110,
                                   onPressed: state.items.isEmpty
-                                      ? () {}
+                                      ? null
                                       : () async {
                                           final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
                                           final skipKotReferenceDialog =
@@ -169,6 +216,7 @@ class CartPanel extends StatelessWidget {
                                             try {
                                               final printFailed = await cartCubit.saveKOTWithExistingReference();
                                               if (context.mounted) {
+                                                CustomSnackBar.showKotSaved(context: context);
                                                 if (printFailed.isNotEmpty) {
                                                   showPrintFailedDialog(context, printFailed);
                                                 }
@@ -184,7 +232,6 @@ class CartPanel extends StatelessWidget {
                                             showKOTDialog(context);
                                           }
                                         },
-                                  text: "KOT",
                                 ),
                                 const SizedBox(width: 12),
                                 CustomButton(
@@ -205,10 +252,22 @@ class CartPanel extends StatelessWidget {
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              CustomButton(
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: IconButton(
+                                  tooltip: 'View cart',
+                                  icon: Icon(
+                                    Icons.visibility_outlined,
+                                    color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
+                                  ),
+                                  onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              _KitchenOrderIconButton(
                                 width: constraints.maxWidth,
                                 onPressed: state.items.isEmpty
-                                    ? () {}
+                                    ? null
                                     : () async {
                                         final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
                                         final skipKotReferenceDialog =
@@ -217,6 +276,7 @@ class CartPanel extends StatelessWidget {
                                           try {
                                             final printFailed = await cartCubit.saveKOTWithExistingReference();
                                             if (context.mounted) {
+                                              CustomSnackBar.showKotSaved(context: context);
                                               if (printFailed.isNotEmpty) {
                                                 showPrintFailedDialog(context, printFailed);
                                               }
@@ -232,7 +292,6 @@ class CartPanel extends StatelessWidget {
                                           showKOTDialog(context);
                                         }
                                       },
-                                text: "KOT",
                               ),
                               const SizedBox(height: 10),
                               CustomButton(
@@ -275,11 +334,11 @@ class CartPanel extends StatelessWidget {
                     },
                   ),
                 ),
-              ),
-            ),
-          ],
-        );
-      },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -321,7 +380,7 @@ class CartPanel extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  currentReference == null ? 'Add KOT Reference' : 'Edit KOT Reference',
+                                  currentReference == null ? 'Add reference' : 'Edit reference',
                                   style: AppStyles.getBoldTextStyle(fontSize: 20),
                                 ),
                                 const SizedBox(height: 6),
@@ -363,21 +422,15 @@ class CartPanel extends StatelessWidget {
                             text: 'Save',
                             onPressed: () async {
                               final value = referenceController.text.trim();
-                              if (value.isEmpty) {
-                                if (parentContext.mounted) {
-                                  ScaffoldMessenger.of(parentContext).showSnackBar(
-                                    const SnackBar(content: Text('Enter a reference number for KOT')),
-                                  );
-                                }
-                                return;
-                              }
                               try {
                                 final printFailed = await cartCubit.saveKOT(value);
                                 if (!context.mounted) return;
                                 Navigator.of(context, rootNavigator: true).pop();
-                                // Use parentContext after closing this dialog — dialog `context` is deactivated.
-                                if (printFailed.isNotEmpty && parentContext.mounted) {
-                                  showPrintFailedDialog(parentContext, printFailed);
+                                if (parentContext.mounted) {
+                                  CustomSnackBar.showKotSaved(context: parentContext);
+                                  if (printFailed.isNotEmpty) {
+                                    showPrintFailedDialog(parentContext, printFailed);
+                                  }
                                 }
                                 if (closeOnComplete && parentContext.mounted) {
                                   Navigator.of(parentContext).pop();
@@ -568,28 +621,20 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
     _updateFinalAmount();
 
-    final cashP = (prefill?['cash'] as num?)?.toDouble() ?? 0.0;
-    final creditP = (prefill?['credit'] as num?)?.toDouble() ?? 0.0;
-    final cardP = (prefill?['card'] as num?)?.toDouble() ?? 0.0;
-    final onlineP = (prefill?['online'] as num?)?.toDouble() ?? 0.0;
-    final hasSavedPayments = cashP + creditP + cardP + onlineP > 0.005;
-
-    if (hasSavedPayments) {
-      if (cashP > 0) _cashController.text = cashP.toStringAsFixed(2);
-      if (creditP > 0) _creditController.text = creditP.toStringAsFixed(2);
-      if (cardP > 0) _cardController.text = cardP.toStringAsFixed(2);
-      if (onlineP > 0) _onlineController.text = onlineP.toStringAsFixed(2);
-    } else if (widget.isDelivery) {
-      if (_isPartnerDelivery) {
-        _onlineController.text = _finalAmount.toStringAsFixed(2);
-        _creditController.clear();
-      } else {
-        _creditController.text = _finalAmount.toStringAsFixed(2);
-        _onlineController.clear();
+    // New order: [getPaymentPrefillForEdit] is null — leave payment fields empty (take away, dine in, delivery).
+    // Editing: prefill cash/card/credit/online from the saved order.
+    if (prefill != null) {
+      final cashP = (prefill['cash'] as num?)?.toDouble() ?? 0.0;
+      final creditP = (prefill['credit'] as num?)?.toDouble() ?? 0.0;
+      final cardP = (prefill['card'] as num?)?.toDouble() ?? 0.0;
+      final onlineP = (prefill['online'] as num?)?.toDouble() ?? 0.0;
+      final hasSavedPayments = cashP + creditP + cardP + onlineP > 0.005;
+      if (hasSavedPayments) {
+        if (cashP > 0) _cashController.text = cashP.toStringAsFixed(2);
+        if (creditP > 0) _creditController.text = creditP.toStringAsFixed(2);
+        if (cardP > 0) _cardController.text = cardP.toStringAsFixed(2);
+        if (onlineP > 0) _onlineController.text = onlineP.toStringAsFixed(2);
       }
-    } else {
-      // Take away & dine in: default full amount to cash so SUBMIT can pass validation.
-      _cashController.text = _finalAmount.toStringAsFixed(2);
     }
 
     _loadCustomers();
@@ -1312,5 +1357,47 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _otherController.dispose();
     _onlineOrderNumberController.dispose();
     super.dispose();
+  }
+}
+
+/// Kitchen order ticket (KOT) — icon + label to match Pay/Save clarity.
+class _KitchenOrderIconButton extends StatelessWidget {
+  const _KitchenOrderIconButton({
+    required this.onPressed,
+    required this.width,
+  });
+
+  final VoidCallback? onPressed;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: Tooltip(
+        message: 'KOT — send to kitchen',
+        child: ElevatedButton(
+          onPressed: onPressed,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primaryColor,
+            disabledBackgroundColor: AppColors.primaryColor.withValues(alpha: 0.45),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            elevation: onPressed == null ? 0 : 2,
+            surfaceTintColor: Colors.transparent,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'KOT',
+                style: AppStyles.getSemiBoldTextStyle(fontSize: 15, color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

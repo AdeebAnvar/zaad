@@ -232,6 +232,7 @@ class SyncService {
             sku: i.sku,
             price: i.price,
             stock: i.stock,
+            stockEnabled: Value(i.stockEnabled),
             localImagePath: Value(localPath),
             categoryName: i.categoryName,
             barcode: i.barcode,

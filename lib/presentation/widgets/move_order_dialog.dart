@@ -4,6 +4,7 @@ import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/order/move_order_logic.dart';
+import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/customer_repository.dart';
@@ -115,6 +116,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
   List<DiningTable> _tables = [];
 
   bool _submitting = false;
+  bool _seatHandlingEnabled = true;
 
   static const _genderOptions = ['Male', 'Female', 'Other'];
 
@@ -144,6 +146,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
       _loadError = null;
     });
     try {
+      final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
       final floors = await _db.diningTablesDao.getFloors();
       final drivers = await _driverRepo.getAll();
       final customers = await _customerRepo.getAllLocalCustomers();
@@ -156,6 +159,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
 
       if (!mounted) return;
       setState(() {
+        _seatHandlingEnabled = seatHandling;
         _floors = floors;
         _drivers = drivers;
         _allCustomers = customers;
@@ -704,13 +708,15 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
                 .toList(),
             onChanged: (v) => setState(() => _tableId = v),
           ),
-        const SizedBox(height: 12),
-        CustomTextField(
-          controller: _pax,
-          labelText: 'Pax',
-          keyBoardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        ),
+        if (_seatHandlingEnabled) ...[
+          const SizedBox(height: 12),
+          CustomTextField(
+            controller: _pax,
+            labelText: 'Pax',
+            keyBoardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          ),
+        ],
       ],
     );
   }

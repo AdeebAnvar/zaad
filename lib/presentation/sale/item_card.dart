@@ -19,6 +19,13 @@ class ItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasImage = item.localImagePath != null && item.localImagePath!.isNotEmpty && File(item.localImagePath!).existsSync();
+    final hasVariants = context.select<ItemsCubit, bool>((cubit) {
+      final state = cubit.state;
+      if (state is ItemsLoadedState) {
+        return state.variantItemIds.contains(item.id);
+      }
+      return false;
+    });
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
@@ -96,22 +103,23 @@ class ItemCard extends StatelessWidget {
                       ),
               ),
 
-              // 🔹 STOCK BADGE
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: item.stock > 0 ? AppColors.primaryColor.withOpacity(0.85) : Colors.red.withOpacity(0.85),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    item.stock > 0 ? "${item.stock}" : "Out of stock",
-                    style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: Colors.white),
+              // 🔹 STOCK BADGE (only when server enables stock tracking)
+              if (item.stockEnabled)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: item.stock > 0 ? AppColors.primaryColor.withOpacity(0.85) : Colors.red.withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      item.stock > 0 ? "${item.stock}" : "Out of stock",
+                      style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: Colors.white),
+                    ),
                   ),
                 ),
-              ),
 
               // 🔹 BOTTOM INFO PANEL
               Align(
@@ -147,10 +155,11 @@ class ItemCard extends StatelessWidget {
                           style: AppStyles.getRegularTextStyle(fontSize: 11, color: Colors.white70),
                         ),
                       const SizedBox(height: 4),
-                      Text(
-                        "₹ ${item.price}",
-                        style: AppStyles.getBoldTextStyle(fontSize: 15, color: Colors.white),
-                      ),
+                      if (!hasVariants)
+                        Text(
+                          "₹ ${item.price}",
+                          style: AppStyles.getBoldTextStyle(fontSize: 15, color: Colors.white),
+                        ),
                     ],
                   ),
                 ),

@@ -15,6 +15,7 @@ import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPanelDecoration;
+import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class RecentSalesScreen extends StatelessWidget {
   const RecentSalesScreen({super.key});
@@ -442,7 +443,12 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        DataCell(Text(DateFormat('dd-MM-yyyy HH:mm').format(order.createdAt))),
+                        DataCell(
+                          RelativeTimeText(
+                            at: order.createdAt,
+                            style: AppStyles.getRegularTextStyle(fontSize: 13),
+                          ),
+                        ),
                         DataCell(Text('₹ ${total.toStringAsFixed(2)}')),
                         DataCell(
                           Text(
@@ -565,7 +571,6 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
 
   Widget _header(String orderType) {
     final order = widget.order;
-    final formattedDate = DateFormat('dd-MM-yyyy HH:mm:ss').format(order.createdAt);
 
     return Row(
       children: [
@@ -583,8 +588,8 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
               ),
             ),
             const SizedBox(height: 2),
-            Text(
-              formattedDate,
+            RelativeTimeText(
+              at: order.createdAt,
               style: const TextStyle(fontSize: 11, color: Colors.grey),
             ),
           ],

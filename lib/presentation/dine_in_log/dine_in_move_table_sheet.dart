@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -47,6 +48,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
 
   bool _loading = true;
   String? _error;
+  bool? _seatHandlingEnabled;
   List<DiningFloor> _floors = [];
   List<DiningTable> _tables = [];
   int? _floorId;
@@ -64,6 +66,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       _error = null;
     });
     try {
+      final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
       final floors = await _db.diningTablesDao.getFloors();
       if (floors.isEmpty) {
         setState(() {
@@ -93,6 +96,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
 
       if (!mounted) return;
       setState(() {
+        _seatHandlingEnabled = seatHandling;
         _floors = floors;
         _floorId = startFloor.id;
         _tables = tables;
@@ -132,31 +136,36 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
     }
 
     final pax = DineInRefParser.extractPaxFromReference(widget.order.referenceNumber);
+    final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
     final active = await _orderRepo.filterOrders(orderType: 'dine_in');
     final activeList = active.where((o) {
       final s = o.status.toLowerCase();
       return s != 'completed' && s != 'cancelled';
     }).toList();
 
-    final used = await DineInRefParser.occupiedPaxOnTableExcluding(
-      floorId: fid,
-      tableCodeUpper: DineInRefParser.tableKey(table.code),
-      excludeOrderId: widget.order.id,
-      db: _db,
-      activeDineInOrders: activeList,
-    );
-
-    if (used + pax > table.chairs) {
-      if (!context.mounted) return;
-      showAppSnackBar(
-        context,
-        'Not enough seats on ${table.code} ($used + $pax pax needed, ${table.chairs} seats).',
-        isError: true,
+    if (seatHandling) {
+      final used = await DineInRefParser.occupiedPaxOnTableExcluding(
+        floorId: fid,
+        tableCodeUpper: DineInRefParser.tableKey(table.code),
+        excludeOrderId: widget.order.id,
+        db: _db,
+        activeDineInOrders: activeList,
       );
-      return;
+
+      if (used + pax > table.chairs) {
+        if (!context.mounted) return;
+        showAppSnackBar(
+          context,
+          'Not enough seats on ${table.code} ($used + $pax pax needed, ${table.chairs} seats).',
+          isError: true,
+        );
+        return;
+      }
     }
 
-    final newRef = DineInRefParser.buildReference(fid, table.code, pax);
+    final newRef = seatHandling
+        ? DineInRefParser.buildReference(fid, table.code, pax)
+        : DineInRefParser.buildTableOnlyReference(fid, table.code);
     final cubit = context.read<DineInLogCubit>();
     final nav = Navigator.of(context);
     final err = await cubit.moveDineInOrderToTable(
@@ -188,6 +197,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
     }
 
     final pax = DineInRefParser.extractPaxFromReference(widget.order.referenceNumber);
+    final seatHandling = _seatHandlingEnabled ?? true;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
@@ -200,7 +210,9 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Keeps $pax pax on the new table.',
+            seatHandling
+                ? 'Keeps $pax pax on the new table.'
+                : 'Seat allocation is off; order moves to the new table without seat limits.',
             style: AppStyles.getRegularTextStyle(fontSize: 13, color: AppColors.hintFontColor),
           ),
           const SizedBox(height: 16),

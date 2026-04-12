@@ -12,6 +12,7 @@ class ItemsCubit extends Cubit<ItemState> {
 
   List<Item> _allItems = [];
   List<Category> _allCategories = [];
+  Set<int> _variantItemIds = {};
 
   int _selectedCategoryId = -1;
   int get selectedCategoryId => _selectedCategoryId;
@@ -20,6 +21,8 @@ class ItemsCubit extends Cubit<ItemState> {
   Future<void> fetchItemsAndCategories() async {
     _allItems = await _repo.fetchItemsFromLocal();
     _allCategories = await _repo.fetchCategoriesFromLocal();
+    final allVariants = await _repo.fetchAllVariants();
+    _variantItemIds = allVariants.map((v) => v.itemId).toSet();
     _applyFilters();
   }
 
@@ -30,6 +33,9 @@ class ItemsCubit extends Cubit<ItemState> {
 
   void search(String query) {
     _searchQuery = query.toLowerCase().trim();
+    if (_searchQuery.isNotEmpty) {
+      _selectedCategoryId = -1;
+    }
     _applyFilters();
   }
 
@@ -56,6 +62,7 @@ class ItemsCubit extends Cubit<ItemState> {
       ItemsLoadedState(
         items: filtered,
         categories: _allCategories,
+        variantItemIds: _variantItemIds,
       ),
     );
   }
@@ -71,6 +78,6 @@ class ItemsCubit extends Cubit<ItemState> {
 
 extension ItemUiX on Item {
   /// UI helpers (do NOT touch DB schema)
-  bool get hasVariants => false; // default
+  bool get hasVariants => false; // derived from cubit state
   bool get hasToppings => false; // default
 }

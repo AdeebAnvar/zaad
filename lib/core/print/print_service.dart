@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
@@ -110,6 +111,10 @@ class PrintService {
   Future<List<String>> printFinalBill({
     required Order order,
     required List<CartItem> cartItems,
+    /// When true (e.g. customer bill from order log), receipt shows a settled-bill header.
+    bool settledBill = false,
+    /// When true, print header indicates edited bill.
+    bool updatedOrder = false,
   }) async {
     final failed = <String>[];
     final lines = await _buildPrintLines(cartItems);
@@ -124,6 +129,8 @@ class PrintService {
       final bytes = await _generateFinalBillTicket(
         order: order,
         lines: lines,
+        settledBill: settledBill,
+        updatedOrder: updatedOrder,
       );
       final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
       await _sendToPrinter(
@@ -251,13 +258,24 @@ class PrintService {
   Future<List<int>> _generateFinalBillTicket({
     required Order order,
     required List<_PrintLine> lines,
+    bool settledBill = false,
+    bool updatedOrder = false,
   }) async {
     final profile = await CapabilityProfile.load();
     final generator = Generator(PaperSize.mm80, profile);
     List<int> bytes = [];
 
+    final caption = updatedOrder ? 'UPDATED ORDER' : (settledBill ? 'SETTLED BILL' : 'RECEIPT');
+    // #region agent log
+    _dbgLog('final_bill_caption', {
+      'invoiceNumber': order.invoiceNumber,
+      'updatedOrder': updatedOrder,
+      'settledBill': settledBill,
+      'caption': caption,
+    }, hypothesisId: 'H1');
+    // #endregion
     bytes += generator.text(
-      'RECEIPT',
+      caption,
       styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2),
     );
     bytes += generator.text(
@@ -312,6 +330,23 @@ class PrintService {
     bytes += generator.cut();
     return bytes;
   }
+
+  // #region agent log
+  void _dbgLog(String message, Map<String, Object?> data, {String hypothesisId = 'H1'}) {
+    try {
+      final payload = {
+        'sessionId': 'bead4f',
+        'runId': 'updated-order-caption',
+        'hypothesisId': hypothesisId,
+        'location': 'print_service.dart',
+        'message': message,
+        'data': data,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+      File('debug-bead4f.log').writeAsStringSync('${jsonEncode(payload)}\n', mode: FileMode.append, flush: true);
+    } catch (_) {}
+  }
+  // #endregion
 
   Future<void> _sendToPrinter({
     required String address,

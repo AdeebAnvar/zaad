@@ -1,13 +1,6 @@
-/// Prefix per channel: Take away `TA`, Dine in `DI`, Delivery `DL`.
+/// Single prefix for all channels (take away, dine in, delivery).
 String invoicePrefixForOrderType(String orderType) {
-  switch (orderType) {
-    case 'dine_in':
-      return 'DI';
-    case 'delivery':
-      return 'DL';
-    default:
-      return 'TA';
-  }
+  return 'INV';
 }
 
 /// Formats `TA01`, `DL12`; expands past 99 without padding (`TA100`).

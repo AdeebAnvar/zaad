@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/navigation.dart';
@@ -12,6 +13,7 @@ import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/presentation/crm/crm_cubit.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_actions.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
+import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class CrmCustomerDetailsScreen extends StatefulWidget {
   const CrmCustomerDetailsScreen({super.key});
@@ -80,27 +82,39 @@ class _CrmCustomerDetailsScreenState extends State<CrmCustomerDetailsScreen> {
     return {'take_away': ta, 'dine_in': di, 'delivery': de};
   }
 
+  DateTime? _lastOrderAt() {
+    if (orders.isEmpty) return null;
+    return orders.map((o) => o.createdAt).reduce((a, b) => a.isAfter(b) ? a : b);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loading) {
       return CustomScaffold(
-        title: 'Customer',
+        title: 'Profile',
         onBack: () => Navigator.of(context).pop(),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const Center(child: CircularProgressIndicator(color: AppColors.primaryColor)),
       );
     }
 
     if (customer == null) {
       return CustomScaffold(
-        title: 'Customer',
+        title: 'Profile',
         onBack: () => Navigator.of(context).pop(),
-        body: const Center(child: Text('Customer not found')),
+        body: Center(
+          child: Text(
+            'Customer not found',
+            style: AppStyles.getRegularTextStyle(fontSize: 16, color: AppColors.hintFontColor),
+          ),
+        ),
       );
     }
 
     final c = customer!;
     final totalSpent = orders.fold<double>(0.0, (sum, o) => sum + o.finalAmount);
     final counts = _countsByChannel();
+    final avgOrder = orders.isEmpty ? 0.0 : totalSpent / orders.length;
+    final lastAt = _lastOrderAt();
 
     return CustomScaffold(
       title: 'Customer profile',
@@ -108,52 +122,60 @@ class _CrmCustomerDetailsScreenState extends State<CrmCustomerDetailsScreen> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isNarrow = constraints.maxWidth < 768;
-          final maxContent = constraints.maxWidth > 1200 ? 1100.0 : constraints.maxWidth;
+          final maxContent = constraints.maxWidth > 1200 ? 1000.0 : constraints.maxWidth;
           return RefreshIndicator(
+            color: AppColors.primaryColor,
             onRefresh: _loadCustomerDetails,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.symmetric(
-                horizontal: isNarrow ? 16 : 24,
-                vertical: 20,
-              ),
               child: Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: maxContent),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _ProfileHeader(customer: c, totalSpent: totalSpent, orderCount: orders.length),
-                      const SizedBox(height: 20),
-                      _ChannelStatsChips(counts: counts),
-                      const SizedBox(height: 24),
-                      Text(
-                        'All orders (${orders.length})',
-                        style: AppStyles.getMediumTextStyle(
-                          fontSize: 16,
-                          color: AppColors.textColor,
+                      _ProfileHero(
+                        customer: c,
+                        orderCount: orders.length,
+                        totalSpent: totalSpent,
+                        avgOrder: avgOrder,
+                        lastOrderAt: lastAt,
+                      ),
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          isNarrow ? 0 : 0,
+                          0,
+                          isNarrow ? 0 : 0,
+                          0,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Transform.translate(
+                              offset: const Offset(0, -28),
+                              child: _ContactDetailsCard(customer: c),
+                            ),
+                            const SizedBox(height: 4),
+                            _ActivityByChannelCard(counts: counts),
+                            const SizedBox(height: 20),
+                            _OrderHistoryHeader(count: orders.length),
+                            const SizedBox(height: 12),
+                            if (orders.isEmpty)
+                              _EmptyOrdersPlaceholder()
+                            else if (isNarrow)
+                              _OrdersCardList(
+                                orders: orders,
+                                onAfterEdit: _loadCustomerDetails,
+                              )
+                            else
+                              _OrdersDataTable(
+                                orders: orders,
+                                onAfterEdit: _loadCustomerDetails,
+                              ),
+                            const SizedBox(height: 24),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      if (orders.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 32),
-                          child: Text(
-                            'No linked orders yet. Orders appear when receipt customer matches this profile.',
-                            textAlign: TextAlign.center,
-                            style: AppStyles.getRegularTextStyle(fontSize: 14, color: Colors.grey.shade600),
-                          ),
-                        )
-                      else if (isNarrow)
-                        _OrdersCardList(
-                          orders: orders,
-                          onAfterEdit: _loadCustomerDetails,
-                        )
-                      else
-                        _OrdersDataTable(
-                          orders: orders,
-                          onAfterEdit: _loadCustomerDetails,
-                        ),
                     ],
                   ),
                 ),
@@ -166,37 +188,359 @@ class _CrmCustomerDetailsScreenState extends State<CrmCustomerDetailsScreen> {
   }
 }
 
-class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader({
+/// Top banner: avatar, name, key metrics — app primary theme.
+class _ProfileHero extends StatelessWidget {
+  const _ProfileHero({
     required this.customer,
-    required this.totalSpent,
     required this.orderCount,
+    required this.totalSpent,
+    required this.avgOrder,
+    required this.lastOrderAt,
   });
 
   final CustomerModel customer;
-  final double totalSpent;
   final int orderCount;
+  final double totalSpent;
+  final double avgOrder;
+  final DateTime? lastOrderAt;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(22),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 44),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.primaryColor.withOpacity(0.12),
-            Colors.white,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade200),
+        color: AppColors.primaryColor,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: AppColors.primaryColor.withValues(alpha: 0.35),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 44,
+                  backgroundColor: Colors.white.withValues(alpha: 0.2),
+                  child: CircleAvatar(
+                    radius: 40,
+                    backgroundColor: Colors.white,
+                    child: Text(
+                      customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
+                      style: AppStyles.getBoldTextStyle(fontSize: 32, color: AppColors.primaryColor),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        customer.name,
+                        style: AppStyles.getBoldTextStyle(fontSize: 22, color: Colors.white),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
+                      if (customer.phone != null && customer.phone!.isNotEmpty) _HeroLine(icon: Icons.phone_rounded, text: customer.phone!),
+                      if (customer.email != null && customer.email!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: _HeroLine(icon: Icons.email_outlined, text: customer.email!),
+                        ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.dashboard_outlined, color: Colors.white.withValues(alpha: 0.9)),
+                  tooltip: 'Dashboard',
+                  onPressed: () => AppNavigator.pushReplacementNamed(Routes.dashboard),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: _HeroMetric(
+                    label: 'Orders',
+                    value: '$orderCount',
+                    icon: Icons.receipt_long_outlined,
+                  ),
+                ),
+                Container(width: 1, height: 40, color: Colors.white24),
+                Expanded(
+                  child: _HeroMetric(
+                    label: 'Lifetime value',
+                    value: '₹${totalSpent.toStringAsFixed(0)}',
+                    icon: Icons.payments_outlined,
+                  ),
+                ),
+                Container(width: 1, height: 40, color: Colors.white24),
+                Expanded(
+                  child: _HeroMetric(
+                    label: 'Avg. order',
+                    value: orderCount == 0 ? '—' : '₹${avgOrder.toStringAsFixed(0)}',
+                    icon: Icons.analytics_outlined,
+                  ),
+                ),
+              ],
+            ),
+            if (lastOrderAt != null) ...[
+              const SizedBox(height: 14),
+              Text(
+                'Last order · ${DateFormat('MMM d, yyyy · h:mm a').format(lastOrderAt!)}',
+                style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.white70),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroLine extends StatelessWidget {
+  const _HeroLine({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: Colors.white70),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: AppStyles.getRegularTextStyle(fontSize: 14, color: Colors.white.withValues(alpha: 0.92)),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HeroMetric extends StatelessWidget {
+  const _HeroMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, size: 18, color: Colors.white70),
+        const SizedBox(height: 6),
+        Text(
+          value,
+          style: AppStyles.getBoldTextStyle(fontSize: 16, color: Colors.white),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: AppStyles.getRegularTextStyle(fontSize: 11, color: Colors.white70),
+          textAlign: TextAlign.center,
+          maxLines: 2,
+        ),
+      ],
+    );
+  }
+}
+
+/// Overlapping card: full contact & profile metadata.
+class _ContactDetailsCard extends StatelessWidget {
+  const _ContactDetailsCard({required this.customer});
+
+  final CustomerModel customer;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 4,
+      shadowColor: Colors.black.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(16),
+      color: AppColors.cardColor,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.badge_outlined, size: 22, color: AppColors.primaryColor),
+                const SizedBox(width: 8),
+                Text(
+                  'Contact & profile',
+                  style: AppStyles.getSemiBoldTextStyle(fontSize: 16, color: AppColors.textColor),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (customer.id != null)
+              _DetailTile(
+                icon: Icons.tag_outlined,
+                label: 'Customer ID',
+                value: '#${customer.id}',
+              ),
+            if (customer.phone != null && customer.phone!.isNotEmpty)
+              _DetailTile(
+                icon: Icons.phone_android_rounded,
+                label: 'Phone',
+                value: customer.phone!,
+                onCopy: customer.phone,
+              ),
+            if (customer.email != null && customer.email!.isNotEmpty)
+              _DetailTile(
+                icon: Icons.alternate_email_rounded,
+                label: 'Email',
+                value: customer.email!,
+                onCopy: customer.email,
+              ),
+            if (customer.gender != null && customer.gender!.isNotEmpty)
+              _DetailTile(
+                icon: Icons.wc_rounded,
+                label: 'Gender',
+                value: customer.gender!,
+              ),
+            if (customer.createdAt != null)
+              _DetailTile(
+                icon: Icons.calendar_today_outlined,
+                label: 'Customer since',
+                value: DateFormat('MMMM d, yyyy').format(customer.createdAt!),
+              ),
+            if (customer.updatedAt != null)
+              _DetailTile(
+                icon: Icons.update_outlined,
+                label: 'Profile updated',
+                value: DateFormat('MMM d, yyyy').format(customer.updatedAt!),
+              ),
+            const Divider(height: 28),
+            Row(
+              children: [
+                Icon(
+                  customer.isSynced ? Icons.cloud_done_rounded : Icons.cloud_upload_outlined,
+                  size: 20,
+                  color: customer.isSynced ? AppColors.success : AppColors.warning,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    customer.isSynced ? 'Synced with server' : 'Pending sync',
+                    style: AppStyles.getMediumTextStyle(
+                      fontSize: 13,
+                      color: customer.isSynced ? AppColors.success : AppColors.warning,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailTile extends StatelessWidget {
+  const _DetailTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.onCopy,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: AppColors.hintFontColor),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  value,
+                  style: AppStyles.getMediumTextStyle(fontSize: 15, color: AppColors.textColor),
+                ),
+              ],
+            ),
+          ),
+          if (onCopy != null)
+            IconButton(
+              icon: const Icon(Icons.copy_rounded, size: 20),
+              color: AppColors.primaryColor,
+              tooltip: 'Copy',
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: onCopy!));
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Copied'),
+                    behavior: SnackBarBehavior.floating,
+                    margin: const EdgeInsets.all(16),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityByChannelCard extends StatelessWidget {
+  const _ActivityByChannelCard({required this.counts});
+
+  final Map<String, int> counts;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = (counts['take_away'] ?? 0) + (counts['dine_in'] ?? 0) + (counts['delivery'] ?? 0);
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.divider),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -204,190 +548,52 @@ class _ProfileHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
-                radius: 36,
-                backgroundColor: AppColors.primaryColor,
-                child: Text(
-                  customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      customer.name,
-                      style: AppStyles.getMediumTextStyle(fontSize: 22, color: AppColors.textColor),
-                    ),
-                    if (customer.phone != null && customer.phone!.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Row(
-                          children: [
-                            Icon(Icons.phone_outlined, size: 18, color: Colors.grey.shade700),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                customer.phone!,
-                                style: AppStyles.getRegularTextStyle(fontSize: 15, color: Colors.grey.shade800),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    if (customer.email != null && customer.email!.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Row(
-                          children: [
-                            Icon(Icons.email_outlined, size: 18, color: Colors.grey.shade700),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                customer.email!,
-                                style: AppStyles.getRegularTextStyle(fontSize: 14, color: Colors.grey.shade800),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.home_outlined),
-                onPressed: () => AppNavigator.pushReplacementNamed(Routes.dashboard),
-                tooltip: 'Dashboard',
-              ),
-            ],
-          ),
-          if (customer.gender != null && customer.gender!.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Chip(
-              label: Text(customer.gender!),
-              visualDensity: VisualDensity.compact,
-              backgroundColor: Colors.white,
-            ),
-          ],
-          if (customer.createdAt != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Customer since ${DateFormat('MMM d, yyyy').format(customer.createdAt!)}',
-              style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.grey.shade600),
-            ),
-          ],
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 12,
-            runSpacing: 10,
-            children: [
-              _StatPill(
-                icon: Icons.receipt_long_outlined,
-                label: 'Total orders',
-                value: '$orderCount',
-              ),
-              _StatPill(
-                icon: Icons.currency_rupee,
-                label: 'Lifetime value',
-                value: '₹${totalSpent.toStringAsFixed(2)}',
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatPill extends StatelessWidget {
-  const _StatPill({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 22, color: AppColors.primaryColor),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+              Icon(Icons.pie_chart_outline_rounded, size: 22, color: AppColors.primaryColor),
+              const SizedBox(width: 8),
               Text(
-                value,
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                'Activity by channel',
+                style: AppStyles.getSemiBoldTextStyle(fontSize: 16, color: AppColors.textColor),
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ChannelStatsChips extends StatelessWidget {
-  const _ChannelStatsChips({required this.counts});
-
-  final Map<String, int> counts;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Purchases by channel',
-          style: AppStyles.getMediumTextStyle(fontSize: 14, color: AppColors.hintFontColor),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            _ChannelChip(
-              label: 'Take away',
-              count: counts['take_away'] ?? 0,
-              color: const Color(0xFF1565C0),
-              icon: Icons.shopping_bag_outlined,
-            ),
-            _ChannelChip(
-              label: 'Dine in',
-              count: counts['dine_in'] ?? 0,
-              color: const Color(0xFF7C4DFF),
-              icon: Icons.restaurant_outlined,
-            ),
-            _ChannelChip(
-              label: 'Delivery',
-              count: counts['delivery'] ?? 0,
-              color: const Color(0xFF00897B),
-              icon: Icons.local_shipping_outlined,
+          if (total == 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                'No orders yet — purchases show here once receipts match this customer.',
+                style: AppStyles.getRegularTextStyle(fontSize: 13, color: AppColors.hintFontColor),
+              ),
+            )
+          else ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _ChannelChip(
+                  label: 'Take away',
+                  count: counts['take_away'] ?? 0,
+                  color: const Color(0xFF1565C0),
+                  icon: Icons.shopping_bag_outlined,
+                ),
+                _ChannelChip(
+                  label: 'Dine in',
+                  count: counts['dine_in'] ?? 0,
+                  color: const Color(0xFF7C4DFF),
+                  icon: Icons.restaurant_outlined,
+                ),
+                _ChannelChip(
+                  label: 'Delivery',
+                  count: counts['delivery'] ?? 0,
+                  color: const Color(0xFF00897B),
+                  icon: Icons.local_shipping_outlined,
+                ),
+              ],
             ),
           ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -410,9 +616,9 @@ class _ChannelChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.35)),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -426,6 +632,69 @@ class _ChannelChip extends StatelessWidget {
           Text(
             '$count',
             style: TextStyle(fontWeight: FontWeight.w800, color: color, fontSize: 15),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrderHistoryHeader extends StatelessWidget {
+  const _OrderHistoryHeader({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(Icons.history_rounded, size: 22, color: AppColors.primaryColor),
+        const SizedBox(width: 8),
+        Text(
+          'Order history',
+          style: AppStyles.getSemiBoldTextStyle(fontSize: 17, color: AppColors.textColor),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.primaryColor.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            '$count',
+            style: AppStyles.getSemiBoldTextStyle(fontSize: 13, color: AppColors.primaryColor),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptyOrdersPlaceholder extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F6FA),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.shopping_cart_outlined, size: 48, color: AppColors.hintFontColor),
+          const SizedBox(height: 12),
+          Text(
+            'No orders linked yet',
+            style: AppStyles.getSemiBoldTextStyle(fontSize: 16, color: AppColors.textColor),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Orders appear when the receipt customer matches this profile (phone, email, or name).',
+            textAlign: TextAlign.center,
+            style: AppStyles.getRegularTextStyle(fontSize: 14, color: AppColors.hintFontColor),
           ),
         ],
       ),
@@ -448,12 +717,12 @@ class _OrdersDataTable extends StatelessWidget {
       builder: (context, constraints) {
         return Container(
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.grey.shade200),
+            color: AppColors.cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.divider),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -466,12 +735,8 @@ class _OrdersDataTable extends StatelessWidget {
               constraints: BoxConstraints(minWidth: constraints.maxWidth),
               child: DataTableTheme(
                 data: DataTableThemeData(
-                  headingRowColor: WidgetStateProperty.all(AppColors.primaryColor.withOpacity(0.08)),
-                  headingTextStyle: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                    color: AppColors.primaryColor,
-                  ),
+                  headingRowColor: WidgetStateProperty.all(AppColors.primaryColor.withValues(alpha: 0.08)),
+                  headingTextStyle: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: AppColors.primaryColor),
                 ),
                 child: DataTable(
                   columnSpacing: 16,
@@ -494,7 +759,7 @@ class _OrdersDataTable extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: tc.withOpacity(0.12),
+                              color: tc.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -509,7 +774,12 @@ class _OrdersDataTable extends StatelessWidget {
                         ),
                         DataCell(Text(order.invoiceNumber)),
                         DataCell(Text(order.referenceNumber?.isNotEmpty == true ? order.referenceNumber! : '—')),
-                        DataCell(Text(DateFormat('dd-MM-yyyy HH:mm').format(order.createdAt))),
+                        DataCell(
+                          RelativeTimeText(
+                            at: order.createdAt,
+                            style: AppStyles.getRegularTextStyle(fontSize: 13),
+                          ),
+                        ),
                         DataCell(Text('₹ ${total.toStringAsFixed(2)}')),
                         DataCell(Text(order.status.toUpperCase())),
                         DataCell(
@@ -569,16 +839,16 @@ class _OrdersCardList extends StatelessWidget {
         final total = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
         final tc = orderTypeColor(order);
         return Material(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          color: AppColors.cardColor,
+          borderRadius: BorderRadius.circular(16),
           elevation: 0,
           child: Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.divider),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
+                  color: Colors.black.withValues(alpha: 0.04),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -594,7 +864,7 @@ class _OrdersCardList extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: tc.withOpacity(0.12),
+                          color: tc.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -609,28 +879,43 @@ class _OrdersCardList extends StatelessWidget {
                       const Spacer(),
                       Text(
                         '₹ ${total.toStringAsFixed(2)}',
-                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+                        style: AppStyles.getBoldTextStyle(fontSize: 18, color: AppColors.primaryColor),
                       ),
                     ],
                   ),
                   const SizedBox(height: 10),
-                  Text(order.invoiceNumber, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                  const SizedBox(height: 4),
                   Text(
-                    DateFormat('dd MMM yyyy · HH:mm').format(order.createdAt),
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    order.invoiceNumber,
+                    style: AppStyles.getSemiBoldTextStyle(fontSize: 15, color: AppColors.textColor),
+                  ),
+                  const SizedBox(height: 4),
+                  RelativeTimeText(
+                    at: order.createdAt,
+                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
                   ),
                   if (order.referenceNumber != null && order.referenceNumber!.isNotEmpty) ...[
                     const SizedBox(height: 6),
-                    Text('Ref: ${order.referenceNumber}', style: TextStyle(fontSize: 13, color: Colors.grey.shade800)),
+                    Text(
+                      'Ref: ${order.referenceNumber}',
+                      style: AppStyles.getRegularTextStyle(fontSize: 13, color: AppColors.textColor),
+                    ),
                   ],
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Status · ${order.status.toUpperCase()}',
+                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       OutlinedButton.icon(
                         onPressed: () => showRecentSaleOrderDetails(context, order),
                         icon: const Icon(Icons.visibility_outlined, size: 18),
                         label: const Text('View'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primaryColor,
+                          side: const BorderSide(color: AppColors.primaryColor),
+                        ),
                       ),
                       const SizedBox(width: 8),
                       OutlinedButton.icon(
@@ -643,6 +928,10 @@ class _OrdersCardList extends StatelessWidget {
                         ),
                         icon: const Icon(Icons.edit_outlined, size: 18),
                         label: const Text('Edit'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primaryColor,
+                          side: const BorderSide(color: AppColors.primaryColor),
+                        ),
                       ),
                     ],
                   ),

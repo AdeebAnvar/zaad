@@ -45,6 +45,9 @@ class CartCubit extends Cubit<CartState> {
   /// IDs of cart items added in this session. Used to skip delete/reason popup for newly added items.
   final Set<int> _newlyAddedCartItemIds = {};
 
+  /// Cart line IDs already printed on a kitchen KOT (edit mode: existing lines from a KOT ticket are pre-filled).
+  final Set<int> _kotPrintedCartItemIds = {};
+
   /// True if the cart item was newly added in this session (no delete/reason popup).
   bool isNewlyAddedCartItem(int cartItemId) => _newlyAddedCartItemIds.contains(cartItemId);
 
@@ -236,6 +239,10 @@ class CartCubit extends Cubit<CartState> {
 
   Future<void> removeItemByCartItemId(int cartItemId) async {
     _newlyAddedCartItemIds.remove(cartItemId);
+    // Sync emit so Dismissible (and list) drops the row before the next frame.
+    // Async DB work follows; _loadCartItems reconciles with Drift.
+    final next = state.items.where((e) => e.id != cartItemId).toList();
+    emit(CartState(next));
     await cartRepo.removeCartItem(cartItemId);
     await _loadCartItems();
     await _updateKOTIfExists();
@@ -267,6 +274,7 @@ class CartCubit extends Cubit<CartState> {
     _editingOrderStatus = null;
     _openedForEdit = false;
     _newlyAddedCartItemIds.clear();
+    _kotPrintedCartItemIds.clear();
     _cartDiscountAmount = 0.0;
     _cartDiscountType = null;
     emit(CartState([]));
@@ -286,6 +294,7 @@ class CartCubit extends Cubit<CartState> {
     _editingOrderStatus = null;
     _openedForEdit = false;
     _newlyAddedCartItemIds.clear();
+    _kotPrintedCartItemIds.clear();
     _cartDiscountAmount = 0.0;
     _cartDiscountType = null;
     emit(CartState([]));
@@ -293,6 +302,12 @@ class CartCubit extends Cubit<CartState> {
 
   Future<List<String>> saveKOT(String referenceNumber) async {
     if (state.items.isEmpty || _activeCartId == null) return [];
+    final normalizedInputReference = referenceNumber.trim();
+    var effectiveReference = normalizedInputReference;
+    if (effectiveReference.isEmpty) {
+      final existing = _currentKOTReference?.trim();
+      effectiveReference = (existing != null && existing.isNotEmpty) ? existing : '';
+    }
 
     // Calculate total amount
     final totalAmount = state.items.fold<double>(
@@ -301,7 +316,7 @@ class CartCubit extends Cubit<CartState> {
     );
 
     // Check if KOT already exists with this reference
-    final existingKOT = await orderRepo.getKOTByReference(referenceNumber);
+    final existingKOT = await orderRepo.getKOTByReference(effectiveReference);
 
     if (existingKOT != null && existingKOT.id == _currentKOTOrderId) {
       // Update existing KOT (same reference, same order)
@@ -318,7 +333,7 @@ class CartCubit extends Cubit<CartState> {
         id: 0,
         cartId: _activeCartId!,
         invoiceNumber: await orderRepo.getNextInvoiceNumber(orderType),
-        referenceNumber: referenceNumber,
+        referenceNumber: effectiveReference,
         totalAmount: totalAmount,
         discountAmount: 0,
         discountType: null,
@@ -340,25 +355,38 @@ class CartCubit extends Cubit<CartState> {
       _currentKOTOrderId = orderId;
     }
 
-    _currentKOTReference = referenceNumber;
+    _currentKOTReference = effectiveReference;
 
-    // Print KOT to each kitchen's printer (before clearing cart); working printers still print
-    final printFailed = await printService.printKOTPerKitchen(
-      cartItems: state.items,
-      referenceNumber: referenceNumber,
-    );
+    // New sale: print full cart. Edit: only lines not yet printed on a KOT this session.
+    final List<CartItem> itemsToPrint = _openedForEdit
+        ? state.items.where((i) => !_kotPrintedCartItemIds.contains(i.id)).toList()
+        : List<CartItem>.from(state.items);
 
-    // Clear the cart state but keep cart in DB for editing
+    final printFailed = itemsToPrint.isEmpty
+        ? <String>[]
+        : await printService.printKOTPerKitchen(
+            cartItems: itemsToPrint,
+            referenceNumber: effectiveReference,
+          );
+    for (final i in itemsToPrint) {
+      _kotPrintedCartItemIds.add(i.id);
+    }
+
+    if (_openedForEdit) {
+      return printFailed;
+    }
+
     _activeCartId = null;
     _invoiceNumber = null;
+    _currentKOTReference = null;
+    _currentKOTOrderId = null;
     emit(CartState([]));
     return printFailed;
   }
 
   /// Save KOT using the already defined reference (edit only). No reference dialog.
   Future<List<String>> saveKOTWithExistingReference() async {
-    if (_currentKOTReference == null || _currentKOTReference!.isEmpty) return [];
-    return saveKOT(_currentKOTReference!);
+    return saveKOT(_currentKOTReference ?? '');
   }
 
   Future<void> _updateKOTIfExists() async {
@@ -418,6 +446,8 @@ class CartCubit extends Cubit<CartState> {
     _editingOrderStatus = null;
 
     _openedForEdit = true;
+    _newlyAddedCartItemIds.clear();
+    _kotPrintedCartItemIds.clear();
 
     // Set active cart
     _activeCartId = order.cartId;
@@ -433,6 +463,13 @@ class CartCubit extends Cubit<CartState> {
       // Paid take-away edits also update existing order.
       _editingOrderId = order.id;
       _editingOrderStatus = order.status;
+    }
+
+    // Lines already on an open KOT ticket are treated as printed to kitchen.
+    if (order.status == 'kot' && cartItems != null) {
+      for (final ci in cartItems) {
+        _kotPrintedCartItemIds.add(ci.id);
+      }
     }
 
     // Emit the loaded cart items - this will trigger widget rebuilds
@@ -628,7 +665,11 @@ class CartCubit extends Cubit<CartState> {
     await orderRepo.updateOrder(updatedOrder);
 
     // Print final bill (updated order); working printers still print
-    final printFailed = await printService.printFinalBill(order: updatedOrder, cartItems: state.items);
+    final printFailed = await printService.printFinalBill(
+      order: updatedOrder,
+      cartItems: state.items,
+      updatedOrder: true,
+    );
 
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)
     _editingOrderId = null;
@@ -686,6 +727,15 @@ class CartCubit extends Cubit<CartState> {
     );
 
     await cartRepo.updateCartItem(updatedItem);
+    await _loadCartItems();
+  }
+
+  /// Free-text line notes (same `notes` column as toppings JSON — avoid editing when toppings are set).
+  Future<void> updateCartItemLineNotes(CartItem cartItem, String? text) async {
+    final trimmed = text?.trim();
+    final value = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+    final updated = cartItem.copyWith(notes: Value(value));
+    await cartRepo.updateCartItem(updated);
     await _loadCartItems();
   }
 

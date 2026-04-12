@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 
 bool orderCanMoveBetweenLogs(Order order) {
@@ -107,7 +108,8 @@ Future<String?> moveOrderToDineIn({
   if (!orderCanMoveBetweenLogs(order)) {
     return 'Cannot move completed, delivered, or cancelled orders';
   }
-  if (pax < 1) return 'Enter a valid pax count';
+  final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
+  if (seatHandling && pax < 1) return 'Enter a valid pax count';
 
   await cartRepo.updateCartOrderInfo(
     order.cartId,
@@ -115,7 +117,9 @@ Future<String?> moveOrderToDineIn({
     deliveryPartner: null,
   );
 
-  final ref = DineInRefParser.buildReference(floorId, table.code, pax);
+  final ref = seatHandling
+      ? DineInRefParser.buildReference(floorId, table.code, pax)
+      : DineInRefParser.buildTableOnlyReference(floorId, table.code);
 
   await orderRepo.updateOrder(
     order.copyWith(

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
@@ -16,6 +15,7 @@ import 'package:pos/presentation/delivery_log/delivery_log_cubit.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
+import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class DriverLogScreen extends StatefulWidget {
   const DriverLogScreen({super.key});
@@ -276,7 +276,11 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
       return;
     }
     try {
-      await printService.printFinalBill(order: order, cartItems: cartItems);
+      await printService.printFinalBill(
+        order: order,
+        cartItems: cartItems,
+        settledBill: true,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill sent to printer')));
       }
@@ -734,7 +738,12 @@ class _DriverOrdersTable extends StatelessWidget {
                   ),
                   _dataCell(Text(o.driverName ?? '—', style: AppStyles.getRegularTextStyle(fontSize: 13))),
                   _dataCell(Text(o.customerPhone ?? '—', style: AppStyles.getRegularTextStyle(fontSize: 13))),
-                  _dataCell(Text(DateFormat('dd MMM yyyy · HH:mm').format(o.createdAt), style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor))),
+                  _dataCell(
+                    RelativeTimeText(
+                      at: o.createdAt,
+                      style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
+                    ),
+                  ),
                   _dataCell(
                     _PaymentDropdown(
                       value: _paymentTypeFromOrder(o),
@@ -826,8 +835,6 @@ class _DriverOrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateStr = DateFormat('dd MMM yyyy · HH:mm').format(order.createdAt);
-
     return Material(
       color: Colors.white,
       elevation: 0,
@@ -863,7 +870,13 @@ class _DriverOrderCard extends StatelessWidget {
             const SizedBox(height: 6),
             _info('Customer', order.customerPhone ?? '—'),
             const SizedBox(height: 6),
-            _info('Ordered', dateStr),
+            _infoWidget(
+              'Ordered',
+              RelativeTimeText(
+                at: order.createdAt,
+                style: AppStyles.getMediumTextStyle(fontSize: 13),
+              ),
+            ),
             const SizedBox(height: 10),
             _StatusDropdown(
               value: _DriverLogScreenState._displayStatus(order.status),
@@ -904,6 +917,19 @@ class _DriverOrderCard extends StatelessWidget {
           child: Text(label, style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor)),
         ),
         Expanded(child: Text(value, style: AppStyles.getMediumTextStyle(fontSize: 13))),
+      ],
+    );
+  }
+
+  static Widget _infoWidget(String label, Widget value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 82,
+          child: Text(label, style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor)),
+        ),
+        Expanded(child: value),
       ],
     );
   }

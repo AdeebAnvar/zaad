@@ -17,7 +17,7 @@ class ItemsPanel extends StatelessWidget {
           CustomTextField(
             onChanged: (v) => context.read<ItemsCubit>().search(v),
             labelText: 'Search/Scan Item',
-            // decoration: const InputDecoration(hintText: "Search items"),
+            textAlign: TextAlign.center,
           ),
           Expanded(
             child: BlocBuilder<ItemsCubit, ItemState>(

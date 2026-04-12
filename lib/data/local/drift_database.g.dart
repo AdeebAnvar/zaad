@@ -1277,6 +1277,16 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
   late final GeneratedColumn<int> stock = GeneratedColumn<int>(
       'stock', aliasedName, false,
       type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _stockEnabledMeta =
+      const VerificationMeta('stockEnabled');
+  @override
+  late final GeneratedColumn<bool> stockEnabled = GeneratedColumn<bool>(
+      'stock_enabled', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("stock_enabled" IN (0, 1))'),
+      defaultValue: const Constant(false));
   static const VerificationMeta _imagePathMeta =
       const VerificationMeta('imagePath');
   @override
@@ -1339,6 +1349,7 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         sku,
         price,
         stock,
+        stockEnabled,
         imagePath,
         localImagePath,
         categoryName,
@@ -1391,6 +1402,12 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
           _stockMeta, stock.isAcceptableOrUnknown(data['stock']!, _stockMeta));
     } else if (isInserting) {
       context.missing(_stockMeta);
+    }
+    if (data.containsKey('stock_enabled')) {
+      context.handle(
+          _stockEnabledMeta,
+          stockEnabled.isAcceptableOrUnknown(
+              data['stock_enabled']!, _stockEnabledMeta));
     }
     if (data.containsKey('image_path')) {
       context.handle(_imagePathMeta,
@@ -1469,6 +1486,8 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
           .read(DriftSqlType.double, data['${effectivePrefix}price'])!,
       stock: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}stock'])!,
+      stockEnabled: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}stock_enabled'])!,
       imagePath: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}image_path']),
       localImagePath: attachedDatabase.typeMapping.read(
@@ -1503,6 +1522,9 @@ class Item extends DataClass implements Insertable<Item> {
   final String sku;
   final double price;
   final int stock;
+
+  /// When false, stock quantity is ignored in UI and sales logic.
+  final bool stockEnabled;
   final String? imagePath;
   final String? localImagePath;
   final String categoryName;
@@ -1521,6 +1543,7 @@ class Item extends DataClass implements Insertable<Item> {
       required this.sku,
       required this.price,
       required this.stock,
+      required this.stockEnabled,
       this.imagePath,
       this.localImagePath,
       required this.categoryName,
@@ -1539,6 +1562,7 @@ class Item extends DataClass implements Insertable<Item> {
     map['sku'] = Variable<String>(sku);
     map['price'] = Variable<double>(price);
     map['stock'] = Variable<int>(stock);
+    map['stock_enabled'] = Variable<bool>(stockEnabled);
     if (!nullToAbsent || imagePath != null) {
       map['image_path'] = Variable<String>(imagePath);
     }
@@ -1569,6 +1593,7 @@ class Item extends DataClass implements Insertable<Item> {
       sku: Value(sku),
       price: Value(price),
       stock: Value(stock),
+      stockEnabled: Value(stockEnabled),
       imagePath: imagePath == null && nullToAbsent
           ? const Value.absent()
           : Value(imagePath),
@@ -1601,6 +1626,7 @@ class Item extends DataClass implements Insertable<Item> {
       sku: serializer.fromJson<String>(json['sku']),
       price: serializer.fromJson<double>(json['price']),
       stock: serializer.fromJson<int>(json['stock']),
+      stockEnabled: serializer.fromJson<bool>(json['stockEnabled']),
       imagePath: serializer.fromJson<String?>(json['imagePath']),
       localImagePath: serializer.fromJson<String?>(json['localImagePath']),
       categoryName: serializer.fromJson<String>(json['categoryName']),
@@ -1622,6 +1648,7 @@ class Item extends DataClass implements Insertable<Item> {
       'sku': serializer.toJson<String>(sku),
       'price': serializer.toJson<double>(price),
       'stock': serializer.toJson<int>(stock),
+      'stockEnabled': serializer.toJson<bool>(stockEnabled),
       'imagePath': serializer.toJson<String?>(imagePath),
       'localImagePath': serializer.toJson<String?>(localImagePath),
       'categoryName': serializer.toJson<String>(categoryName),
@@ -1641,6 +1668,7 @@ class Item extends DataClass implements Insertable<Item> {
           String? sku,
           double? price,
           int? stock,
+          bool? stockEnabled,
           Value<String?> imagePath = const Value.absent(),
           Value<String?> localImagePath = const Value.absent(),
           String? categoryName,
@@ -1657,6 +1685,7 @@ class Item extends DataClass implements Insertable<Item> {
         sku: sku ?? this.sku,
         price: price ?? this.price,
         stock: stock ?? this.stock,
+        stockEnabled: stockEnabled ?? this.stockEnabled,
         imagePath: imagePath.present ? imagePath.value : this.imagePath,
         localImagePath:
             localImagePath.present ? localImagePath.value : this.localImagePath,
@@ -1678,6 +1707,9 @@ class Item extends DataClass implements Insertable<Item> {
       sku: data.sku.present ? data.sku.value : this.sku,
       price: data.price.present ? data.price.value : this.price,
       stock: data.stock.present ? data.stock.value : this.stock,
+      stockEnabled: data.stockEnabled.present
+          ? data.stockEnabled.value
+          : this.stockEnabled,
       imagePath: data.imagePath.present ? data.imagePath.value : this.imagePath,
       localImagePath: data.localImagePath.present
           ? data.localImagePath.value
@@ -1709,6 +1741,7 @@ class Item extends DataClass implements Insertable<Item> {
           ..write('sku: $sku, ')
           ..write('price: $price, ')
           ..write('stock: $stock, ')
+          ..write('stockEnabled: $stockEnabled, ')
           ..write('imagePath: $imagePath, ')
           ..write('localImagePath: $localImagePath, ')
           ..write('categoryName: $categoryName, ')
@@ -1730,6 +1763,7 @@ class Item extends DataClass implements Insertable<Item> {
       sku,
       price,
       stock,
+      stockEnabled,
       imagePath,
       localImagePath,
       categoryName,
@@ -1749,6 +1783,7 @@ class Item extends DataClass implements Insertable<Item> {
           other.sku == this.sku &&
           other.price == this.price &&
           other.stock == this.stock &&
+          other.stockEnabled == this.stockEnabled &&
           other.imagePath == this.imagePath &&
           other.localImagePath == this.localImagePath &&
           other.categoryName == this.categoryName &&
@@ -1767,6 +1802,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   final Value<String> sku;
   final Value<double> price;
   final Value<int> stock;
+  final Value<bool> stockEnabled;
   final Value<String?> imagePath;
   final Value<String?> localImagePath;
   final Value<String> categoryName;
@@ -1783,6 +1819,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.sku = const Value.absent(),
     this.price = const Value.absent(),
     this.stock = const Value.absent(),
+    this.stockEnabled = const Value.absent(),
     this.imagePath = const Value.absent(),
     this.localImagePath = const Value.absent(),
     this.categoryName = const Value.absent(),
@@ -1800,6 +1837,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     required String sku,
     required double price,
     required int stock,
+    this.stockEnabled = const Value.absent(),
     this.imagePath = const Value.absent(),
     this.localImagePath = const Value.absent(),
     required String categoryName,
@@ -1825,6 +1863,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Expression<String>? sku,
     Expression<double>? price,
     Expression<int>? stock,
+    Expression<bool>? stockEnabled,
     Expression<String>? imagePath,
     Expression<String>? localImagePath,
     Expression<String>? categoryName,
@@ -1842,6 +1881,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       if (sku != null) 'sku': sku,
       if (price != null) 'price': price,
       if (stock != null) 'stock': stock,
+      if (stockEnabled != null) 'stock_enabled': stockEnabled,
       if (imagePath != null) 'image_path': imagePath,
       if (localImagePath != null) 'local_image_path': localImagePath,
       if (categoryName != null) 'category_name': categoryName,
@@ -1861,6 +1901,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       Value<String>? sku,
       Value<double>? price,
       Value<int>? stock,
+      Value<bool>? stockEnabled,
       Value<String?>? imagePath,
       Value<String?>? localImagePath,
       Value<String>? categoryName,
@@ -1877,6 +1918,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       sku: sku ?? this.sku,
       price: price ?? this.price,
       stock: stock ?? this.stock,
+      stockEnabled: stockEnabled ?? this.stockEnabled,
       imagePath: imagePath ?? this.imagePath,
       localImagePath: localImagePath ?? this.localImagePath,
       categoryName: categoryName ?? this.categoryName,
@@ -1909,6 +1951,9 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     }
     if (stock.present) {
       map['stock'] = Variable<int>(stock.value);
+    }
+    if (stockEnabled.present) {
+      map['stock_enabled'] = Variable<bool>(stockEnabled.value);
     }
     if (imagePath.present) {
       map['image_path'] = Variable<String>(imagePath.value);
@@ -1949,6 +1994,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
           ..write('sku: $sku, ')
           ..write('price: $price, ')
           ..write('stock: $stock, ')
+          ..write('stockEnabled: $stockEnabled, ')
           ..write('imagePath: $imagePath, ')
           ..write('localImagePath: $localImagePath, ')
           ..write('categoryName: $categoryName, ')
@@ -7006,6 +7052,7 @@ typedef $$ItemsTableCreateCompanionBuilder = ItemsCompanion Function({
   required String sku,
   required double price,
   required int stock,
+  Value<bool> stockEnabled,
   Value<String?> imagePath,
   Value<String?> localImagePath,
   required String categoryName,
@@ -7023,6 +7070,7 @@ typedef $$ItemsTableUpdateCompanionBuilder = ItemsCompanion Function({
   Value<String> sku,
   Value<double> price,
   Value<int> stock,
+  Value<bool> stockEnabled,
   Value<String?> imagePath,
   Value<String?> localImagePath,
   Value<String> categoryName,
@@ -7078,6 +7126,9 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
 
   ColumnFilters<int> get stock => $composableBuilder(
       column: $table.stock, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get stockEnabled => $composableBuilder(
+      column: $table.stockEnabled, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get imagePath => $composableBuilder(
       column: $table.imagePath, builder: (column) => ColumnFilters(column));
@@ -7158,6 +7209,10 @@ class $$ItemsTableOrderingComposer
   ColumnOrderings<int> get stock => $composableBuilder(
       column: $table.stock, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<bool> get stockEnabled => $composableBuilder(
+      column: $table.stockEnabled,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get imagePath => $composableBuilder(
       column: $table.imagePath, builder: (column) => ColumnOrderings(column));
 
@@ -7216,6 +7271,9 @@ class $$ItemsTableAnnotationComposer
 
   GeneratedColumn<int> get stock =>
       $composableBuilder(column: $table.stock, builder: (column) => column);
+
+  GeneratedColumn<bool> get stockEnabled => $composableBuilder(
+      column: $table.stockEnabled, builder: (column) => column);
 
   GeneratedColumn<String> get imagePath =>
       $composableBuilder(column: $table.imagePath, builder: (column) => column);
@@ -7295,6 +7353,7 @@ class $$ItemsTableTableManager extends RootTableManager<
             Value<String> sku = const Value.absent(),
             Value<double> price = const Value.absent(),
             Value<int> stock = const Value.absent(),
+            Value<bool> stockEnabled = const Value.absent(),
             Value<String?> imagePath = const Value.absent(),
             Value<String?> localImagePath = const Value.absent(),
             Value<String> categoryName = const Value.absent(),
@@ -7312,6 +7371,7 @@ class $$ItemsTableTableManager extends RootTableManager<
             sku: sku,
             price: price,
             stock: stock,
+            stockEnabled: stockEnabled,
             imagePath: imagePath,
             localImagePath: localImagePath,
             categoryName: categoryName,
@@ -7329,6 +7389,7 @@ class $$ItemsTableTableManager extends RootTableManager<
             required String sku,
             required double price,
             required int stock,
+            Value<bool> stockEnabled = const Value.absent(),
             Value<String?> imagePath = const Value.absent(),
             Value<String?> localImagePath = const Value.absent(),
             required String categoryName,
@@ -7346,6 +7407,7 @@ class $$ItemsTableTableManager extends RootTableManager<
             sku: sku,
             price: price,
             stock: stock,
+            stockEnabled: stockEnabled,
             imagePath: imagePath,
             localImagePath: localImagePath,
             categoryName: categoryName,
