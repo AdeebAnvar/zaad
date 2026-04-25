@@ -23,6 +23,9 @@ abstract class OrderRepository {
 
   Future<List<Order>> getDeliveryOrdersWithDriver();
 
+  /// Orders with any amount on credit (local), newest first. Excludes cancelled.
+  Future<List<Order>> getCreditSales();
+
   /// Next short receipt id for the channel (`TA01`, `DI02`, `DL01`, …).
   Future<String> getNextInvoiceNumber(String orderType);
 }

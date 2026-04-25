@@ -13,16 +13,20 @@ class CategoryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.sizeOf(context).width < 560;
+    final minWidth = isNarrow ? 82.0 : 92.0;
+    final maxWidth = isNarrow ? 136.0 : 156.0;
     return Padding(
       padding: const EdgeInsets.all(1),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: AnimatedContainer(
-          duration: Duration(milliseconds: 300),
-          height: 44,
-          width: 90,
-          alignment: Alignment.center,
+          duration: const Duration(milliseconds: 220),
+          constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
+          height: isNarrow ? 42 : 44,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          alignment: Alignment.centerLeft,
           decoration: BoxDecoration(
             color: selected ? Theme.of(context).primaryColor : Colors.white,
             borderRadius: BorderRadius.circular(10),
@@ -30,9 +34,13 @@ class CategoryButton extends StatelessWidget {
           ),
           child: Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            // textAlign: TextAlign.center,
             style: TextStyle(
               color: selected ? Colors.white : Colors.black,
               fontWeight: FontWeight.w500,
+              fontSize: isNarrow ? 12 : 13,
             ),
           ),
         ),

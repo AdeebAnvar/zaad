@@ -35,7 +35,7 @@ class CustomSnackBar {
     VoidCallback? onTap,
     double? width,
     bool floating = false,
-    SnackBarPosition position = SnackBarPosition.bottom,
+    SnackBarPosition position = SnackBarPosition.top,
     VoidCallback? onVisible,
     BuildContext? context,
   }) {
@@ -43,73 +43,17 @@ class CustomSnackBar {
     _removeCurrentOverlay();
 
     _currentOverlay = OverlayEntry(
-      builder: (context) => Positioned(
-        top: position == SnackBarPosition.top ? (floating ? 100 : 0) : null,
-        bottom: position == SnackBarPosition.bottom ? (floating ? 100 : 0) : null,
-        left: 0,
-        right: 0,
-        child: Material(
-          color: Colors.transparent,
-          child: SafeArea(
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: floating ? 16.0 : 0,
-                vertical: floating ? 8.0 : 0,
-              ),
-              child: GestureDetector(
-                onTap: () {
-                  _removeCurrentOverlay();
-                  onTap?.call();
-                },
-                child: Container(
-                  width: width,
-                  margin: EdgeInsets.symmetric(
-                    horizontal: floating ? 8.0 : 0,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _backgroundColors[type],
-                    borderRadius: BorderRadius.circular(floating ? 8 : 0),
-                    boxShadow: floating
-                        ? [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            )
-                          ]
-                        : null,
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16.0,
-                      vertical: 12.0,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          _icons[type],
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            message,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+      builder: (context) => _AnimatedCornerToastOverlay(
+        message: message,
+        icon: _icons[type] ?? Icons.notifications_active_outlined,
+        background: _backgroundColors[type] ?? AppColors.primaryColor,
+        duration: duration,
+        width: width,
+        position: position,
+        onTap: () {
+          _removeCurrentOverlay();
+          onTap?.call();
+        },
       ),
     );
 
@@ -148,6 +92,7 @@ class CustomSnackBar {
     VoidCallback? onTap,
     double? width,
     bool floating = false,
+    SnackBarPosition position = SnackBarPosition.top,
     VoidCallback? onVisible,
     BuildContext? context,
   }) {
@@ -159,6 +104,7 @@ class CustomSnackBar {
       onTap: onTap,
       width: width,
       floating: floating,
+      position: position,
       onVisible: onVisible,
     );
   }
@@ -169,6 +115,7 @@ class CustomSnackBar {
     VoidCallback? onTap,
     double? width,
     bool floating = false,
+    SnackBarPosition position = SnackBarPosition.top,
     VoidCallback? onVisible,
     BuildContext? context,
   }) {
@@ -180,6 +127,7 @@ class CustomSnackBar {
       onTap: onTap,
       width: width,
       floating: floating,
+      position: position,
       onVisible: onVisible,
     );
   }
@@ -190,6 +138,7 @@ class CustomSnackBar {
     VoidCallback? onTap,
     double? width,
     bool floating = false,
+    SnackBarPosition position = SnackBarPosition.top,
     VoidCallback? onVisible,
     BuildContext? context,
   }) {
@@ -201,68 +150,81 @@ class CustomSnackBar {
       onTap: onTap,
       width: width,
       floating: floating,
+      position: position,
       onVisible: onVisible,
     );
   }
 
   /// Animated "Added to cart" confirmation (scale + fade).
   static void showAddedToCart({BuildContext? context}) {
-    _showAnimatedBottomBanner(
+    showSuccess(
+      context: context,
       message: 'Added to cart',
-      icon: Icons.check_circle,
+      duration: const Duration(milliseconds: 1800),
+      floating: true,
+      position: SnackBarPosition.top,
     );
   }
 
   /// Same style as [showAddedToCart], for kitchen order save.
   static void showKotSaved({BuildContext? context}) {
-    _showAnimatedBottomBanner(
+    showSuccess(
+      context: context,
       message: 'KOT saved',
-      icon: Icons.check_circle,
+      duration: const Duration(milliseconds: 1800),
+      floating: true,
+      position: SnackBarPosition.top,
     );
-  }
-
-  static void _showAnimatedBottomBanner({
-    required String message,
-    required IconData icon,
-  }) {
-    final overlayState = AppNavigator.navigatorKey.currentState?.overlay;
-    _removeCurrentOverlay();
-
-    _currentOverlay = OverlayEntry(
-      builder: (ctx) => _AnimatedBottomBannerOverlay(message: message, icon: icon),
-    );
-    overlayState?.insert(_currentOverlay!);
-    Future.delayed(const Duration(milliseconds: 1800), _removeCurrentOverlay);
   }
 }
 
-class _AnimatedBottomBannerOverlay extends StatefulWidget {
-  const _AnimatedBottomBannerOverlay({required this.message, required this.icon});
+class _AnimatedCornerToastOverlay extends StatefulWidget {
+  const _AnimatedCornerToastOverlay({
+    required this.message,
+    required this.icon,
+    required this.background,
+    required this.duration,
+    required this.position,
+    this.width,
+    this.onTap,
+  });
 
   final String message;
   final IconData icon;
+  final Color background;
+  final Duration duration;
+  final SnackBarPosition position;
+  final double? width;
+  final VoidCallback? onTap;
 
   @override
-  State<_AnimatedBottomBannerOverlay> createState() => _AnimatedBottomBannerOverlayState();
+  State<_AnimatedCornerToastOverlay> createState() => _AnimatedCornerToastOverlayState();
 }
 
-class _AnimatedBottomBannerOverlayState extends State<_AnimatedBottomBannerOverlay> with SingleTickerProviderStateMixin {
+class _AnimatedCornerToastOverlayState extends State<_AnimatedCornerToastOverlay> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _scale;
+  late Animation<Offset> _slide;
   late Animation<double> _opacity;
+  late Animation<double> _scale;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 300),
     );
-    _scale = Tween<double>(begin: 0.5, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
+    _slide = Tween<Offset>(
+      begin: const Offset(0.16, -0.12),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
     );
     _opacity = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+    _scale = Tween<double>(begin: 0.96, end: 1).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
     );
     _controller.forward();
   }
@@ -275,47 +237,68 @@ class _AnimatedBottomBannerOverlayState extends State<_AnimatedBottomBannerOverl
 
   @override
   Widget build(BuildContext context) {
+    final isTop = widget.position == SnackBarPosition.top;
+    final toastWidth = widget.width ?? (MediaQuery.sizeOf(context).width < 560 ? 300.0 : 340.0);
+
     return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 100,
-      child: Center(
+      top: isTop ? 18 : null,
+      right: 18,
+      bottom: isTop ? null : 18,
+      child: SafeArea(
         child: AnimatedBuilder(
           animation: _controller,
           builder: (context, child) {
             return Opacity(
               opacity: _opacity.value,
-              child: Transform.scale(
-                scale: _scale.value,
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryColor,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
+              child: SlideTransition(
+                position: _slide,
+                child: Transform.scale(
+                  scale: _scale.value,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: GestureDetector(
+                      onTap: widget.onTap,
+                      child: Container(
+                        width: toastWidth,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                        decoration: BoxDecoration(
+                          color: widget.background,
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.18),
+                              blurRadius: 16,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(widget.icon, color: Colors.white, size: 24),
-                        const SizedBox(width: 12),
-                        Text(
-                          widget.message,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(widget.icon, color: Colors.white, size: 17),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                widget.message,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),

@@ -1,18 +1,14 @@
 import 'package:drift/drift.dart';
-import '../../domain/models/customer_model.dart';
-import '../repository/customer_repository.dart';
-import '../local/drift_database.dart';
+import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/models/pos_customer.dart';
+import 'package:pos/data/repository/customer_repository.dart';
+import 'package:pos/domain/models/customer_model.dart';
 
 class CustomerRepositoryImpl implements CustomerRepository {
   final AppDatabase db;
   String serverUrl = "";
 
   CustomerRepositoryImpl(this.db);
-
-  @override
-  void setServerUrl(String url) {
-    serverUrl = url;
-  }
 
   // ---------------- SERVER (DUMMY) ----------------
 
@@ -25,72 +21,55 @@ class CustomerRepositoryImpl implements CustomerRepository {
     await Future.delayed(const Duration(seconds: 1));
 
     // Dummy customer data from server
-    return [
-      CustomerModel(
-        serverId: "1",
-        name: "John Doe",
-        email: "john@example.com",
-        phone: "1234567890",
-        gender: "Male",
-        createdAt: DateTime.now().subtract(const Duration(days: 30)),
-        updatedAt: DateTime.now().subtract(const Duration(days: 1)),
-        isSynced: true,
-      ),
-      CustomerModel(
-        serverId: "2",
-        name: "Jane Smith",
-        email: "jane@example.com",
-        phone: "9876543210",
-        gender: "Female",
-        createdAt: DateTime.now().subtract(const Duration(days: 25)),
-        updatedAt: DateTime.now().subtract(const Duration(days: 2)),
-        isSynced: true,
-      ),
-      CustomerModel(
-        serverId: "3",
-        name: "Robert Johnson",
-        email: "robert@example.com",
-        phone: "5551234567",
-        gender: "Male",
-        createdAt: DateTime.now().subtract(const Duration(days: 20)),
-        updatedAt: DateTime.now().subtract(const Duration(days: 3)),
-        isSynced: true,
-      ),
-    ];
+    return [];
   }
 
   // ---------------- SAVE TO LOCAL ----------------
 
   @override
   Future<void> saveCustomersToLocal(List<CustomerModel> customers) async {
-    for (final customer in customers) {
-      final existing = await db.customersDao.getCustomerByServerId(customer.serverId ?? "");
-      if (existing == null) {
-        await db.customersDao.insertOrUpdateCustomer(
-          CustomersCompanion.insert(
-            serverId: Value(customer.serverId),
-            name: customer.name,
-            email: Value(customer.email),
-            phone: Value(customer.phone),
-            gender: Value(customer.gender),
-            createdAt: Value(customer.createdAt ?? DateTime.now()),
-            updatedAt: Value(customer.updatedAt ?? DateTime.now()),
-            isSynced: const Value(true),
-          ),
-        );
-      } else {
-        await db.customersDao.updateCustomer(
-          CustomersCompanion(
-            id: Value(existing.id),
-            serverId: Value(customer.serverId),
-            name: Value(customer.name),
-            email: Value(customer.email),
-            phone: Value(customer.phone),
-            gender: Value(customer.gender),
-            updatedAt: Value(DateTime.now()),
-            isSynced: const Value(true),
-          ),
-        );
+    for (final page in customers) {
+      for (final c in page.createdUpdated) {
+        final serverKey = c.id.toString();
+        final existing = await db.customersDao.getCustomerByServerId(serverKey);
+        final phone = c.customerNumber.isNotEmpty ? c.customerNumber : null;
+        if (existing == null) {
+          await db.customersDao.insertOrUpdateCustomer(
+            CustomersCompanion.insert(
+              serverId: Value(serverKey),
+              recordUuid: Value(c.uuid),
+              branchId: Value(c.branchId),
+              customerNumber: Value(c.customerNumber),
+              name: c.customerName,
+              email: Value(c.customerEmail.isNotEmpty ? c.customerEmail : null),
+              phone: Value(phone),
+              gender: Value(c.customerGender.isNotEmpty ? c.customerGender : null),
+              address: Value(c.customerAddress.isNotEmpty ? c.customerAddress : null),
+              cardNo: Value(c.cardNo.isNotEmpty ? c.cardNo : null),
+              createdAt: Value(c.createdAt),
+              updatedAt: Value(c.updatedAt),
+              isSynced: const Value(true),
+            ),
+          );
+        } else {
+          await db.customersDao.updateCustomer(
+            CustomersCompanion(
+              id: Value(existing.id),
+              serverId: Value(serverKey),
+              recordUuid: Value(c.uuid),
+              branchId: Value(c.branchId),
+              customerNumber: Value(c.customerNumber),
+              name: Value(c.customerName),
+              email: Value(c.customerEmail.isNotEmpty ? c.customerEmail : null),
+              phone: Value(phone),
+              gender: Value(c.customerGender.isNotEmpty ? c.customerGender : null),
+              address: Value(c.customerAddress.isNotEmpty ? c.customerAddress : null),
+              cardNo: Value(c.cardNo.isNotEmpty ? c.cardNo : null),
+              updatedAt: Value(DateTime.now()),
+              isSynced: const Value(true),
+            ),
+          );
+        }
       }
     }
   }
@@ -98,68 +77,81 @@ class CustomerRepositoryImpl implements CustomerRepository {
   // ---------------- LOCAL OPERATIONS ----------------
 
   @override
-  Future<List<CustomerModel>> getAllLocalCustomers() async {
+  Future<List<PosCustomer>> getAllLocalCustomers() async {
     final customers = await db.customersDao.getAllCustomers();
-    return customers.map(_mapToModel).toList();
+    return customers.map(PosCustomer.fromDrift).toList();
   }
 
   @override
-  Future<CustomerModel?> getCustomerById(int id) async {
+  Future<PosCustomer?> getCustomerById(int id) async {
     final customer = await db.customersDao.getCustomerById(id);
-    return customer != null ? _mapToModel(customer) : null;
+    return customer != null ? PosCustomer.fromDrift(customer) : null;
   }
 
   @override
-  Future<List<CustomerModel>> searchCustomers(String query) async {
+  Future<List<PosCustomer>> searchCustomers(String query) async {
     final customers = await db.customersDao.searchCustomers(query);
-    return customers.map(_mapToModel).toList();
+    return customers.map(PosCustomer.fromDrift).toList();
   }
 
   @override
-  Future<List<CustomerModel>> getCustomersByName(String name) async {
+  Future<List<PosCustomer>> getCustomersByName(String name) async {
     final customers = await db.customersDao.getCustomersByName(name);
-    return customers.map(_mapToModel).toList();
+    return customers.map(PosCustomer.fromDrift).toList();
   }
 
   @override
-  Future<List<CustomerModel>> getCustomersByPhone(String phone) async {
+  Future<List<PosCustomer>> getCustomersByPhone(String phone) async {
     final customers = await db.customersDao.getCustomersByPhone(phone);
-    return customers.map(_mapToModel).toList();
+    return customers.map(PosCustomer.fromDrift).toList();
   }
 
   @override
-  Future<List<CustomerModel>> getCustomersByEmail(String email) async {
+  Future<List<PosCustomer>> getCustomersByEmail(String email) async {
     final customers = await db.customersDao.getCustomersByEmail(email);
-    return customers.map(_mapToModel).toList();
+    return customers.map(PosCustomer.fromDrift).toList();
   }
 
   @override
-  Future<int> saveCustomer(CustomerModel customer) async {
-    return await db.customersDao.insertCustomer(
+  Future<int> saveCustomer(PosCustomer customer) async {
+    if (customer.localId > 0) {
+      throw StateError('Use updateCustomer for existing rows');
+    }
+    return db.customersDao.insertCustomer(
       CustomersCompanion.insert(
-        serverId: Value(customer.serverId),
-        name: customer.name,
-        email: Value(customer.email),
-        phone: Value(customer.phone),
-        gender: Value(customer.gender),
-        createdAt: Value(customer.createdAt ?? DateTime.now()),
-        updatedAt: Value(DateTime.now()),
+        serverId: customer.serverIdStr != null ? Value(customer.serverIdStr) : const Value.absent(),
+        recordUuid: Value(customer.row.uuid),
+        branchId: Value(customer.row.branchId),
+        customerNumber: Value(customer.row.customerNumber.isNotEmpty ? customer.row.customerNumber : null),
+        name: customer.row.customerName,
+        email: Value(customer.row.customerEmail.isNotEmpty ? customer.row.customerEmail : null),
+        phone: Value(customer.row.customerNumber.isNotEmpty ? customer.row.customerNumber : null),
+        gender: Value(customer.row.customerGender.isNotEmpty ? customer.row.customerGender : null),
+        address: Value(customer.row.customerAddress.isNotEmpty ? customer.row.customerAddress : null),
+        cardNo: Value(customer.row.cardNo.isNotEmpty ? customer.row.cardNo : null),
+        createdAt: Value(customer.row.createdAt),
+        updatedAt: Value(customer.row.updatedAt),
         isSynced: Value(customer.isSynced),
       ),
     );
   }
 
   @override
-  Future<void> updateCustomer(CustomerModel customer) async {
-    if (customer.id == null) return;
-    await db.customersDao.updateCustomer(
+  Future<void> updateCustomer(PosCustomer customer) {
+    if (customer.localId <= 0) return Future.value();
+    return db.customersDao.updateCustomer(
       CustomersCompanion(
-        id: Value(customer.id!),
-        serverId: Value(customer.serverId),
-        name: Value(customer.name),
-        email: Value(customer.email),
-        phone: Value(customer.phone),
-        gender: Value(customer.gender),
+        id: Value(customer.localId),
+        serverId: customer.serverIdStr != null ? Value(customer.serverIdStr) : const Value.absent(),
+        recordUuid: Value(customer.row.uuid),
+        branchId: Value(customer.row.branchId),
+        customerNumber: Value(customer.row.customerNumber.isNotEmpty ? customer.row.customerNumber : null),
+        name: Value(customer.row.customerName),
+        email: Value(customer.row.customerEmail.isNotEmpty ? customer.row.customerEmail : null),
+        phone: Value(customer.row.customerNumber.isNotEmpty ? customer.row.customerNumber : null),
+        gender: Value(customer.row.customerGender.isNotEmpty ? customer.row.customerGender : null),
+        address: Value(customer.row.customerAddress.isNotEmpty ? customer.row.customerAddress : null),
+        cardNo: Value(customer.row.cardNo.isNotEmpty ? customer.row.cardNo : null),
         updatedAt: Value(DateTime.now()),
         isSynced: Value(customer.isSynced),
       ),
@@ -167,29 +159,13 @@ class CustomerRepositoryImpl implements CustomerRepository {
   }
 
   @override
-  Future<List<CustomerModel>> getUnsyncedCustomers() async {
+  Future<List<PosCustomer>> getUnsyncedCustomers() async {
     final customers = await db.customersDao.getUnsyncedCustomers();
-    return customers.map(_mapToModel).toList();
+    return customers.map(PosCustomer.fromDrift).toList();
   }
 
   @override
   Future<void> markAsSynced(int id) async {
     await db.customersDao.markAsSynced(id);
-  }
-
-  // ---------------- MAPPERS ----------------
-
-  CustomerModel _mapToModel(Customer customer) {
-    return CustomerModel(
-      id: customer.id,
-      serverId: customer.serverId,
-      name: customer.name,
-      email: customer.email,
-      phone: customer.phone,
-      gender: customer.gender,
-      createdAt: customer.createdAt,
-      updatedAt: customer.updatedAt,
-      isSynced: customer.isSynced,
-    );
   }
 }

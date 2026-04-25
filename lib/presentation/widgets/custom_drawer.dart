@@ -1,13 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
-import 'package:pos/core/sync/sync_service.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/presentation/widgets/custom_toast.dart';
 import '../../core/constants/colors.dart';
 import '../../core/constants/styles.dart';
 import '../../app/navigation.dart';
+import '../../app/routes.dart';
 
 class PosDrawer extends StatefulWidget {
   final String userName;
@@ -48,9 +48,19 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
       route: "/recent_sales",
     ),
     DrawerMenuItem(
-      icon: Icons.settings,
-      title: "Settings",
-      route: "/settings",
+      icon: Icons.account_balance_wallet_outlined,
+      title: "Credit Sales",
+      route: Routes.creditSales,
+    ),
+    DrawerMenuItem(
+      icon: Icons.print_outlined,
+      title: "Printer Settings",
+      route: Routes.printerSettings,
+    ),
+    DrawerMenuItem(
+      icon: Icons.event_available_rounded,
+      title: "Day Closing",
+      route: Routes.dayClosing,
     ),
   ];
 
@@ -81,14 +91,22 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final dynamicWidth = screenWidth < 700 ? (screenWidth * 0.78).clamp(260.0, 340.0) : (screenWidth * 0.30).clamp(300.0, 420.0);
+    final drawerWidth = widget.width > 0
+        ? dynamicWidth > widget.width
+            ? dynamicWidth
+            : widget.width
+        : dynamicWidth;
     return SlideTransition(
       position: _slideAnimation,
       child: Drawer(
-        width: widget.width,
+        width: drawerWidth,
         backgroundColor: Colors.white,
         child: Column(
           children: [
             _header(),
+            _openingBalanceTile(),
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -121,35 +139,44 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
 
   // ================= HEADER =================
   Widget _header() {
-    final sync = SyncService.instance;
+    final logoWidget = widget.companyLogo.isNotEmpty
+        ? Image.file(
+            File(widget.companyLogo),
+            errorBuilder: (c, e, s) {
+              return Image.asset(
+                'assets/images/png/appicon2.webp',
+                width: 96,
+                height: 96,
+                fit: BoxFit.contain,
+              );
+            },
+            // width: 96,
+            // height: 96,
+            fit: BoxFit.contain,
+          )
+        : Image.asset(
+            'assets/images/png/appicon2.webp',
+            width: 96,
+            height: 96,
+            fit: BoxFit.cover,
+          );
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 40, 20, 20),
       color: AppColors.primaryColor.withOpacity(0.06),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        // crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          widget.companyLogo.isNotEmpty
-              ? Image.file(
-                  File(widget.companyLogo),
-                  errorBuilder: (c, e, s) {
-                    return Image.asset(
-                      'assets/images/png/appicon2.webp',
-                      width: 80,
-                      height: 80,
-                      fit: BoxFit.cover,
-                    );
-                  },
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
-                )
-              : Image.asset(
-                  'assets/images/png/appicon2.webp',
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
-                ),
+          Container(
+            width: 108,
+            height: 108,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(child: logoWidget),
+          ),
           const SizedBox(height: 12),
           Text(
             widget.companyName.isNotEmpty ? widget.companyName : "Company Name",
@@ -167,20 +194,26 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
               color: AppColors.hintFontColor,
             ),
           ),
-          const SizedBox(height: 12),
-          Text(
-            sync.lastSyncedAt == null ? "Not synced" : "Last sync: ${_formatSyncTime(sync.lastSyncedAt!)}",
-            style: AppStyles.getRegularTextStyle(
-              fontSize: 11,
-              color: AppColors.hintFontColor,
-            ),
-          ),
         ],
       ),
     );
   }
 
   // ================= MENU ITEM =================
+
+  Widget _openingBalanceTile() {
+    return ListTile(
+      leading: const Icon(Icons.account_balance_wallet_outlined, color: AppColors.textColor),
+      title: Text(
+        "Opening Balance",
+        style: AppStyles.getMediumTextStyle(
+          fontSize: 14,
+          color: AppColors.textColor,
+        ),
+      ),
+      onTap: _showOpeningBalanceDialog,
+    );
+  }
 
   Widget _menuItem({
     required IconData icon,
@@ -203,6 +236,11 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
 
   // ================= ACTIONS =================
   void _navigate(String route, {Map<String, dynamic>? arguments}) {
+    // Safety guard for legacy menu entries during hot-reload sessions.
+    if (route == "__opening_balance__") {
+      _showOpeningBalanceDialog();
+      return;
+    }
     AppNavigator.pop(); // close drawer
 
     // Same route without args (e.g. dashboard): avoid redundant replace.
@@ -211,28 +249,134 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
     AppNavigator.pushReplacementNamed(route, args: arguments);
   }
 
+  Future<void> _showOpeningBalanceDialog() async {
+    final db = locator<AppDatabase>();
+    final session = await db.sessionDao.getActiveSession();
+    if (session == null || !mounted) return;
+
+    final branch = await db.branchesDao.getBranchById(session.branchId);
+    final current = branch?.openingCash ?? 0;
+    final controller = TextEditingController(text: current.toString());
+
+    if (!mounted) return;
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Opening Balance',
+      barrierColor: Colors.black.withValues(alpha: 0.35),
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (_, __, ___) {
+        return Center(
+          child: GestureDetector(
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 430,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.account_balance_wallet_rounded,
+                            color: AppColors.primaryColor,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Opening Balance',
+                          style: AppStyles.getBoldTextStyle(fontSize: 18),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: controller,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Amount',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () {
+                              FocusScope.of(context).unfocus();
+                              Navigator.pop(context);
+                            },
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primaryColor,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: () async {
+                              final parsed = int.tryParse(controller.text.trim());
+                              if (parsed == null || parsed < 0) {
+                                CustomSnackBar.showWarning(message: 'Enter a valid opening balance');
+                                return;
+                              }
+                              await db.branchesDao.updateOpeningCash(
+                                branchId: session.branchId,
+                                openingCashValue: parsed,
+                              );
+                              FocusScope.of(context).unfocus();
+                              if (context.mounted) Navigator.pop(context);
+                              CustomSnackBar.showSuccess(message: 'Opening balance updated');
+                            },
+                            child: const Text('Save'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (_, animation, __, child) {
+        return FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.92, end: 1).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+            child: child,
+          ),
+        );
+      },
+    );
+    controller.dispose();
+  }
+
   void _logout() async {
     await locator<AppDatabase>().sessionDao.clearSession();
 
     AppNavigator.pop();
     AppNavigator.pushReplacementNamed("/login");
-  }
-
-  String _formatSyncTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
-
-    if (difference.inMinutes < 1) {
-      return 'Just now';
-    } else if (difference.inMinutes < 60) {
-      return '${difference.inMinutes} min ago';
-    } else if (difference.inHours < 24) {
-      return '${difference.inHours} hour${difference.inHours > 1 ? 's' : ''} ago';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
-    } else {
-      return DateFormat('MMM dd, hh:mm a').format(dateTime);
-    }
   }
 }
 
@@ -241,6 +385,7 @@ class DrawerMenuItem {
   final String title;
   final String route;
   final Color? color;
+
   /// Optional [Navigator] arguments (e.g. delivery counter: orderType + partner).
   final Map<String, dynamic>? arguments;
 

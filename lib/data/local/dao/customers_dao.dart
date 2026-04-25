@@ -7,6 +7,12 @@ class Customers extends Table {
   TextColumn get email => text().nullable()();
   TextColumn get phone => text().nullable()();
   TextColumn get gender => text().nullable()();
+  TextColumn get address => text().nullable()();
+  TextColumn get cardNo => text().nullable()();
+  /// [CustomerCreatedUpdated.uuid] from [CustomerSyncResponse]
+  TextColumn get recordUuid => text().nullable()();
+  IntColumn get branchId => integer().nullable()();
+  TextColumn get customerNumber => text().nullable()();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
   BoolColumn get isSynced => boolean().withDefault(const Constant(false))();
@@ -41,10 +47,13 @@ class CustomersDao extends DatabaseAccessor<AppDatabase> with _$CustomersDaoMixi
   Future<List<Customer>> searchCustomers(String query) {
     final lowerQuery = query.toLowerCase();
     return (select(customers)
-          ..where((c) => 
-            c.name.lower().contains(lowerQuery) |
-            c.email.lower().contains(lowerQuery) |
-            c.phone.contains(query)
+          ..where(
+            (c) =>
+                c.name.lower().contains(lowerQuery) |
+                c.email.lower().contains(lowerQuery) |
+                c.phone.contains(query) |
+                (c.address.isNotNull() & c.address.lower().contains(lowerQuery)) |
+                (c.cardNo.isNotNull() & c.cardNo.lower().contains(lowerQuery)),
           )
           ..orderBy([(c) => OrderingTerm.desc(c.createdAt)]))
         .get();
@@ -79,16 +88,14 @@ class CustomersDao extends DatabaseAccessor<AppDatabase> with _$CustomersDaoMixi
   }
 
   Future<void> markAsSynced(int id) {
-    return (update(customers)..where((c) => c.id.equals(id)))
-        .write(CustomersCompanion(
-          isSynced: const Value(true),
-          updatedAt: Value(DateTime.now()),
-        ));
+    return (update(customers)..where((c) => c.id.equals(id))).write(CustomersCompanion(
+      isSynced: const Value(true),
+      updatedAt: Value(DateTime.now()),
+    ));
   }
 
   Future<void> updateCustomer(CustomersCompanion customer) {
-    return (update(customers)..where((c) => c.id.equals(customer.id.value)))
-        .write(customer.copyWith(updatedAt: Value(DateTime.now())));
+    return (update(customers)..where((c) => c.id.equals(customer.id.value))).write(customer.copyWith(updatedAt: Value(DateTime.now())));
   }
 
   Future<void> deleteCustomer(int id) {

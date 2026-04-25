@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/navigation.dart';
 import 'package:pos/app/routes.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/models/pos_customer.dart';
 import 'package:pos/data/repository/customer_repository.dart';
-import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/presentation/crm/crm_cubit.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_actions.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
+import 'package:pos/presentation/widgets/custom_toast.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class CrmCustomerDetailsScreen extends StatefulWidget {
@@ -24,7 +25,7 @@ class CrmCustomerDetailsScreen extends StatefulWidget {
 }
 
 class _CrmCustomerDetailsScreenState extends State<CrmCustomerDetailsScreen> {
-  CustomerModel? customer;
+  PosCustomer? customer;
   List<Order> orders = [];
   bool loading = true;
   bool _hasLoaded = false;
@@ -198,7 +199,7 @@ class _ProfileHero extends StatelessWidget {
     required this.lastOrderAt,
   });
 
-  final CustomerModel customer;
+  final PosCustomer customer;
   final int orderCount;
   final double totalSpent;
   final double avgOrder;
@@ -280,7 +281,7 @@ class _ProfileHero extends StatelessWidget {
                 Expanded(
                   child: _HeroMetric(
                     label: 'Lifetime value',
-                    value: '₹${totalSpent.toStringAsFixed(0)}',
+                    value: RuntimeAppSettings.money(totalSpent, decimals: 0),
                     icon: Icons.payments_outlined,
                   ),
                 ),
@@ -288,7 +289,7 @@ class _ProfileHero extends StatelessWidget {
                 Expanded(
                   child: _HeroMetric(
                     label: 'Avg. order',
-                    value: orderCount == 0 ? '—' : '₹${avgOrder.toStringAsFixed(0)}',
+                    value: orderCount == 0 ? '—' : RuntimeAppSettings.money(avgOrder, decimals: 0),
                     icon: Icons.analytics_outlined,
                   ),
                 ),
@@ -297,7 +298,7 @@ class _ProfileHero extends StatelessWidget {
             if (lastOrderAt != null) ...[
               const SizedBox(height: 14),
               Text(
-                'Last order · ${DateFormat('MMM d, yyyy · h:mm a').format(lastOrderAt!)}',
+                'Last order · ${RuntimeAppSettings.formatDateTime(lastOrderAt!)}',
                 style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.white70),
               ),
             ],
@@ -371,7 +372,7 @@ class _HeroMetric extends StatelessWidget {
 class _ContactDetailsCard extends StatelessWidget {
   const _ContactDetailsCard({required this.customer});
 
-  final CustomerModel customer;
+  final PosCustomer customer;
 
   @override
   Widget build(BuildContext context) {
@@ -396,7 +397,7 @@ class _ContactDetailsCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            if (customer.id != null)
+            if (customer.id > 0)
               _DetailTile(
                 icon: Icons.tag_outlined,
                 label: 'Customer ID',
@@ -422,18 +423,16 @@ class _ContactDetailsCard extends StatelessWidget {
                 label: 'Gender',
                 value: customer.gender!,
               ),
-            if (customer.createdAt != null)
-              _DetailTile(
-                icon: Icons.calendar_today_outlined,
-                label: 'Customer since',
-                value: DateFormat('MMMM d, yyyy').format(customer.createdAt!),
-              ),
-            if (customer.updatedAt != null)
-              _DetailTile(
-                icon: Icons.update_outlined,
-                label: 'Profile updated',
-                value: DateFormat('MMM d, yyyy').format(customer.updatedAt!),
-              ),
+            _DetailTile(
+              icon: Icons.calendar_today_outlined,
+              label: 'Customer since',
+              value: RuntimeAppSettings.formatDate(customer.createdAt),
+            ),
+            _DetailTile(
+              icon: Icons.update_outlined,
+              label: 'Profile updated',
+              value: RuntimeAppSettings.formatDate(customer.updatedAt),
+            ),
             const Divider(height: 28),
             Row(
               children: [
@@ -507,13 +506,7 @@ class _DetailTile extends StatelessWidget {
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: onCopy!));
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Copied'),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.all(16),
-                  ),
-                );
+                CustomSnackBar.showSuccess(message: 'Copied');
               },
             ),
         ],
@@ -780,7 +773,7 @@ class _OrdersDataTable extends StatelessWidget {
                             style: AppStyles.getRegularTextStyle(fontSize: 13),
                           ),
                         ),
-                        DataCell(Text('₹ ${total.toStringAsFixed(2)}')),
+                        DataCell(Text(RuntimeAppSettings.money(total))),
                         DataCell(Text(order.status.toUpperCase())),
                         DataCell(
                           Row(
@@ -878,7 +871,7 @@ class _OrdersCardList extends StatelessWidget {
                       ),
                       const Spacer(),
                       Text(
-                        '₹ ${total.toStringAsFixed(2)}',
+                        RuntimeAppSettings.money(total),
                         style: AppStyles.getBoldTextStyle(fontSize: 18, color: AppColors.primaryColor),
                       ),
                     ],

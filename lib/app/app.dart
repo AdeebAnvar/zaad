@@ -18,6 +18,18 @@ class ZaadPOSApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       initialRoute: _resolveHome(),
       routes: Routes.map,
+      builder: (context, child) {
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () {
+            final focus = FocusManager.instance.primaryFocus;
+            if (focus != null && !focus.hasPrimaryFocus) {
+              focus.unfocus();
+            }
+          },
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       theme: ThemeData(
         primaryColor: AppColors.primaryColor,
         scaffoldBackgroundColor: AppColors.scaffoldColor,

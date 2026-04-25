@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/customer_repository.dart';
 import 'package:pos/presentation/crm/crm_cubit.dart';
@@ -366,7 +367,7 @@ class _DesktopTable extends StatelessWidget {
 
                     return DataRow(
                       onSelectChanged: (selected) {
-                        if (selected == true && customer.id != null) {
+                        if (selected == true && customer.id > 0) {
                           AppNavigator.pushNamed(
                             CrmCustomerDetailsScreen.route,
                             args: {'customerId': customer.id},
@@ -455,7 +456,7 @@ class _MobileTable extends StatelessWidget {
           ),
           child: InkWell(
             onTap: () {
-              if (customer.id != null) {
+              if (customer.id > 0) {
                 AppNavigator.pushNamed(
                   CrmCustomerDetailsScreen.route,
                   args: {'customerId': customer.id},
@@ -493,7 +494,7 @@ class _MobileTable extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'Amount: ₹${customerWithOrders.totalSpent.toStringAsFixed(2)}',
+                              'Amount: ${RuntimeAppSettings.money(customerWithOrders.totalSpent)}',
                               style: const TextStyle(
                                 fontSize: 13,
                                 color: Colors.green,

@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'dart:convert';
-import 'dart:io';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
-import 'package:pos/presentation/sale/cart_item_image.dart';
 import 'package:pos/presentation/sale/qty_button.dart';
 import 'package:pos/presentation/sale/topping_dialogue.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
+import 'package:pos/presentation/widgets/custom_toast.dart';
 
 class CartItemTile extends StatelessWidget {
   final int cartItemId;
@@ -211,237 +210,207 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
       ),
       child: RepaintBoundary(
         child: Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(10),
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
             color: Colors.grey.shade50,
             border: Border.all(color: Colors.grey.shade200),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // IMAGE
-              CartItemImage(path: _item!.localImagePath),
+          child: Builder(
+            builder: (context) {
+              double toppingsTotal = 0;
+              if (_toppings != null && _toppings!.isNotEmpty) {
+                for (var topping in _toppings!) {
+                  final price = (topping['price'] ?? 0.0) as double;
+                  final qty = (topping['qty'] ?? 1) as int;
+                  toppingsTotal += price * qty;
+                }
+              }
 
-              const SizedBox(width: 10),
-
-              // DETAILS
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _item!.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
+              Widget unitWidget;
+              if (_isEditingUnitPrice) {
+                unitWidget = SizedBox(
+                  width: 90,
+                  child: TextField(
+                    controller: _unitPriceController,
+                    focusNode: _unitPriceFocusNode,
+                    autofocus: true,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.black87),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      border: OutlineInputBorder(),
                     ),
-                    if (_variant != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          "Variant: ${_variant!.name}",
-                          style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
-                        ),
+                    onSubmitted: (_) => _commitUnitPriceEdit(),
+                  ),
+                );
+              } else {
+                unitWidget = GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _isEditingUnitPrice = true;
+                      _unitPriceController.text = unitPrice.toStringAsFixed(2);
+                    });
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "Unit: ${unitPrice.toStringAsFixed(2)}",
+                        style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
                       ),
-                    if (widget.cartItem.itemVariantId != null && _variant == null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          "Variant (₹ ${(widget.cartItem.total + widget.cartItem.discount).toStringAsFixed(2)} total)",
-                          style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
-                        ),
-                      ),
-                    const SizedBox(height: 6),
+                      const SizedBox(width: 4),
+                      Icon(Icons.edit, size: 12, color: Colors.grey.shade500),
+                    ],
+                  ),
+                );
+              }
 
-                    // Price breakdown
-                    Builder(
-                      builder: (context) {
-                        // Calculate toppings total
-                        double toppingsTotal = 0;
-                        if (_toppings != null && _toppings!.isNotEmpty) {
-                          for (var topping in _toppings!) {
-                            final price = (topping['price'] ?? 0.0) as double;
-                            final qty = (topping['qty'] ?? 1) as int;
-                            toppingsTotal += price * qty;
-                          }
-                          // #region agent log
-                          _dbgLog('cart_card_toppings_labels_hidden', {
-                            'cartItemId': widget.cartItem.id,
-                            'toppingsCount': _toppings!.length,
-                            'toppingsTotal': toppingsTotal,
-                          }, hypothesisId: 'H1');
-                          // #endregion
-                        }
-
-                        return Column(
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Left: item + variant + unit/total
+                      Expanded(
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Product amount
+                            Text(
+                              _item!.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppStyles.getSemiBoldTextStyle(fontSize: 15),
+                            ),
+                            if (_variant != null)
+                              Text(
+                                "(${_variant!.name})",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
+                              ),
+                            const SizedBox(height: 6),
                             Row(
                               children: [
+                                unitWidget,
+                                const SizedBox(width: 12),
                                 Text(
-                                  "Product: ₹${(unitPrice * widget.cartItem.quantity).toStringAsFixed(2)}",
-                                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
+                                  "Total: ${widget.cartItem.total.toStringAsFixed(2)}",
+                                  style: AppStyles.getBoldTextStyle(fontSize: 14),
                                 ),
                               ],
                             ),
-                            // Subtotal and discount
-                            if (widget.cartItem.discount > 0)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 2),
-                                child: Row(
-                                  children: [
-                                    Text(
-                                      "Subtotal: ₹${((unitPrice + toppingsTotal) * widget.cartItem.quantity).toStringAsFixed(2)}",
-                                      style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      "Disc: -₹${widget.cartItem.discount.toStringAsFixed(2)}",
-                                      style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            const SizedBox(height: 4),
-                            // Unit price (editable) and total for this variant
-                            LayoutBuilder(
-                              builder: (context, constraints) {
-                                Widget unitWidget;
-                                if (_isEditingUnitPrice) {
-                                  unitWidget = SizedBox(
-                                    width: 100,
-                                    child: TextField(
-                                      controller: _unitPriceController,
-                                      focusNode: _unitPriceFocusNode,
-                                      autofocus: true,
-                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                      style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.black87),
-                                      decoration: const InputDecoration(
-                                        isDense: true,
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        border: OutlineInputBorder(),
-                                      ),
-                                      onSubmitted: (_) => _commitUnitPriceEdit(),
-                                    ),
-                                  );
-                                } else {
-                                  unitWidget = GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        _isEditingUnitPrice = true;
-                                        _unitPriceController.text = unitPrice.toStringAsFixed(2);
-                                      });
-                                    },
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Flexible(
-                                          child: Text(
-                                            "Unit: ₹${unitPrice.toStringAsFixed(2)} × ${widget.cartItem.quantity}${toppingsTotal > 0 ? ' + toppings' : ''}",
-                                            style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Icon(Icons.edit, size: 12, color: Colors.grey.shade500),
-                                      ],
-                                    ),
-                                  );
-                                }
-
-                                final totalWidget = Text(
-                                  "Total: ₹ ${widget.cartItem.total.toStringAsFixed(2)}",
-                                  style: AppStyles.getBoldTextStyle(fontSize: 15),
-                                );
-
-                                // Stack unit and total to avoid horizontal overflow on narrow sheets.
-                                return Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                                  children: [
-                                    unitWidget,
-                                    const SizedBox(height: 4),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: totalWidget,
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
                           ],
-                        );
-                      },
-                    ),
-
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Right: delete
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            padding: EdgeInsets.zero,
+                            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                            icon: const Icon(Icons.delete_outline, size: 19),
+                            onPressed: () async {
+                              if (isNewlyAdded) {
+                                context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
+                              } else {
+                                final isDeleted = await _showDeleteDialog(context);
+                                if (isDeleted && context.mounted) {
+                                  context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
+                                }
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  if (widget.cartItem.discount > 0 || toppingsTotal > 0) ...[
                     const SizedBox(height: 6),
-
-                    // ACTION ROW
                     Row(
                       children: [
-                        QtyButton(
-                          icon: Icons.remove,
-                          onTap: () async {
-                            if (isNewlyAdded) {
-                              context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
-                            } else {
-                              final proceed = await _showDeleteDialog(context);
-                              if (proceed && context.mounted) {
-                                context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
-                              }
-                            }
-                          },
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Text(
-                            "${widget.cartItem.quantity}",
-                            style: AppStyles.getRegularTextStyle(fontSize: 22),
+                        if (toppingsTotal > 0)
+                          Text(
+                            "Toppings: +${RuntimeAppSettings.money(toppingsTotal)}",
+                            style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
                           ),
-                        ),
-                        QtyButton(
-                          icon: Icons.add,
-                          onTap: () => context.read<CartCubit>().increaseQtyByCartItemId(widget.cartItem.id),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.percent, size: 18),
-                          onPressed: () => showDiscountDialog(context, widget.cartItem),
-                        ),
-                        IconButton(
-                          tooltip: 'Line notes',
-                          icon: Icon(
-                            Icons.sticky_note_2_outlined,
-                            size: 18,
-                            color: _cartItemHasPlainNotes(widget.cartItem) ? AppColors.primaryColor : null,
+                        if (toppingsTotal > 0 && widget.cartItem.discount > 0) const SizedBox(width: 12),
+                        if (widget.cartItem.discount > 0)
+                          Text(
+                            "Disc: -${RuntimeAppSettings.money(widget.cartItem.discount)}",
+                            style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red.shade700),
                           ),
-                          onPressed: () => _showLineNotesDialog(context, widget.cartItem),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.restaurant_menu, size: 18),
-                          onPressed: () => _showToppingDialog(context, widget.cartItem),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          onPressed: () async {
-                            if (isNewlyAdded) {
-                              context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
-                            } else {
-                              final isDeleted = await _showDeleteDialog(context);
-                              if (isDeleted && context.mounted) {
-                                context.read<CartCubit>().removeItemByCartItemId(widget.cartItem.id);
-                              }
-                            }
-                          },
-                        ),
                       ],
                     ),
                   ],
-                ),
-              ),
-            ],
+                  const SizedBox(height: 4),
+                  // Bottom: action buttons on left, qty controls on right
+                  Row(
+                    children: [
+                      IconButton(
+                        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                        constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                        icon: const Icon(Icons.percent, size: 18),
+                        onPressed: () => showDiscountDialog(context, widget.cartItem),
+                      ),
+                      IconButton(
+                        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                        constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                        tooltip: 'Line notes',
+                        icon: Icon(
+                          Icons.sticky_note_2_outlined,
+                          size: 18,
+                          color: _cartItemHasPlainNotes(widget.cartItem) ? AppColors.primaryColor : null,
+                        ),
+                        onPressed: () => _showLineNotesDialog(context, widget.cartItem),
+                      ),
+                      IconButton(
+                        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                        constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                        icon: const Icon(Icons.restaurant_menu, size: 18),
+                        onPressed: () => _showToppingDialog(context, widget.cartItem),
+                      ),
+                      const Spacer(),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          QtyButton(
+                            icon: Icons.remove,
+                            onTap: () async {
+                              if (isNewlyAdded) {
+                                context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
+                              } else {
+                                final proceed = await _showDeleteDialog(context);
+                                if (proceed && context.mounted) {
+                                  context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
+                                }
+                              }
+                            },
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Text(
+                              "${widget.cartItem.quantity}",
+                              style: AppStyles.getSemiBoldTextStyle(fontSize: 15),
+                            ),
+                          ),
+                          QtyButton(
+                            icon: Icons.add,
+                            onTap: () => context.read<CartCubit>().increaseQtyByCartItemId(widget.cartItem.id),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -482,6 +451,7 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                   _textField(
                     controller: refController,
                     label: "Password",
+                    obscureText: true,
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -497,6 +467,11 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                         child: CustomButton(
                           backgroundColor: AppColors.danger,
                           onPressed: () {
+                            final expected = RuntimeAppSettings.qtyReducePassword;
+                            if (expected.isNotEmpty && refController.text.trim() != expected) {
+                              CustomSnackBar.showError(message: 'Invalid qty password');
+                              return;
+                            }
                             Navigator.pop(context);
                             isDeleted = true;
                           },
@@ -532,10 +507,12 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
   Widget _textField({
     required TextEditingController controller,
     required String label,
+    bool obscureText = false,
   }) {
     return CustomTextField(
       controller: controller,
       labelText: label,
+      obscureText: obscureText,
     );
   }
 
@@ -626,23 +603,6 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
   bool _cartItemHasPlainNotes(CartItem cartItem) {
     return _initialLineNotesPlain(cartItem).trim().isNotEmpty;
   }
-
-  // #region agent log
-  void _dbgLog(String message, Map<String, Object?> data, {String hypothesisId = 'H1'}) {
-    try {
-      final payload = {
-        'sessionId': 'bead4f',
-        'runId': 'hide-toppings-text-cart-card',
-        'hypothesisId': hypothesisId,
-        'location': 'desktop_cart_item_tile.dart',
-        'message': message,
-        'data': data,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      };
-      File('debug-bead4f.log').writeAsStringSync('${jsonEncode(payload)}\n', mode: FileMode.append, flush: true);
-    } catch (_) {}
-  }
-  // #endregion
 
   Future<void> _showLineNotesDialog(BuildContext context, CartItem cartItem) async {
     final cartCubit = context.read<CartCubit>();
@@ -838,7 +798,7 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                             child: Row(
                               children: [
                                 _DiscountSegment(
-                                  label: '₹ Amount',
+                                  label: '${RuntimeAppSettings.currency} Amount',
                                   selected: discountType == 'amount',
                                   onTap: () {
                                     setState(() {

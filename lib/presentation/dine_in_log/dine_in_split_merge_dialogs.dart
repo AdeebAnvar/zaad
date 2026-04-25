@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
@@ -66,7 +67,7 @@ class _SplitBillBodyState extends State<_SplitBillBody> {
         final v = await _itemRepo.fetchVariantById(r.itemVariantId!);
         if (v != null) name = '$name · ${v.name}';
       }
-      map[r.id] = '$name  ·  ×${r.quantity}  ·  ₹${r.total.toStringAsFixed(2)}';
+      map[r.id] = '$name  ·  ×${r.quantity}  ·  ${RuntimeAppSettings.money(r.total)}';
     }
     if (mounted) setState(() => _labels = map);
   }
@@ -242,7 +243,7 @@ class _MergeBillBodyState extends State<_MergeBillBody> {
                   style: AppStyles.getMediumTextStyle(fontSize: 15),
                 ),
                 subtitle: Text(
-                  '₹ ${o.finalAmount.toStringAsFixed(2)} · ${o.status}',
+                  '${RuntimeAppSettings.money(o.finalAmount)} · ${o.status}',
                   style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
                 ),
               );

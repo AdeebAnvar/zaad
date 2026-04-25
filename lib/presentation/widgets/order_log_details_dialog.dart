@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
@@ -485,7 +486,7 @@ class _ItemCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'Topping: ${topping.name} (+₹${topping.price.toStringAsFixed(2)})',
+                'Topping: ${topping.name} (+${RuntimeAppSettings.money(topping.price)})',
                 style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.primaryColor),
               ),
             ),
@@ -514,7 +515,7 @@ class _ItemCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '₹ ${unitPrice.toStringAsFixed(2)}',
+                RuntimeAppSettings.money(unitPrice),
                 style: AppStyles.getRegularTextStyle(fontSize: 13, color: AppColors.hintFontColor),
               ),
               Column(
@@ -526,12 +527,12 @@ class _ItemCard extends StatelessWidget {
                       child: Text(
                         cartItem.discountType == 'percentage'
                             ? '${cartItem.discount}% off'
-                            : '₹ ${cartItem.discount.toStringAsFixed(2)} off',
+                            : '${RuntimeAppSettings.money(cartItem.discount)} off',
                         style: AppStyles.getMediumTextStyle(fontSize: 11, color: AppColors.success),
                       ),
                     ),
                   Text(
-                    '₹ ${cartItem.total.toStringAsFixed(2)}',
+                    RuntimeAppSettings.money(cartItem.total),
                     style: AppStyles.getBoldTextStyle(fontSize: 16, color: AppColors.primaryColor),
                   ),
                 ],
@@ -596,7 +597,7 @@ class _Footer extends StatelessWidget {
                     style: AppStyles.getSemiBoldTextStyle(fontSize: 15, color: Colors.white),
                   ),
                   Text(
-                    '₹ ${total.toStringAsFixed(2)}',
+                    RuntimeAppSettings.money(total),
                     style: AppStyles.getBoldTextStyle(fontSize: 18, color: Colors.white),
                   ),
                 ],
@@ -635,7 +636,7 @@ class _TotalLine extends StatelessWidget {
           ),
         ),
         Text(
-          '${amount < 0 ? '' : ''}₹ ${amount.abs().toStringAsFixed(2)}',
+          RuntimeAppSettings.money(amount.abs()),
           style: AppStyles.getMediumTextStyle(
             fontSize: 14,
             color: discount ? AppColors.success : AppColors.textColor,

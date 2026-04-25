@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:multi_expansion_card/multi_expansion_card.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/dine_in_sale_navigation.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/models/pos_customer.dart';
 import 'package:pos/data/repository/customer_repository.dart';
+import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
 import 'package:pos/presentation/sale/desktop/cart_preview_dialog.dart';
@@ -26,18 +31,86 @@ bool _cartListStructureChanged(CartState prev, CartState curr) {
   return false;
 }
 
+final Set<String> _autoPaymentShownKeys = <String>{};
+
+Future<void> showCartStylePaymentDialogForOrder(
+  BuildContext context, {
+  required Order order,
+  VoidCallback? onPaymentRecorded,
+}) async {
+  final prefill = <String, dynamic>{
+    'name': order.customerName,
+    'phone': order.customerPhone,
+    'email': order.customerEmail,
+    'gender': order.customerGender,
+    'onlineOrderNumber': order.referenceNumber,
+    'cash': order.cashAmount,
+    'credit': order.creditAmount,
+    'card': order.cardAmount,
+    'online': order.onlineAmount,
+    'discountAmount': order.discountAmount,
+    'discountType': order.discountType,
+  };
+
+  await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => PaymentDialog(
+      totalAmount: order.totalAmount,
+      closeSheetOnClose: false,
+      parentContext: context,
+      isDelivery: order.orderType == 'delivery',
+      deliveryPartner: order.deliveryPartner,
+      prefill: prefill,
+      onSave: (customerDetails, discount, payments) async {
+        final repo = locator<OrderRepository>();
+        final freshOrder = await repo.getOrderById(order.id);
+        if (freshOrder == null) return;
+
+        final discountAmount = (discount['value'] as double?) ?? 0.0;
+        final finalAmount = (freshOrder.totalAmount - discountAmount).clamp(0.0, double.infinity);
+        final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
+        final updatedRef = freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty
+            ? onlineOrderNumber
+            : freshOrder.referenceNumber;
+
+        final updatedOrder = freshOrder.copyWith(
+          referenceNumber: Value(updatedRef),
+          discountAmount: discountAmount,
+          discountType: Value(discount['type'] as String?),
+          finalAmount: finalAmount,
+          customerName: Value(customerDetails['name'] as String?),
+          customerEmail: Value(customerDetails['email'] as String?),
+          customerPhone: Value(customerDetails['phone'] as String?),
+          customerGender: Value(customerDetails['gender'] as String?),
+          cashAmount: payments['cash'] ?? 0.0,
+          creditAmount: payments['credit'] ?? 0.0,
+          cardAmount: payments['card'] ?? 0.0,
+          onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
+          status: freshOrder.orderType == 'delivery' ? freshOrder.status : 'completed',
+        );
+
+        await repo.updateOrder(updatedOrder);
+        if (dialogContext.mounted) Navigator.of(dialogContext).pop(true);
+        onPaymentRecorded?.call();
+      },
+    ),
+  );
+}
+
 class CartPanel extends StatelessWidget {
   const CartPanel({
     super.key,
     this.scrollController,
     this.closeOnComplete = false,
     this.onCloseCart,
+    this.openPaymentOnLoad = false,
   });
 
   /// Optional scroll controller for use in DraggableScrollableSheet (mobile).
   final ScrollController? scrollController;
   final bool closeOnComplete;
   final void Function(bool closed)? onCloseCart;
+  final bool openPaymentOnLoad;
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -118,25 +191,56 @@ class CartPanel extends StatelessWidget {
                   top: false,
                   child: LayoutBuilder(
                     builder: (context, constraints) {
+                      final cartCubit = context.read<CartCubit>();
+                      if (openPaymentOnLoad && state.items.isNotEmpty) {
+                        final key = '${cartCubit.orderType}:${state.items.first.cartId}:${cartCubit.isOpenedForEdit}:${cartCubit.isEditingPaidOrder}';
+                        if (!_autoPaymentShownKeys.contains(key)) {
+                          _autoPaymentShownKeys.add(key);
+                          WidgetsBinding.instance.addPostFrameCallback((_) async {
+                            if (!context.mounted) return;
+                            final totalAmount = state.items.fold<double>(0, (s, e) => s + e.total);
+                            await _showPaymentDialog(
+                              context,
+                              totalAmount,
+                              isEditing: cartCubit.isOpenedForEdit || cartCubit.isEditingPaidOrder,
+                              isDelivery: cartCubit.orderType == 'delivery',
+                              deliveryPartner: cartCubit.deliveryPartner,
+                            );
+                            onCloseCart?.call(true);
+                          });
+                        }
+                      }
                       final isNarrow = constraints.maxWidth < 420;
+                      final preferHorizontalButtons = MediaQuery.sizeOf(context).width < 1400;
 
-                      Widget totalWidget = Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "$itemCount item${itemCount == 1 ? '' : 's'}",
-                            style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.black54),
-                          ),
-                          Text(
-                            "Total payable",
-                            style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
-                          ),
-                          Text(
-                            "₹ ${totalAmount.toStringAsFixed(2)}",
-                            style: AppStyles.getBoldTextStyle(fontSize: 18),
-                          ),
-                        ],
-                      );
+                      Widget totalWidget = MediaQuery.sizeOf(context).width <= 1400
+                          ? Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                              Text(
+                                "$itemCount item${itemCount == 1 ? '' : 's'}",
+                                style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.black54),
+                              ),
+                              Text(
+                                RuntimeAppSettings.money(totalAmount),
+                                style: AppStyles.getBoldTextStyle(fontSize: 18),
+                              ),
+                            ])
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "$itemCount item${itemCount == 1 ? '' : 's'}",
+                                  style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.black54),
+                                ),
+                                Text(
+                                  "Total payable",
+                                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                ),
+                                Text(
+                                  RuntimeAppSettings.money(totalAmount),
+                                  style: AppStyles.getBoldTextStyle(fontSize: 18),
+                                ),
+                              ],
+                            );
 
                       Widget buttonsWidget = BlocBuilder<CartCubit, CartState>(
                         builder: (context, cartState) {
@@ -149,7 +253,7 @@ class CartPanel extends StatelessWidget {
                           // Delivery: only Save button (no KOT, no Pay) — Save opens payment dialog
                           if (isDelivery || isEditingPaidOrder) {
                             final saveButton = CustomButton(
-                              width: isNarrow ? constraints.maxWidth : 150,
+                              width: (isNarrow && !preferHorizontalButtons) ? constraints.maxWidth : 150,
                               onPressed: state.items.isEmpty
                                   ? () {}
                                   : () async {
@@ -172,7 +276,7 @@ class CartPanel extends StatelessWidget {
                               ),
                               onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
                             );
-                            if (isNarrow) {
+                            if (isNarrow && !preferHorizontalButtons) {
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
@@ -192,7 +296,7 @@ class CartPanel extends StatelessWidget {
                             );
                           }
 
-                          if (!isNarrow) {
+                          if (!isNarrow || preferHorizontalButtons) {
                             return Row(
                               children: [
                                 IconButton(
@@ -210,8 +314,7 @@ class CartPanel extends StatelessWidget {
                                       ? null
                                       : () async {
                                           final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
-                                          final skipKotReferenceDialog =
-                                              hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
+                                          final skipKotReferenceDialog = hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
                                           if (skipKotReferenceDialog) {
                                             try {
                                               final printFailed = await cartCubit.saveKOTWithExistingReference();
@@ -270,8 +373,7 @@ class CartPanel extends StatelessWidget {
                                     ? null
                                     : () async {
                                         final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
-                                        final skipKotReferenceDialog =
-                                            hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
+                                        final skipKotReferenceDialog = hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
                                         if (skipKotReferenceDialog) {
                                           try {
                                             final printFailed = await cartCubit.saveKOTWithExistingReference();
@@ -585,7 +687,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   double _finalAmount = 0;
 
   final CustomerRepository _customerRepo = locator<CustomerRepository>();
-  List<CustomerModel> _allCustomers = [];
+  List<PosCustomer> _allCustomers = [];
   bool _loadingCustomers = true;
   bool _isSubmitting = false;
   bool _showOtherPaymentField = false;
@@ -697,7 +799,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     }
   }
 
-  void _prefillCustomer(CustomerModel customer) {
+  void _prefillCustomer(PosCustomer customer) {
     setState(() {
       _nameController.text = customer.name;
       _phoneController.text = customer.phone ?? '';
@@ -726,12 +828,23 @@ class _PaymentDialogState extends State<PaymentDialog> {
     }
 
     if (!customerExists) {
-      final newCustomer = CustomerModel(
-        name: name.isEmpty ? (phone.isNotEmpty ? phone : 'Customer') : name,
-        phone: phone.isNotEmpty ? phone : null,
-        email: email.isNotEmpty ? email : null,
-        gender: gender.isNotEmpty ? gender : null,
+      final now = DateTime.now();
+      final newCustomer = PosCustomer.fromRow(
         isSynced: false,
+        row: CustomerCreatedUpdated(
+          id: 0,
+          uuid: '',
+          branchId: 0,
+          customerName: name.isEmpty ? (phone.isNotEmpty ? phone : 'Customer') : name,
+          customerNumber: phone,
+          customerEmail: email,
+          customerAddress: '',
+          customerGender: gender,
+          cardNo: '',
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        ),
       );
       await _customerRepo.saveCustomer(newCustomer);
       await _loadCustomers();
@@ -800,7 +913,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   /* ───────── HEADER (like image: dark blue bar, TOTAL, AED, amount) ───────── */
 
-  static const String _currencyLabel = 'INR';
+  String get _currencyLabel => RuntimeAppSettings.currency;
 
   Widget _header() {
     return Container(
@@ -949,9 +1062,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 onSelected: (selectedPhone) {
                   final customer = _allCustomers.firstWhere(
                     (c) => c.phone == selectedPhone,
-                    orElse: () => CustomerModel(name: '', phone: selectedPhone),
+                    orElse: () => PosCustomer.placeholder(phone: selectedPhone),
                   );
-                  if (customer.id != null) _prefillCustomer(customer);
+                  if (customer.id > 0) _prefillCustomer(customer);
                 },
               ),
             ),
@@ -966,9 +1079,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 onSelected: (selectedName) {
                   final customer = _allCustomers.firstWhere(
                     (c) => c.name == selectedName,
-                    orElse: () => CustomerModel(name: selectedName),
+                    orElse: () => PosCustomer.placeholder(name: selectedName),
                   );
-                  if (customer.id != null) _prefillCustomer(customer);
+                  if (customer.id > 0) _prefillCustomer(customer);
                 },
                 onChanged: (value) {
                   final matching = customersByName.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
@@ -987,9 +1100,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 onSelected: (selectedEmail) {
                   final customer = _allCustomers.firstWhere(
                     (c) => c.email == selectedEmail,
-                    orElse: () => CustomerModel(name: '', email: selectedEmail),
+                    orElse: () => PosCustomer.placeholder(email: selectedEmail),
                   );
-                  if (customer.id != null) _prefillCustomer(customer);
+                  if (customer.id > 0) _prefillCustomer(customer);
                 },
               ),
             ),

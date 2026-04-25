@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/orders/orders_cubit.dart';
 import 'package:pos/presentation/widgets/custom_app_bar.dart';
@@ -131,7 +132,7 @@ class _OrderCard extends StatelessWidget {
                   ],
                 ),
                 Text(
-                  '₹ ${order.finalAmount.toStringAsFixed(2)}',
+                  RuntimeAppSettings.money(order.finalAmount),
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -143,7 +144,7 @@ class _OrderCard extends StatelessWidget {
             if (order.discountAmount > 0) ...[
               const SizedBox(height: 8),
               Text(
-                'Discount: ₹ ${order.discountAmount.toStringAsFixed(2)}',
+                'Discount: ${RuntimeAppSettings.money(order.discountAmount)}',
                 style: TextStyle(color: Colors.grey.shade600),
               ),
             ],
@@ -153,13 +154,13 @@ class _OrderCard extends StatelessWidget {
                 spacing: 16,
                 children: [
                   if (order.cashAmount > 0)
-                    Text('Cash: ₹ ${order.cashAmount.toStringAsFixed(2)}'),
+                    Text('Cash: ${RuntimeAppSettings.money(order.cashAmount)}'),
                   if (order.creditAmount > 0)
-                    Text('Credit: ₹ ${order.creditAmount.toStringAsFixed(2)}'),
+                    Text('Credit: ${RuntimeAppSettings.money(order.creditAmount)}'),
                   if (order.cardAmount > 0)
-                    Text('Card: ₹ ${order.cardAmount.toStringAsFixed(2)}'),
+                    Text('Card: ${RuntimeAppSettings.money(order.cardAmount)}'),
                   if (order.onlineAmount > 0)
-                    Text('Online: ₹ ${order.onlineAmount.toStringAsFixed(2)}'),
+                    Text('Online: ${RuntimeAppSettings.money(order.onlineAmount)}'),
                 ],
               ),
             ],

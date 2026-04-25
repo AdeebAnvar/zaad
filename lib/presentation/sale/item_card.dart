@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
 import 'package:pos/presentation/sale/item_cubit.dart/items_cubit.dart';
@@ -104,7 +105,7 @@ class ItemCard extends StatelessWidget {
               ),
 
               // 🔹 STOCK BADGE (only when server enables stock tracking)
-              if (item.stockEnabled)
+              if (item.stockEnabled && RuntimeAppSettings.stockShowEnabled)
                 Positioned(
                   top: 8,
                   right: 8,
@@ -132,7 +133,7 @@ class ItemCard extends StatelessWidget {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.transparent,
+                        Colors.black.withOpacity(0.14),
                         Colors.black.withOpacity(0.75),
                       ],
                     ),
@@ -157,7 +158,7 @@ class ItemCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       if (!hasVariants)
                         Text(
-                          "₹ ${item.price}",
+                          RuntimeAppSettings.money(item.price),
                           style: AppStyles.getBoldTextStyle(fontSize: 15, color: Colors.white),
                         ),
                     ],

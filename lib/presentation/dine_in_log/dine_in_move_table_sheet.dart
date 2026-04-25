@@ -131,7 +131,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
     final table = _tables.firstWhereOrNull((t) => t.id == _tableId);
     final fid = _floorId;
     if (table == null || fid == null) {
-      showAppSnackBar(context, 'Select a table');
+      showAppSnackBar(context, 'Select a table', isWarning: true);
       return;
     }
 

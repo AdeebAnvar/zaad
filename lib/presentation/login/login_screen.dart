@@ -36,7 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (kDebugMode) {
       userNameController.text = "counter";
-      passWordController.text = "1234";
+      passWordController.text = "12345";
     }
   }
 

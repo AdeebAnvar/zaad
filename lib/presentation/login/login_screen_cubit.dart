@@ -2,14 +2,21 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/repository/branch_repository.dart';
+import 'package:pos/data/repository/settings_repository.dart';
+import 'package:pos/domain/models/api/auth/auth_repository.dart';
+import 'package:pos/domain/models/company_Data.dart';
 import '../../domain/models/user_model.dart';
 import '../../data/repository/user_repository.dart';
 part 'login_screen_state.dart';
 
 class LoginCubit extends Cubit<LoginState> {
-  final UserRepository repo;
+  final AuthRepository authRepo;
+  final UserRepository userRepo;
+  final BranchRepository branchRepo;
+  final SettingsRepository settingsRepo;
 
-  LoginCubit(this.repo) : super(LoginInitial());
+  LoginCubit(this.authRepo, this.userRepo, this.branchRepo, this.settingsRepo) : super(LoginInitial());
 
   Future<void> login(String username, String password) async {
     emit(LoginLoading());
@@ -19,7 +26,7 @@ class LoginCubit extends Cubit<LoginState> {
       return;
     }
 
-    final user = await repo.findLocalUser(username, password);
+    final user = await userRepo.findLocalUser(username, password);
 
     if (user == null) {
       emit(LoginError("User does not exist"));
@@ -31,6 +38,7 @@ class LoginCubit extends Cubit<LoginState> {
     await db.sessionDao.saveSession(
       user.id!,
       user.type == UserType.admin ? "admin" : "counter",
+      user.branchId,
     );
 
     emit(LoginSuccess(user));
@@ -38,13 +46,13 @@ class LoginCubit extends Cubit<LoginState> {
     // 🚀 Run sync AFTER UI transition
   }
 
-  Future<void> connectToServer(String url) async {
+  Future<void> connectToServer(String code) async {
     try {
       emit(LoginLoading());
-      repo.setServerUrl(url);
-      final users = await repo.fetchUsersFromServer(); // dummy
-
-      await repo.saveUsersToLocal(users);
+      CompanyDataModel companyDataModel = await authRepo.connectToServer(code);
+      userRepo.saveUsersToLocal(companyDataModel.data.user);
+      branchRepo.saveBranchesToLocal(companyDataModel.data.branch);
+      settingsRepo.saveSettingsToLocal(companyDataModel.data.settings);
       emit(LoginServerConnected());
     } catch (e) {
       print(e);

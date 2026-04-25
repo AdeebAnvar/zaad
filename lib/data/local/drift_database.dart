@@ -1,10 +1,16 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:pos/core/constants/enums.dart';
+import 'package:pos/core/utils/app_directories.dart';
+import 'package:pos/core/utils/image_utils.dart';
+import 'package:pos/domain/models/branch_model.dart';
+import 'package:pos/domain/models/settings_model.dart';
+import 'package:pos/domain/models/user_model.dart';
 import 'package:sqlite3/sqlite3.dart' show SqliteException;
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 part 'drift_database.g.dart';
 part 'dao/users_dao.dart';
@@ -17,6 +23,12 @@ part 'dao/orders_dao.dart';
 part 'dao/customers_dao.dart';
 part 'dao/delivery_partners_dao.dart';
 part 'dao/dining_tables_dao.dart';
+part 'dao/branches_dao.dart';
+part 'dao/settings_dao.dart';
+part 'dao/pull_data_dao.dart';
+
+/// Used from `branches_dao` part; wraps [ImageUtils.downloadImage].
+Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.downloadImage(url, fileName);
 
 @DriftDatabase(
   tables: [
@@ -33,10 +45,18 @@ part 'dao/dining_tables_dao.dart';
     CartItems,
     Drivers,
     Orders,
+    OrderLogs,
     Customers,
     DeliveryPartners,
     DiningFloors,
     DiningTables,
+    Branches,
+    Settings,
+    PullCategoryRows,
+    PullFloorRows,
+    PullDeliveryServiceRows,
+    PullItemRows,
+    SyncPaginationStates,
   ],
   daos: [
     UsersDao,
@@ -49,13 +69,16 @@ part 'dao/dining_tables_dao.dart';
     DeliveryPartnersDao,
     DriversDao,
     DiningTablesDao,
+    BranchesDao,
+    SettingsDao,
+    PullDataDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
 
   @override
-  int get schemaVersion => 17;
+  int get schemaVersion => 25;
 
   @override
   MigrationStrategy get migration {
@@ -148,6 +171,66 @@ class AppDatabase extends _$AppDatabase {
         if (from < 16) {
           await safeAddColumn(items, items.stockEnabled);
         }
+        if (from < 19) {
+          // Branches: cached logo path (see BranchesDao); column has SQL default in schema
+          await safeAddColumn(branches, branches.localImage);
+        }
+        if (from < 20) {
+          // Old installs had `sessions` without `branch_id`; Drift model always expected it.
+          await safeAddColumn(sessions, sessions.branchId);
+        }
+        if (from < 21) {
+          await safeAddColumn(customers, customers.address);
+          await safeAddColumn(customers, customers.cardNo);
+        }
+        if (from < 22) {
+          // [PullDataModel] — mirror tables + extra columns for API alignment
+          await m.createTable(pullCategoryRows);
+          await m.createTable(pullFloorRows);
+          await m.createTable(pullDeliveryServiceRows);
+          await m.createTable(pullItemRows);
+          await m.createTable(syncPaginationStates);
+          await safeAddColumn(categories, categories.recordUuid);
+          await safeAddColumn(categories, categories.branchId);
+          await safeAddColumn(categories, categories.categorySlug);
+          await safeAddColumn(categories, categories.deletedAt);
+          await safeAddColumn(kitchens, kitchens.recordUuid);
+          await safeAddColumn(kitchens, kitchens.branchId);
+          await safeAddColumn(kitchens, kitchens.printerDetails);
+          await safeAddColumn(kitchens, kitchens.printerType);
+          await safeAddColumn(kitchens, kitchens.deletedAt);
+          await safeAddColumn(customers, customers.recordUuid);
+          await safeAddColumn(customers, customers.branchId);
+          await safeAddColumn(customers, customers.customerNumber);
+          await safeAddColumn(diningFloors, diningFloors.recordUuid);
+          await safeAddColumn(diningFloors, diningFloors.branchId);
+          await safeAddColumn(diningFloors, diningFloors.floorSlug);
+          await safeAddColumn(diningFloors, diningFloors.deletedAt);
+          await safeAddColumn(diningTables, diningTables.recordUuid);
+          await safeAddColumn(diningTables, diningTables.branchId);
+          await safeAddColumn(diningTables, diningTables.pulledTableName);
+          await safeAddColumn(diningTables, diningTables.pulledTableSlug);
+          await safeAddColumn(diningTables, diningTables.orderCount);
+          await safeAddColumn(diningTables, diningTables.deletedAt);
+        }
+        if (from < 24) {
+          await m.createTable(orderLogs);
+        }
+      },
+      // Legacy rows (or partial inserts) can leave NULL in NOT NULL columns; Drift’s
+      // generated Session.map would null-check and crash on read.
+      // Skip if a column is missing (migrations are responsible for adding columns).
+      beforeOpen: (details) async {
+        await customStatement('PRAGMA journal_mode = WAL;');
+        await customStatement('PRAGMA synchronous = FULL;');
+        try {
+          await customStatement(
+            "DELETE FROM sessions WHERE branch_id IS NULL OR user_id IS NULL OR role IS NULL",
+          );
+        } on SqliteException catch (e) {
+          final m = e.message.toLowerCase();
+          if (!m.contains('no such column')) rethrow;
+        }
       },
     );
   }
@@ -155,7 +238,7 @@ class AppDatabase extends _$AppDatabase {
 
 LazyDatabase _open() {
   return LazyDatabase(() async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await AppDirectories.local();
     final file = File(p.join(dir.path, 'pos.sqlite'));
     return NativeDatabase(file);
   });

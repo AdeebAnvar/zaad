@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -13,8 +14,11 @@ import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_cubit.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
+import 'package:pos/presentation/widgets/app_snackbar.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
+import 'package:pos/presentation/widgets/log_filter_shell.dart';
+import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class DriverLogScreen extends StatefulWidget {
@@ -55,10 +59,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
     final driverRepo = locator<DriverRepository>();
     final drivers = await driverRepo.getAll();
     var orders = await orderRepo.getDeliveryOrdersWithDriver();
-    orders = orders
-        .where((o) => o.deliveryPartner?.toUpperCase() == 'NORMAL')
-        .where((o) => !_isArchivedStatus(o.status))
-        .toList();
+    orders = orders.where((o) => o.deliveryPartner?.toUpperCase() == 'NORMAL').where((o) => !_isArchivedStatus(o.status)).toList();
     if (!mounted) return;
     setState(() {
       _drivers = drivers;
@@ -76,10 +77,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
     final q = _searchController.text.trim().toLowerCase();
     if (q.isNotEmpty) {
       list = list
-          .where((o) =>
-              o.invoiceNumber.toLowerCase().contains(q) ||
-              (o.customerPhone ?? '').toLowerCase().contains(q) ||
-              (o.driverName ?? '').toLowerCase().contains(q))
+          .where((o) => o.invoiceNumber.toLowerCase().contains(q) || (o.customerPhone ?? '').toLowerCase().contains(q) || (o.driverName ?? '').toLowerCase().contains(q))
           .toList();
     }
     return list.where((o) => !_isArchivedStatus(o.status)).toList();
@@ -164,7 +162,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
   Future<void> _bulkUpdatePayment() async {
     final selectedOrders = _filteredOrders.where((o) => _selectedOrderIds.contains(o.id)).toList();
     if (selectedOrders.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select orders first')));
+      showAppSnackBar(context, 'Select orders first', isWarning: true);
       return;
     }
     final ok = await _confirm(
@@ -186,9 +184,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
         await repo.updateOrder(updated);
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Payment updated for ${selectedOrders.length} orders')),
-      );
+      showAppSnackBar(context, 'Payment updated for ${selectedOrders.length} orders');
       await _reload();
     } catch (e) {
       if (!mounted) return;
@@ -203,9 +199,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
     final removing = dbStatus == 'delivered' || dbStatus == 'cancelled';
     final ok = await _confirm(
       title: 'Confirm status change',
-      message: removing
-          ? 'Mark order ${order.invoiceNumber} as $display? It will be removed from Driver Log.'
-          : 'Mark order ${order.invoiceNumber} as $display?',
+      message: removing ? 'Mark order ${order.invoiceNumber} as $display? It will be removed from Driver Log.' : 'Mark order ${order.invoiceNumber} as $display?',
     );
     if (!ok || !mounted) return;
     await locator<OrderRepository>().updateOrderStatus(order.id, dbStatus);
@@ -252,7 +246,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
                 final cartItem = m['cartItem'] as CartItem;
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: Text('${item?.name ?? "?"} x${cartItem.quantity} - ₹${cartItem.total.toStringAsFixed(2)}'),
+                  child: Text('${item?.name ?? "?"} x${cartItem.quantity} - ${RuntimeAppSettings.money(cartItem.total)}'),
                 );
               }).toList(),
             ),
@@ -271,7 +265,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
     final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
     if (cartItems == null || cartItems.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No items to print')));
+        showAppSnackBar(context, 'No items to print', isWarning: true);
       }
       return;
     }
@@ -282,11 +276,21 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
         settledBill: true,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill sent to printer')));
+        showAppSnackBar(context, 'Bill sent to printer');
       }
     } catch (e) {
       if (mounted) showErrorDialog(context, e);
     }
+  }
+
+  Future<void> _openOrderForPayment(Order order) async {
+    await showCartStylePaymentDialogForOrder(
+      context,
+      order: order,
+      onPaymentRecorded: _reload,
+    );
+    if (!mounted) return;
+    await _reload();
   }
 
   void _openDeliveryLog(BuildContext context) {
@@ -350,6 +354,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
                         onUpdatePayment: _updatePaymentType,
                         onViewItems: _viewItems,
                         onPrint: _printOrder,
+                        onPay: _openOrderForPayment,
                       )
                     else
                       ..._filteredOrders.map(
@@ -363,6 +368,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
                             onUpdatePayment: _updatePaymentType,
                             onViewItems: _viewItems,
                             onPrint: _printOrder,
+                            onPay: _openOrderForPayment,
                           ),
                         ),
                       ),
@@ -391,56 +397,55 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
   }
 
   Widget _buildToolbar(bool isCompact) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.divider.withValues(alpha: 0.8)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: isCompact
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _driverDropdown(),
-                  const SizedBox(height: 12),
-                  _searchField(),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: () => _openDeliveryLog(context),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primaryColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    return LayoutBuilder(
+      builder: (context, _) {
+        return LogFilterShell(
+          title: 'Find & filter',
+          subtitle: 'Driver, invoice, phone, or customer — open delivery log for full list',
+          icon: Icons.manage_search_outlined,
+          body: isCompact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _driverDropdown(),
+                    const SizedBox(height: 12),
+                    _searchField(),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () => _openDeliveryLog(context),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      icon: const Icon(Icons.local_shipping_outlined, size: 20),
+                      label: Text('Delivery log', style: AppStyles.getMediumTextStyle(fontSize: 14, color: Colors.white)),
                     ),
-                    icon: const Icon(Icons.local_shipping_outlined, size: 20),
-                    label: Text('Delivery log', style: AppStyles.getMediumTextStyle(fontSize: 14, color: Colors.white)),
-                  ),
-                ],
-              )
-            : Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 2, child: _driverDropdown()),
-                  const SizedBox(width: 16),
-                  Expanded(flex: 2, child: _searchField()),
-                  const SizedBox(width: 16),
-                  FilledButton.icon(
-                    onPressed: () => _openDeliveryLog(context),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primaryColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 2, child: _driverDropdown()),
+                    const SizedBox(width: 16),
+                    Expanded(flex: 2, child: _searchField()),
+                    const SizedBox(width: 16),
+                    FilledButton.icon(
+                      onPressed: () => _openDeliveryLog(context),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      icon: const Icon(Icons.local_shipping_outlined, size: 20),
+                      label: Text('Delivery log', style: AppStyles.getMediumTextStyle(fontSize: 14, color: Colors.white)),
                     ),
-                    icon: const Icon(Icons.local_shipping_outlined, size: 20),
-                    label: Text('Delivery log', style: AppStyles.getMediumTextStyle(fontSize: 14, color: Colors.white)),
-                  ),
-                ],
-              ),
-      ),
+                  ],
+                ),
+        );
+      },
     );
   }
 
@@ -585,7 +590,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
                   Text('$n ${n == 1 ? 'order' : 'orders'}', style: AppStyles.getMediumTextStyle(fontSize: 14)),
                   const SizedBox(height: 4),
                   Text(
-                    'Total ₹ ${_totalAmount.toStringAsFixed(2)}',
+                    'Total ${RuntimeAppSettings.money(_totalAmount)}',
                     style: AppStyles.getBoldTextStyle(fontSize: 18, color: AppColors.primaryColor),
                   ),
                 ],
@@ -604,7 +609,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
                     style: AppStyles.getRegularTextStyle(fontSize: 14, color: AppColors.hintFontColor),
                   ),
                   Text(
-                    '₹ ${_totalAmount.toStringAsFixed(2)}',
+                    RuntimeAppSettings.money(_totalAmount),
                     style: AppStyles.getBoldTextStyle(fontSize: 20, color: AppColors.primaryColor),
                   ),
                 ],
@@ -652,6 +657,7 @@ class _DriverOrdersTable extends StatelessWidget {
     required this.onUpdatePayment,
     required this.onViewItems,
     required this.onPrint,
+    required this.onPay,
   });
 
   final List<Order> orders;
@@ -663,6 +669,7 @@ class _DriverOrdersTable extends StatelessWidget {
   final Future<void> Function(Order order, String paymentType) onUpdatePayment;
   final Future<void> Function(Order order) onViewItems;
   final Future<void> Function(Order order) onPrint;
+  final Future<void> Function(Order order) onPay;
 
   @override
   Widget build(BuildContext context) {
@@ -763,12 +770,17 @@ class _DriverOrdersTable extends StatelessWidget {
                           icon: const Icon(Icons.print_outlined, size: 18),
                           onPressed: () => onPrint(o),
                         ),
+                        IconButton(
+                          tooltip: 'Pay',
+                          icon: const Icon(Icons.payments_outlined, size: 18),
+                          onPressed: () => onPay(o),
+                        ),
                       ],
                     ),
                   ),
                   _dataCell(
                     Text(
-                      '₹ ${o.finalAmount.toStringAsFixed(2)}',
+                      RuntimeAppSettings.money(o.finalAmount),
                       style: AppStyles.getSemiBoldTextStyle(fontSize: 13),
                       textAlign: TextAlign.right,
                     ),
@@ -823,6 +835,7 @@ class _DriverOrderCard extends StatelessWidget {
     required this.onUpdatePayment,
     required this.onViewItems,
     required this.onPrint,
+    required this.onPay,
   });
 
   final Order order;
@@ -832,6 +845,7 @@ class _DriverOrderCard extends StatelessWidget {
   final Future<void> Function(Order order, String paymentType) onUpdatePayment;
   final Future<void> Function(Order order) onViewItems;
   final Future<void> Function(Order order) onPrint;
+  final Future<void> Function(Order order) onPay;
 
   @override
   Widget build(BuildContext context) {
@@ -860,7 +874,7 @@ class _DriverOrderCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '₹ ${order.finalAmount.toStringAsFixed(2)}',
+                  RuntimeAppSettings.money(order.finalAmount),
                   style: AppStyles.getBoldTextStyle(fontSize: 16),
                 ),
               ],
@@ -900,6 +914,12 @@ class _DriverOrderCard extends StatelessWidget {
                   onPressed: () => onPrint(order),
                   icon: const Icon(Icons.print_outlined, size: 18),
                   label: const Text('Print'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: () => onPay(order),
+                  icon: const Icon(Icons.payments_outlined, size: 18),
+                  label: const Text('Pay'),
                 ),
               ],
             ),

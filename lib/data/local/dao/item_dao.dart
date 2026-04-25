@@ -5,6 +5,12 @@ class Kitchens extends Table {
   TextColumn get name => text()();
   TextColumn get printerIp => text().nullable()();
   IntColumn get printerPort => integer().withDefault(const Constant(9100))();
+  /// [KitchensCreatedUpdated] from [KitchenSyncResponse]
+  TextColumn get recordUuid => text().nullable()();
+  IntColumn get branchId => integer().nullable()();
+  TextColumn get printerDetails => text().nullable()();
+  TextColumn get printerType => text().nullable()();
+  DateTimeColumn get deletedAt => dateTime().nullable()();
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -25,6 +31,7 @@ class Items extends Table {
   TextColumn get sku => text()();
   RealColumn get price => real()();
   IntColumn get stock => integer()();
+
   /// When false, stock quantity is ignored in UI and sales logic.
   BoolColumn get stockEnabled => boolean().withDefault(const Constant(false))();
   TextColumn get imagePath => text().nullable()();
@@ -35,6 +42,7 @@ class Items extends Table {
   IntColumn get categoryId => integer()();
   IntColumn get kitchenId => integer().nullable()();
   TextColumn get kitchenName => text().nullable()();
+
   /// Delivery partner id/name - items filtered by partner when in delivery mode
   TextColumn get deliveryPartner => text().nullable()();
   @override
@@ -122,8 +130,7 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
   }
 
   Future<KitchenPrinter?> getPrinterByKitchenId(int kitchenId) {
-    return (select(kitchenPrinters)..where((k) => k.kitchenId.equals(kitchenId)))
-        .getSingleOrNull();
+    return (select(kitchenPrinters)..where((k) => k.kitchenId.equals(kitchenId))).getSingleOrNull();
   }
 
   Future<List<KitchenPrinter>> getAllKitchenPrinters() => select(kitchenPrinters).get();
@@ -155,10 +162,8 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
     // Check if variant with same itemId and name exists (unique constraint)
     final itemId = data.itemId.value;
     final name = data.name.value;
-    
-    final existing = await (select(itemVariants)
-          ..where((v) => v.itemId.equals(itemId) & v.name.equals(name)))
-        .getSingleOrNull();
+
+    final existing = await (select(itemVariants)..where((v) => v.itemId.equals(itemId) & v.name.equals(name))).getSingleOrNull();
 
     if (existing != null) {
       // Update existing variant
@@ -193,10 +198,8 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
     // Check if topping with same itemId and name exists (unique constraint)
     final itemId = data.itemId.value;
     final name = data.name.value;
-    
-    final existing = await (select(itemToppings)
-          ..where((t) => t.itemId.equals(itemId) & t.name.equals(name)))
-        .getSingleOrNull();
+
+    final existing = await (select(itemToppings)..where((t) => t.itemId.equals(itemId) & t.name.equals(name))).getSingleOrNull();
 
     if (existing != null) {
       // Update existing topping

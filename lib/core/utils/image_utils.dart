@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 
-import 'package:path_provider/path_provider.dart';
+import 'package:pos/core/utils/app_directories.dart';
 
 class ImageUtils {
   static Future<String?> downloadImage(String url, String fileName) async {
@@ -9,15 +9,15 @@ class ImageUtils {
 
     try {
       if (url.isEmpty) return null;
-      
-      final dir = await getApplicationDocumentsDirectory();
-      
+
+      final dir = await AppDirectories.media();
+
       // Extract file extension from URL if available
       String extension = p.extension(Uri.parse(url).path);
       if (extension.isEmpty) {
         extension = '.webp'; // Default extension for logos
       }
-      
+
       final path = p.join(dir.path, '$fileName$extension');
       final file = File(path);
 

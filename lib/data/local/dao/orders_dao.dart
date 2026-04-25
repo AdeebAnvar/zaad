@@ -31,8 +31,16 @@ class Orders extends Table {
   TextColumn get driverName => text().nullable()();
 }
 
+class OrderLogs extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get orderJson => text()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+  BoolColumn get synced => boolean().withDefault(const Constant(false))();
+}
+
 @DriftAccessor(tables: [
   Orders,
+  OrderLogs,
   Carts,
   CartItems,
 ])
@@ -83,6 +91,28 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   Future<void> updateOrder(OrdersCompanion order) {
     return (update(orders)..where((o) => o.id.equals(order.id.value)))
         .write(order);
+  }
+
+  Future<int> insertOrderLog(String orderJson) {
+    return into(orderLogs).insert(
+      OrderLogsCompanion.insert(
+        orderJson: orderJson,
+      ),
+    );
+  }
+
+  Future<List<OrderLog>> getUnsyncedOrderLogs() {
+    return (select(orderLogs)
+          ..where((t) => t.synced.equals(false))
+          ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+        .get();
+  }
+
+  Future<void> markOrderLogsSynced(List<int> ids) async {
+    if (ids.isEmpty) return;
+    await (update(orderLogs)..where((t) => t.id.isIn(ids))).write(
+      const OrderLogsCompanion(synced: Value(true)),
+    );
   }
 
   /// Normal delivery orders that have a driver assigned (for driver log).

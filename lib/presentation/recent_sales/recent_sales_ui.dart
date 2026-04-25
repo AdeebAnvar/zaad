@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_actions.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_cubit.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
-import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
-import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPanelDecoration;
+import 'package:pos/presentation/widgets/log_filter_shell.dart';
+import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class RecentSalesScreen extends StatelessWidget {
@@ -148,42 +148,15 @@ class _FilterBar extends StatefulWidget {
 class _FilterBarState extends State<_FilterBar> {
   final _invoiceController = TextEditingController();
   final _referenceController = TextEditingController();
-  final _statusController = TextEditingController();
-  final _orderTypeController = TextEditingController();
-  final _paymentMethodController = TextEditingController();
-  DateTime? _startDate;
-  DateTime? _endDate;
-
-  final List<String> _statusOptions = ['All', 'placed', 'completed', 'cancelled'];
-  final List<String> _orderTypeOptions = ['All', 'Take Away', 'Dine In', 'Delivery'];
-  final List<String> _paymentMethodOptions = ['All', 'Cash', 'Card', 'Credit', 'Online'];
+  final _usersController = TextEditingController();
+  final List<String> _userOptions = ['All users', 'User 1', 'User 2'];
 
   @override
   void dispose() {
     _invoiceController.dispose();
     _referenceController.dispose();
-    _statusController.dispose();
-    _orderTypeController.dispose();
-    _paymentMethodController.dispose();
+    _usersController.dispose();
     super.dispose();
-  }
-
-  Future<void> _selectDate(BuildContext context, bool isStartDate) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isStartDate ? (_startDate ?? DateTime.now()) : (_endDate ?? DateTime.now()),
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isStartDate) {
-          _startDate = picked;
-        } else {
-          _endDate = picked;
-        }
-      });
-    }
   }
 
   void _applyFilters() {
@@ -191,11 +164,6 @@ class _FilterBarState extends State<_FilterBar> {
     cubit.filterOrders(
       invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
       referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
-      status: _statusController.text.isEmpty || _statusController.text == 'All' ? null : _statusController.text,
-      orderType: _orderTypeController.text.isEmpty || _orderTypeController.text == 'All' ? null : _orderTypeController.text,
-      paymentMethod: _paymentMethodController.text.isEmpty || _paymentMethodController.text == 'All' ? null : _paymentMethodController.text,
-      startDate: _startDate,
-      endDate: _endDate,
     );
   }
 
@@ -203,149 +171,67 @@ class _FilterBarState extends State<_FilterBar> {
     setState(() {
       _invoiceController.clear();
       _referenceController.clear();
-      _statusController.clear();
-      _orderTypeController.clear();
-      _paymentMethodController.clear();
-      _startDate = null;
-      _endDate = null;
+      _usersController.clear();
     });
     context.read<RecentSalesCubit>().loadOrders();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: filterPanelDecoration(),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 12,
-        children: [
-          SizedBox(
-            width: 200,
-            child: CustomTextField(
-              controller: _invoiceController,
-              labelText: 'Receipt No.',
-            ),
-          ),
-          SizedBox(
-            width: 200,
-            child: CustomTextField(
-              controller: _referenceController,
-              labelText: 'Reference No.',
-            ),
-          ),
-          SizedBox(
-            width: 160,
-            child: AutoCompleteTextField<String>(
-              defaultText: 'Select Status',
-              displayStringFunction: (v) => v,
-              items: _statusOptions,
-              onSelected: (v) {
-                setState(() {
-                  _statusController.text = v;
-                });
-              },
-              controller: _statusController,
-            ),
-          ),
-          SizedBox(
-            width: 160,
-            child: AutoCompleteTextField<String>(
-              defaultText: 'Order Type',
-              displayStringFunction: (v) => v,
-              items: _orderTypeOptions,
-              onSelected: (v) {
-                setState(() {
-                  _orderTypeController.text = v;
-                });
-              },
-              controller: _orderTypeController,
-            ),
-          ),
-          SizedBox(
-            width: 160,
-            child: AutoCompleteTextField<String>(
-              defaultText: 'Payment Method',
-              displayStringFunction: (v) => v,
-              items: _paymentMethodOptions,
-              onSelected: (v) {
-                setState(() {
-                  _paymentMethodController.text = v;
-                });
-              },
-              controller: _paymentMethodController,
-            ),
-          ),
-          SizedBox(
-            width: 180,
-            child: InkWell(
-              onTap: () => _selectDate(context, true),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _startDate == null ? 'Start Date' : DateFormat('dd-MM-yyyy').format(_startDate!),
-                        style: TextStyle(
-                          color: _startDate == null ? Colors.grey : Colors.black,
-                        ),
-                      ),
-                    ),
-                  ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final m = LogFilterLayout(constraints.maxWidth);
+        return LogFilterShell(
+          title: 'Filters',
+          subtitle: 'Receipt No, Reference No, and Users',
+          icon: Icons.receipt_long_outlined,
+          body: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              SizedBox(
+                width: m.fieldWidth,
+                child: CustomTextField(
+                  controller: _invoiceController,
+                  labelText: 'Receipt No.',
+                  onChanged: (_) => _applyFilters(),
                 ),
               ),
-            ),
-          ),
-          SizedBox(
-            width: 180,
-            child: InkWell(
-              onTap: () => _selectDate(context, false),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _endDate == null ? 'End Date' : DateFormat('dd-MM-yyyy').format(_endDate!),
-                        style: TextStyle(
-                          color: _endDate == null ? Colors.grey : Colors.black,
-                        ),
-                      ),
-                    ),
-                  ],
+              SizedBox(
+                width: m.fieldWidth,
+                child: CustomTextField(
+                  controller: _referenceController,
+                  labelText: 'Reference No.',
+                  onChanged: (_) => _applyFilters(),
                 ),
               ),
-            ),
+              SizedBox(
+                width: m.compactFieldWidth,
+                child: AutoCompleteTextField<String>(
+                  defaultText: 'All users',
+                  labelText: 'Users',
+                  displayStringFunction: (v) => v,
+                  items: _userOptions,
+                  onSelected: (v) {
+                    setState(() => _usersController.text = v);
+                    _applyFilters();
+                  },
+                  onChanged: (_) => _applyFilters(),
+                  controller: _usersController,
+                ),
+              ),
+              SizedBox(
+                width: 42,
+                child: IconButton(
+                  tooltip: 'Clear all',
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+            ],
           ),
-          CustomButton(
-            width: 120,
-            onPressed: _applyFilters,
-            text: 'Filter',
-            elevation: 0,
-          ),
-          CustomButton(
-            width: 120,
-            onPressed: _clearFilters,
-            text: 'Clear',
-            backgroundColor: Colors.grey,
-            elevation: 0,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -449,7 +335,7 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                             style: AppStyles.getRegularTextStyle(fontSize: 13),
                           ),
                         ),
-                        DataCell(Text('₹ ${total.toStringAsFixed(2)}')),
+                        DataCell(Text(RuntimeAppSettings.money(total))),
                         DataCell(
                           Text(
                             order.status.toUpperCase(),
@@ -484,6 +370,16 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                                   context,
                                   order,
                                   onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.payments_outlined, size: 20),
+                                color: AppColors.primaryColor,
+                                tooltip: 'Pay',
+                                onPressed: () => showCartStylePaymentDialogForOrder(
+                                  context,
+                                  order: order,
+                                  onPaymentRecorded: () => context.read<RecentSalesCubit>().refreshOrders(),
                                 ),
                               ),
                             ],
@@ -699,7 +595,7 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
           ),
           const Spacer(),
           Text(
-            '₹ ${total.toStringAsFixed(2)}',
+            RuntimeAppSettings.money(total),
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
@@ -731,6 +627,15 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
                 context,
                 order,
                 onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+              ),
+        ),
+        _icon(
+          Icons.payments_outlined,
+          tooltip: 'Pay',
+          onTap: () => showCartStylePaymentDialogForOrder(
+                context,
+                order: order,
+                onPaymentRecorded: () => context.read<RecentSalesCubit>().refreshOrders(),
               ),
         ),
       ],

@@ -1,24 +1,26 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/models/pos_customer.dart';
 import 'package:pos/data/repository/customer_repository.dart';
-import 'package:pos/domain/models/customer_model.dart';
 
 part 'crm_state.dart';
 
-bool _orderMatchesCustomer(Order order, CustomerModel customer) {
-  final pCust = normalizePhoneDigits(customer.phone);
+bool _orderMatchesCustomer(Order order, PosCustomer customer) {
+  final r = customer.row;
+  final pCust = normalizePhoneDigits(
+    r.customerNumber.isNotEmpty ? r.customerNumber : null,
+  );
   final pOrder = normalizePhoneDigits(order.customerPhone);
   if (pCust != null && pCust.isNotEmpty && pOrder != null && pOrder == pCust) {
     return true;
   }
-  if (customer.email != null &&
-      customer.email!.isNotEmpty &&
-      (order.customerEmail?.trim().toLowerCase() == customer.email!.trim().toLowerCase())) {
+  if (r.customerEmail.isNotEmpty &&
+      (order.customerEmail?.trim().toLowerCase() == r.customerEmail.trim().toLowerCase())) {
     return true;
   }
-  if (customer.name.isNotEmpty &&
-      (order.customerName?.trim().toLowerCase() == customer.name.trim().toLowerCase())) {
+  if (r.customerName.isNotEmpty &&
+      (order.customerName?.trim().toLowerCase() == r.customerName.trim().toLowerCase())) {
     return true;
   }
   return false;
@@ -90,7 +92,7 @@ class CrmCubit extends Cubit<CrmState> {
   }) async {
     emit(CrmLoading());
     try {
-      List<CustomerModel> customers = [];
+      List<PosCustomer> customers = [];
 
       if (name != null && name.isNotEmpty) {
         customers = await _customerRepo.getCustomersByName(name);
@@ -134,7 +136,7 @@ class CrmCubit extends Cubit<CrmState> {
 }
 
 class CustomerWithOrders {
-  final CustomerModel customer;
+  final PosCustomer customer;
   final int orderCount;
   final double totalSpent;
   final DateTime? lastOrderDate;

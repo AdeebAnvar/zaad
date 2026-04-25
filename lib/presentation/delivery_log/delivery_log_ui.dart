@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
-import 'package:pos/data/repository/customer_repository.dart';
-import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/print/print_service.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/core/constants/styles.dart';
@@ -20,9 +19,11 @@ import 'package:pos/presentation/widgets/custom_loading.dart';
 import 'package:pos/presentation/widgets/custom_outlined_button.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
-import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPanelDecoration;
+import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
+import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
+import 'package:pos/presentation/widgets/qty_password_guard.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 
@@ -128,25 +129,19 @@ class DeliveryLogScreen extends StatelessWidget {
                               return Wrap(
                                 spacing: spacing,
                                 runSpacing: spacing,
-                                children: state.orders
-                                    .asMap()
-                                    .entries
-                                    .map((e) {
-                                      final o = e.value;
-                                      final isNormalOrder =
-                                          o.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
-                                      return SizedBox(
-                                        width: cardWidth,
-                                        child: _DeliveryCard(
-                                          order: o,
-                                          serialNo: e.key + 1,
-                                          showNormalBulkCheckbox:
-                                              normalTab && isNormalOrder,
-                                          selected: state.normalSelection.contains(o.id),
-                                        ),
-                                      );
-                                    })
-                                    .toList(),
+                                children: state.orders.asMap().entries.map((e) {
+                                  final o = e.value;
+                                  final isNormalOrder = o.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
+                                  return SizedBox(
+                                    width: 400,
+                                    child: _DeliveryCard(
+                                      order: o,
+                                      serialNo: e.key + 1,
+                                      showNormalBulkCheckbox: normalTab && isNormalOrder,
+                                      selected: state.normalSelection.contains(o.id),
+                                    ),
+                                  );
+                                }).toList(),
                               );
                             }),
                         ],
@@ -242,8 +237,7 @@ class _NormalDriverAssignBarState extends State<_NormalDriverAssignBar> {
     final ok = await showAppConfirmDialog(
       context,
       title: 'Assign driver',
-      message:
-          'Assign $driverName to ${widget.selection.length} order(s) and set status to Assigned?',
+      message: 'Assign $driverName to ${widget.selection.length} order(s) and set status to Assigned?',
       confirmText: 'Confirm',
     );
     if (ok != true || !context.mounted) return;
@@ -287,9 +281,7 @@ class _NormalDriverAssignBarState extends State<_NormalDriverAssignBar> {
               value: _driverId,
               decoration: CustomFormFieldDecoration.dropdownDecoration(context),
               hint: Text('Choose driver', style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor)),
-              items: widget.drivers
-                  .map((d) => DropdownMenuItem<int>(value: d.id, child: Text(d.name)))
-                  .toList(),
+              items: widget.drivers.map((d) => DropdownMenuItem<int>(value: d.id, child: Text(d.name))).toList(),
               onChanged: (v) => setState(() => _driverId = v),
             ),
           ),
@@ -312,31 +304,13 @@ class _DeliveryFilterBar extends StatefulWidget {
 
 class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
   final _invoiceController = TextEditingController();
-  final _customerController = TextEditingController();
+  final _referenceController = TextEditingController();
   final _usersController = TextEditingController();
-
-  List<CustomerModel> _customers = [];
-  String? _selectedCustomerPhone;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCustomers();
-  }
-
-  Future<void> _loadCustomers() async {
-    try {
-      final customers = await locator<CustomerRepository>().getAllLocalCustomers();
-      if (mounted) setState(() => _customers = customers);
-    } catch (_) {
-      if (mounted) setState(() => _customers = []);
-    }
-  }
 
   @override
   void dispose() {
     _invoiceController.dispose();
-    _customerController.dispose();
+    _referenceController.dispose();
     _usersController.dispose();
     super.dispose();
   }
@@ -344,51 +318,75 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
   void _applyFilters() {
     context.read<DeliveryLogCubit>().filterOrders(
           invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
-          customerPhone: _selectedCustomerPhone,
+          referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
         );
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _invoiceController.clear();
+      _referenceController.clear();
+      _usersController.clear();
+    });
+    context.read<DeliveryLogCubit>().loadOrders();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: AppPadding.card,
-      decoration: filterPanelDecoration(),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 12,
-        children: [
-          SizedBox(
-            width: 220,
-            child: AutoCompleteTextField<CustomerModel>(
-              defaultText: 'SELECT',
-              labelText: 'Customer',
-              displayStringFunction: (c) => c.phone != null && c.phone!.isNotEmpty ? '${c.name} - ${c.phone}' : c.name,
-              items: _customers.where((c) => c.phone != null && c.phone!.isNotEmpty).toList(),
-              onSelected: (c) => setState(() {
-                _customerController.text = '${c.name} - ${c.phone ?? ''}';
-                _selectedCustomerPhone = c.phone;
-              }),
-              onChanged: (v) {
-                if (v.isEmpty) setState(() => _selectedCustomerPhone = null);
-              },
-              controller: _customerController,
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final m = LogFilterLayout(constraints.maxWidth);
+        return LogFilterShell(
+          title: 'Filters',
+          subtitle: 'Receipt No, Reference No, and Users',
+          icon: Icons.local_shipping_outlined,
+          body: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              SizedBox(
+                width: m.fieldWidth,
+                child: CustomTextField(
+                  controller: _invoiceController,
+                  labelText: 'Receipt No.',
+                  onChanged: (_) => _applyFilters(),
+                ),
+              ),
+              SizedBox(
+                width: m.fieldWidth,
+                child: CustomTextField(
+                  controller: _referenceController,
+                  labelText: 'Reference No.',
+                  onChanged: (_) => _applyFilters(),
+                ),
+              ),
+              SizedBox(
+                width: m.compactFieldWidth,
+                child: AutoCompleteTextField<String>(
+                  defaultText: 'All',
+                  labelText: 'Users',
+                  displayStringFunction: (v) => v,
+                  items: const ['All', 'User 1', 'User 2'],
+                  onSelected: (v) {
+                    _usersController.text = v;
+                    _applyFilters();
+                  },
+                  onChanged: (_) => _applyFilters(),
+                  controller: _usersController,
+                ),
+              ),
+              SizedBox(
+                width: 42,
+                child: IconButton(
+                  tooltip: 'Clear all',
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+            ],
           ),
-          SizedBox(width: 180, child: CustomTextField(controller: _invoiceController, labelText: 'Receipt No.')),
-          SizedBox(
-            width: 140,
-            child: AutoCompleteTextField<String>(
-              defaultText: 'SELECT',
-              labelText: 'Users',
-              displayStringFunction: (v) => v,
-              items: const ['SELECT', 'User 1', 'User 2'],
-              onSelected: (_) {},
-              controller: _usersController,
-            ),
-          ),
-          CustomButton(width: 100, onPressed: _applyFilters, text: 'Submit', elevation: 0),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -482,6 +480,7 @@ class _PartnerTabs extends StatelessWidget {
 class _DeliveryCard extends StatefulWidget {
   final Order order;
   final int serialNo;
+
   /// Bulk driver assign (Normal tab only); only for orders with partner NORMAL.
   final bool showNormalBulkCheckbox;
   final bool selected;
@@ -499,6 +498,7 @@ class _DeliveryCard extends StatefulWidget {
 
 class _DeliveryCardState extends State<_DeliveryCard> {
   bool _hovered = false;
+
   /// Collapsed by default: customer details hidden; dropdowns and actions always visible.
   bool _expanded = false;
   String _status = '';
@@ -595,8 +595,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                       padding: const EdgeInsets.only(right: 6),
                       child: Checkbox(
                         value: widget.selected,
-                        onChanged: (_) =>
-                            context.read<DeliveryLogCubit>().toggleNormalSelection(widget.order.id),
+                        onChanged: (_) => context.read<DeliveryLogCubit>().toggleNormalSelection(widget.order.id),
                       ),
                     ),
                   Expanded(
@@ -683,9 +682,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                 width: 220,
                 child: _infoRow(
                   'Assigned driver',
-                  (order.driverName != null && order.driverName!.trim().isNotEmpty)
-                      ? order.driverName!
-                      : '—',
+                  (order.driverName != null && order.driverName!.trim().isNotEmpty) ? order.driverName! : '—',
                 ),
               ),
           ],
@@ -773,6 +770,11 @@ class _DeliveryCardState extends State<_DeliveryCard> {
               onPressed: () => _handleEdit(context, order),
             ),
             CustomOutlinedIconButton(
+              icon: Icons.payments_outlined,
+              label: 'Pay',
+              onPressed: () => _handlePay(context, order),
+            ),
+            CustomOutlinedIconButton(
               icon: Icons.drive_file_move_outline,
               label: 'Move',
               onPressed: () {
@@ -833,8 +835,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     ('Cancelled', 'cancelled'),
   ];
 
-  bool _hasDriverAssigned(Order o) =>
-      o.driverId != null && (o.driverName?.trim().isNotEmpty ?? false);
+  bool _hasDriverAssigned(Order o) => o.driverId != null && (o.driverName?.trim().isNotEmpty ?? false);
 
   List<(String, String)> _normalStatusOptionsFor(Order o) {
     final hasDriver = _hasDriverAssigned(o);
@@ -870,7 +871,9 @@ class _DeliveryCardState extends State<_DeliveryCard> {
           iconEnabledColor: AppColors.textColor,
           dropdownColor: Colors.white,
           decoration: CustomFormFieldDecoration.dropdownDecoration(context),
-          items: options.map((e) => DropdownMenuItem(value: e.$1, child: Text(e.$1, style: AppStyles.getRegularTextStyle(fontSize: 14).copyWith(fontWeight: FontWeight.w500)))).toList(),
+          items: options
+              .map((e) => DropdownMenuItem(value: e.$1, child: Text(e.$1, style: AppStyles.getRegularTextStyle(fontSize: 14).copyWith(fontWeight: FontWeight.w500))))
+              .toList(),
           onChanged: (v) async {
             if (v == null) return;
             final newStatus = options.firstWhere((e) => e.$1 == v).$2;
@@ -951,6 +954,14 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     });
   }
 
+  void _handlePay(BuildContext context, Order order) {
+    showCartStylePaymentDialogForOrder(
+      context,
+      order: order,
+      onPaymentRecorded: () => context.read<DeliveryLogCubit>().refreshOrders(),
+    );
+  }
+
   Future<void> _handlePrint(BuildContext context, Order order) async {
     final cartRepo = locator<CartRepository>();
     final printService = locator<PrintService>();
@@ -978,6 +989,8 @@ class _DeliveryCardState extends State<_DeliveryCard> {
   }
 
   Future<void> _handleDelete(BuildContext context, Order order) async {
+    final auth = await requireQtyPassword(context, actionLabel: 'Delete');
+    if (!auth) return;
     final ok = await showAppConfirmDialog(
       context,
       title: 'Delete Order',
@@ -1031,7 +1044,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
-                    '${item?.name ?? "?"} x${cartItem.quantity} - ₹${cartItem.total.toStringAsFixed(2)}',
+                    '${item?.name ?? "?"} x${cartItem.quantity} - ${RuntimeAppSettings.money(cartItem.total)}',
                     style: AppStyles.getRegularTextStyle(fontSize: 14),
                   ),
                 );

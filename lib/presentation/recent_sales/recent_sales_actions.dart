@@ -6,6 +6,7 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_cubit.dart';
+import 'package:pos/presentation/widgets/app_snackbar.dart';
 import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
 
 Future<void> showRecentSaleOrderDetails(BuildContext context, Order order) async {
@@ -15,9 +16,7 @@ Future<void> showRecentSaleOrderDetails(BuildContext context, Order order) async
   final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
   if (cartItems == null || cartItems.isEmpty) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No items found for this order')),
-      );
+      showAppSnackBar(context, 'No items found for this order', isWarning: true);
     }
     return;
   }
@@ -57,9 +56,7 @@ Future<void> printRecentSaleBill(BuildContext context, Order order) async {
   final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
   if (cartItems == null || cartItems.isEmpty) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No items to print')),
-      );
+      showAppSnackBar(context, 'No items to print', isWarning: true);
     }
     return;
   }
@@ -71,9 +68,7 @@ Future<void> printRecentSaleBill(BuildContext context, Order order) async {
     );
     if (context.mounted) {
       if (printFailed.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bill sent to printer')),
-        );
+        showAppSnackBar(context, 'Bill sent to printer');
       } else {
         showPrintFailedDialog(context, printFailed);
       }
@@ -90,6 +85,7 @@ void openRecentSaleForEdit(
   BuildContext context,
   Order order, {
   VoidCallback? onReturn,
+  bool openPaymentOnLoad = false,
 }) {
   Navigator.pushNamed(
     context,
@@ -100,6 +96,7 @@ void openRecentSaleForEdit(
       'deliveryPartner': order.deliveryPartner,
       'referenceNumber': order.referenceNumber,
       'fromDineIn': order.orderType == 'dine_in',
+      'openPaymentOnLoad': openPaymentOnLoad,
     },
   ).then((_) {
     if (context.mounted) {

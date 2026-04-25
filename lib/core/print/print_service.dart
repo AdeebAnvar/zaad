@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_thermal_printer/flutter_thermal_printer.dart';
 import 'package:flutter_thermal_printer/network/network_print_result.dart';
 import 'package:flutter_thermal_printer/utils/printer.dart';
-import 'package:intl/intl.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/item_repository.dart';
 
@@ -20,8 +20,7 @@ class PrintService {
   static const int _defaultPort = 9100;
   static const Duration _connectionTimeout = Duration(seconds: 15);
 
-  /// Use ASCII "Rs" on receipts; thermal printers often don't support Unicode ₹.
-  static const String _currency = 'Rs ';
+  static String get _currency => '${RuntimeAppSettings.currency} ';
 
   /// Strip ₹ from any string (item names, notes, etc.) so printer receives ASCII-only.
   static String _sanitize(String s) => s.replaceAll('₹', 'Rs');
@@ -150,6 +149,42 @@ class PrintService {
     return failed;
   }
 
+  /// Prints a compact day-closing report to the bill printer.
+  Future<List<String>> printDayClosingReport({
+    required String title,
+    required List<({String label, double amount})> rows,
+  }) async {
+    final failed = <String>[];
+    final billPrinter = await _db.itemDao.getBillPrinter();
+    if (billPrinter == null || billPrinter.printerIp.isEmpty) {
+      if (kDebugMode) debugPrint('PrintService: No bill printer configured');
+      return failed;
+    }
+
+    const printerLabel = 'Bill printer';
+    try {
+      final bytes = await _generateDayClosingTicket(
+        title: title,
+        rows: rows,
+      );
+      final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
+      await _sendToPrinter(
+        address: address,
+        port: billPrinter.printerPort,
+        bytes: bytes,
+        printerLabel: printerLabel,
+        connectionType: connType,
+        vendorId: vendorId,
+        productId: productId,
+      );
+    } catch (e, st) {
+      debugPrint('PrintService: Day closing printer failed [$printerLabel]: $e');
+      debugPrint('PrintService: stack trace:\n$st');
+      failed.add(printerLabel);
+    }
+    return failed;
+  }
+
   Future<List<_PrintLine>> _buildPrintLines(List<CartItem> cartItems) async {
     final lines = <_PrintLine>[];
     for (final ci in cartItems) {
@@ -223,8 +258,8 @@ class PrintService {
       _sanitize('Ref: $referenceNumber'),
       styles: const PosStyles(align: PosAlign.center),
     );
-    bytes += generator.text(
-      DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now()),
+      bytes += generator.text(
+      RuntimeAppSettings.formatDateTime(DateTime.now()),
       styles: const PosStyles(align: PosAlign.center),
     );
     bytes += generator.feed(1);
@@ -278,6 +313,16 @@ class PrintService {
       caption,
       styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2),
     );
+    if (RuntimeAppSettings.printBranchNameInBillEnabled) {
+      final session = await _db.sessionDao.getActiveSession();
+      final branch = session == null ? null : await _db.branchesDao.getBranchById(session.branchId);
+      if (branch != null && branch.branchName.trim().isNotEmpty) {
+        bytes += generator.text(
+          _sanitize(branch.branchName.trim()),
+          styles: const PosStyles(align: PosAlign.center, bold: true),
+        );
+      }
+    }
     bytes += generator.text(
       _sanitize(order.invoiceNumber),
       styles: const PosStyles(align: PosAlign.center),
@@ -287,7 +332,7 @@ class PrintService {
       styles: const PosStyles(align: PosAlign.center),
     );
     bytes += generator.text(
-      DateFormat('dd-MM-yyyy HH:mm').format(order.createdAt),
+      RuntimeAppSettings.formatDateTime(order.createdAt),
       styles: const PosStyles(align: PosAlign.center),
     );
     bytes += generator.feed(1);
@@ -326,6 +371,38 @@ class PrintService {
 
     bytes += generator.feed(2);
     bytes += generator.text('Thank you!', styles: const PosStyles(align: PosAlign.center));
+    bytes += generator.feed(2);
+    bytes += generator.cut();
+    return bytes;
+  }
+
+  Future<List<int>> _generateDayClosingTicket({
+    required String title,
+    required List<({String label, double amount})> rows,
+  }) async {
+    final profile = await CapabilityProfile.load();
+    final generator = Generator(PaperSize.mm80, profile);
+    List<int> bytes = [];
+
+    bytes += generator.text(
+      _sanitize(title.toUpperCase()),
+      styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2),
+    );
+    bytes += generator.text(
+      RuntimeAppSettings.formatDateTime(DateTime.now()),
+      styles: const PosStyles(align: PosAlign.center),
+    );
+    bytes += generator.feed(1);
+    bytes += generator.hr();
+
+    for (final row in rows) {
+      bytes += generator.row([
+        PosColumn(text: _sanitize(row.label.toUpperCase()), width: 8),
+        PosColumn(text: '$_currency${row.amount.toStringAsFixed(2)}', width: 4),
+      ]);
+    }
+
+    bytes += generator.hr();
     bytes += generator.feed(2);
     bytes += generator.cut();
     return bytes;

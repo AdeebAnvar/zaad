@@ -95,34 +95,36 @@ class _CounterHomeState extends State<CounterHome> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
-
-          // 🔹 Default (mobile)
-          int crossAxisCount = 1;
-          double maxWidth = width;
-
-          // 🔹 Tablet & Desktop → 2 columns
-          if (width >= 600) {
-            crossAxisCount = 2;
-            maxWidth = 900; // keeps grid centered
-          }
+          final crossAxisCount = width >= 1200
+              ? 3
+              : width >= 760
+                  ? 2
+                  : 1;
+          final maxWidth = width >= 1400 ? 1120.0 : (width >= 760 ? 980.0 : width);
+          final gap = width >= 760 ? 12.0 : 10.0;
+          final horizontalPad = width >= 760 ? 200.0 : 10.0;
+          final verticalPad = width >= 760 ? 29.0 : 12.0;
 
           return Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: maxWidth),
               child: Padding(
-                padding: const EdgeInsets.all(10),
+                padding: EdgeInsets.fromLTRB(horizontalPad, verticalPad, horizontalPad, 12),
                 child: GridView.builder(
                   shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
                   itemCount: _titles.length,
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: crossAxisCount,
-                    crossAxisSpacing: 5,
-                    mainAxisSpacing: 5,
-                    childAspectRatio: 3.90, // POS-style wide cards
+                    crossAxisSpacing: gap,
+
+                    mainAxisSpacing: gap, mainAxisExtent: 100,
+                    // childAspectRatio: width >= 980 ? 3.2 : (width >= 760 ? 1.8 : 3.0),
                   ),
                   itemBuilder: (context, index) {
                     return _DashboardCard(
                       title: _titles[index],
+                      icon: _icons[index],
                       onTap: () => _handleCardTap(context, index),
                     );
                   },
@@ -221,10 +223,13 @@ class _DeliveryServiceDialog extends StatelessWidget {
             // Body: delivery partners from sync + NORMAL (own delivery)
             Builder(
               builder: (_) {
-                final options = [
-                  ...partners.map((p) => p.name),
-                  'NORMAL', // Own delivery - always available
+                final options = <String>[
+                  ...partners.map((p) => p.name.trim()).where((e) => e.isNotEmpty),
                 ];
+                final hasNormal = options.any((e) => e.toUpperCase() == 'NORMAL');
+                if (!hasNormal) {
+                  options.add('NORMAL'); // Own delivery - always available
+                }
                 if (options.length == 1) {
                   // Only NORMAL
                   return _buildOptionRow('NORMAL', 0, onSelectPartner);
@@ -281,31 +286,55 @@ class _DeliveryServiceDialog extends StatelessWidget {
 
 class _DashboardCard extends StatelessWidget {
   final String title;
+  final IconData icon;
   final VoidCallback onTap;
 
   const _DashboardCard({
     required this.title,
+    required this.icon,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    final compact = w < 560;
     return InkWell(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(14),
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
           color: AppColors.primaryColor,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              title,
-              style: AppStyles.getSemiBoldTextStyle(fontSize: 20, color: Colors.white),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 14),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: Colors.white.withValues(alpha: 0.96), size: compact ? 18 : 20),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: AppStyles.getSemiBoldTextStyle(
+                    fontSize: compact ? 18 : 19,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -321,6 +350,15 @@ const _titles = [
   "Delivery Sale Log",
   "Dine In",
   "Dine In Log",
+];
+
+const _icons = [
+  Icons.point_of_sale_rounded,
+  Icons.receipt_long_rounded,
+  Icons.delivery_dining_rounded,
+  Icons.local_shipping_rounded,
+  Icons.table_restaurant_rounded,
+  Icons.event_note_rounded,
 ];
 
 class AppScaffold extends StatelessWidget {

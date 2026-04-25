@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/print/print_service.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
@@ -15,13 +15,14 @@ import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/app_snackbar.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
-import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
-import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPanelDecoration;
+import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
 import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
+import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
+import 'package:pos/presentation/widgets/qty_password_guard.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class TakeAwayLogScreen extends StatelessWidget {
@@ -101,7 +102,7 @@ class TakeAwayLogScreen extends StatelessWidget {
                                   runSpacing: spacing,
                                   children: state.orders.map((order) {
                                     return SizedBox(
-                                      width: cardWidth,
+                                      width: 400,
                                       child: TakeAwayCard(order: order),
                                     );
                                   }).toList(),
@@ -165,36 +166,15 @@ class _FilterBar extends StatefulWidget {
 class _FilterBarState extends State<_FilterBar> {
   final _invoiceController = TextEditingController();
   final _referenceController = TextEditingController();
-  final _statusController = TextEditingController();
-  DateTime? _startDate;
-  DateTime? _endDate;
-
-  final List<String> _statusOptions = ['All', 'kot', 'completed', 'placed', 'cancelled'];
+  final _usersController = TextEditingController();
+  final List<String> _userOptions = ['All users', 'User 1', 'User 2'];
 
   @override
   void dispose() {
     _invoiceController.dispose();
     _referenceController.dispose();
-    _statusController.dispose();
+    _usersController.dispose();
     super.dispose();
-  }
-
-  Future<void> _selectDate(BuildContext context, bool isStartDate) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isStartDate ? (_startDate ?? DateTime.now()) : (_endDate ?? DateTime.now()),
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isStartDate) {
-          _startDate = picked;
-        } else {
-          _endDate = picked;
-        }
-      });
-    }
   }
 
   void _applyFilters() {
@@ -202,9 +182,6 @@ class _FilterBarState extends State<_FilterBar> {
     cubit.filterOrders(
       invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
       referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
-      status: _statusController.text.isEmpty || _statusController.text == 'All' ? null : _statusController.text,
-      startDate: _startDate,
-      endDate: _endDate,
     );
   }
 
@@ -212,9 +189,7 @@ class _FilterBarState extends State<_FilterBar> {
     setState(() {
       _invoiceController.clear();
       _referenceController.clear();
-      _statusController.clear();
-      _startDate = null;
-      _endDate = null;
+      _usersController.clear();
     });
     context.read<TakeAwayLogCubit>().loadOrders();
   }
@@ -223,112 +198,55 @@ class _FilterBarState extends State<_FilterBar> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxW = constraints.maxWidth;
-        final fieldW = maxW < 640 ? maxW : 220.0;
-        final narrowField = maxW < 640 ? maxW : 200.0;
-        final statusW = maxW < 640 ? maxW : 180.0;
-        final btnW = maxW < 640 ? maxW : 120.0;
-        return Container(
-          padding: AppPadding.card,
-          decoration: filterPanelDecoration(),
-          child: Wrap(
-            spacing: 16,
-            runSpacing: 12,
+        final m = LogFilterLayout(constraints.maxWidth);
+        return LogFilterShell(
+          title: 'Filters',
+          subtitle: 'Receipt No, Reference No, and Users',
+          icon: Icons.filter_alt_outlined,
+          body: Wrap(
+            spacing: 10,
+            runSpacing: 10,
             children: [
               SizedBox(
-                width: fieldW,
+                width: m.fieldWidth,
                 child: CustomTextField(
                   controller: _invoiceController,
                   labelText: 'Receipt No.',
+                  onChanged: (_) => _applyFilters(),
                 ),
               ),
               SizedBox(
-                width: fieldW,
+                width: m.fieldWidth,
                 child: CustomTextField(
                   controller: _referenceController,
                   labelText: 'Reference No.',
+                  onChanged: (_) => _applyFilters(),
                 ),
               ),
               SizedBox(
-                width: statusW,
+                width: m.compactFieldWidth,
                 child: AutoCompleteTextField<String>(
-                  defaultText: 'Select Status',
+                  defaultText: 'All users',
+                  labelText: 'Users',
                   displayStringFunction: (v) => v,
-                  items: _statusOptions,
+                  items: _userOptions,
                   onSelected: (v) {
                     setState(() {
-                      _statusController.text = v;
+                      _usersController.text = v;
                     });
+                    _applyFilters();
                   },
-                  controller: _statusController,
+                  onChanged: (_) => _applyFilters(),
+                  controller: _usersController,
                 ),
               ),
               SizedBox(
-                width: narrowField,
-                child: InkWell(
-                  onTap: () => _selectDate(context, true),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _startDate == null ? 'Start Date' : DateFormat('dd-MM-yyyy').format(_startDate!),
-                            style: TextStyle(
-                              color: _startDate == null ? Colors.grey : Colors.black,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                width: 42,
+                child: IconButton(
+                  tooltip: 'Clear all',
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.close_rounded),
                 ),
-              ),
-              SizedBox(
-                width: narrowField,
-                child: InkWell(
-                  onTap: () => _selectDate(context, false),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _endDate == null ? 'End Date' : DateFormat('dd-MM-yyyy').format(_endDate!),
-                            style: TextStyle(
-                              color: _endDate == null ? Colors.grey : Colors.black,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              CustomButton(
-                width: btnW,
-                onPressed: _applyFilters,
-                text: 'Filter',
-                elevation: 0,
-              ),
-              CustomButton(
-                width: btnW,
-                onPressed: _clearFilters,
-                text: 'Clear',
-                backgroundColor: Colors.grey,
-                elevation: 0,
               ),
             ],
           ),
@@ -359,36 +277,36 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,
-        transform: Matrix4.translationValues(0, _hovered ? -8 : 0, 0),
+        transform: Matrix4.translationValues(0, _hovered ? -4 : 0, 0),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(_hovered ? 0.25 : 0.08),
-              blurRadius: _hovered ? 22 : 14,
-              offset: const Offset(0, 8),
+              color: Colors.black.withOpacity(_hovered ? 0.16 : 0.06),
+              blurRadius: _hovered ? 16 : 10,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _header(),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Container(
                 width: double.infinity,
                 height: 1,
                 color: AppColors.divider.withValues(alpha: 0.65),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               _infoRow(),
               if (orderHasCustomerDetails(widget.order)) _customerPeekSection(),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               _netTotal(),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               _actions(context),
             ],
           ),
@@ -422,7 +340,7 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
                   tooltip: 'Delete order',
                   onPressed: () => _handleDelete(context, order),
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
                 ),
               ],
             ),
@@ -438,7 +356,7 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
 
   Widget _tag() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: const Color(0xFF2F3A56),
         borderRadius: BorderRadius.circular(16),
@@ -450,7 +368,7 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
           Text(
             'TAKE AWAY',
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 11,
               color: Colors.white,
               fontWeight: FontWeight.w600,
             ),
@@ -472,9 +390,9 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 SizedBox(
-                  width: 220,
+                  width: 180,
                   child: _infoBlock('Customer', label.isEmpty ? '—' : label),
                 ),
                 InkWell(
@@ -521,11 +439,11 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
   Widget _infoRow() {
     final order = widget.order;
     return Wrap(
-      spacing: 20,
-      runSpacing: 10,
+      spacing: 14,
+      runSpacing: 8,
       children: [
-        SizedBox(width: 220, child: _infoBlock('Receipt No', order.invoiceNumber)),
-        SizedBox(width: 220, child: _infoBlock('Reference', order.referenceNumber ?? 'N/A')),
+        SizedBox(width: 160, child: _infoBlock('Receipt No', order.invoiceNumber)),
+        SizedBox(width: 160, child: _infoBlock('Reference', order.referenceNumber ?? 'N/A')),
       ],
     );
   }
@@ -536,14 +454,14 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
       children: [
         Text(
           label,
-          style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+          style: AppStyles.getRegularTextStyle(fontSize: 10.5, color: AppColors.hintFontColor),
         ),
         const SizedBox(height: 3),
         Text(
           value,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: AppStyles.getMediumTextStyle(fontSize: 15, color: AppColors.textColor),
+          style: AppStyles.getMediumTextStyle(fontSize: 14, color: AppColors.textColor),
         ),
       ],
     );
@@ -555,37 +473,37 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
     final total = widget.order.totalAmount;
 
     return Container(
-      height: 56,
+      height: 48,
       decoration: BoxDecoration(
         color: const Color(0xFFF1F3F8),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
           Container(
-            width: 6,
+            width: 4,
             decoration: BoxDecoration(
               color: AppColors.primaryColor,
-              borderRadius: const BorderRadius.horizontal(left: Radius.circular(14)),
+              borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Text(
             'Net Total',
             style: AppStyles.getMediumTextStyle(
-              fontSize: 14,
+              fontSize: 13,
               color: Colors.grey.shade600,
             ),
           ),
           const Spacer(),
           Text(
-            '₹ ${total.toStringAsFixed(2)}',
+            RuntimeAppSettings.money(total),
             style: const TextStyle(
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(width: 20),
+          const SizedBox(width: 14),
         ],
       ),
     );
@@ -614,6 +532,11 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
           icon: Icons.edit_outlined,
           label: 'Edit',
           onTap: () => _handleEdit(context, order),
+        ),
+        _cleanActionButton(
+          icon: Icons.payments_outlined,
+          label: 'Pay',
+          onTap: () => _handlePay(context, order),
         ),
         _cleanActionButton(
           icon: Icons.drive_file_move_outline,
@@ -650,7 +573,7 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
         ),
       ),
       style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         side: BorderSide(
           color: danger ? Colors.red.withValues(alpha: 0.35) : AppColors.primaryColor.withValues(alpha: 0.25),
         ),
@@ -669,6 +592,14 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
     ).then((_) {
       context.read<TakeAwayLogCubit>().refreshOrders();
     });
+  }
+
+  void _handlePay(BuildContext context, Order order) {
+    showCartStylePaymentDialogForOrder(
+      context,
+      order: order,
+      onPaymentRecorded: () => context.read<TakeAwayLogCubit>().refreshOrders(),
+    );
   }
 
   Future<void> _handlePrint(BuildContext context, Order order) async {
@@ -702,6 +633,8 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
   }
 
   Future<void> _handleDelete(BuildContext context, Order order) async {
+    final auth = await requireQtyPassword(context, actionLabel: 'Delete');
+    if (!auth) return;
     final ok = await showAppConfirmDialog(
       context,
       title: 'Delete Order',

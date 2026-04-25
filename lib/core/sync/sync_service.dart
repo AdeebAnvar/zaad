@@ -1,10 +1,16 @@
 import 'dart:async';
 import 'dart:isolate';
 import 'package:drift/drift.dart';
-import 'package:pos/domain/models/driver_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
-import 'package:pos/core/sync/auto_sync_screen.dart';
+import 'package:pos/data/models/pos_customer.dart';
+import 'package:pos/domain/models/category_model.dart';
+import 'package:pos/domain/models/delivery_partner_model.dart';
+import 'package:pos/domain/models/driver_model.dart';
+import 'package:pos/domain/models/item_model.dart';
+import 'package:pos/domain/models/kitchen_model.dart';
+import 'package:pos/domain/models/dining_floor_model.dart';
+import 'package:pos/domain/models/dining_table_model.dart';
 
 import '../../data/local/drift_database.dart';
 import '../../core/utils/image_utils.dart';
@@ -25,7 +31,7 @@ class SyncService {
 
   DateTime? lastSyncedAt;
 
-  Future<void> start(AppDatabase db, {String serverUrl = ''}) async {
+  Future<void> start(AppDatabase db) async {
     const int totalPhases = 100; // Total progress phases
     int currentPhase = 0;
 
@@ -57,8 +63,17 @@ class SyncService {
     ));
 
     try {
-      // ✅ Network in isolate
-      final payload = await Isolate.run(() => fetchSyncData(serverUrl));
+      // TODO: replace with real pull/parse from [SyncApi]. Empty lists skip work but keep progress valid.
+      const payload = _SyncRuntimePayload(
+        categories: <CategoryCreatedUpdated>[],
+        kitchens: <KitchensCreatedUpdated>[],
+        deliveryPartners: <DeliveryServiceCreatedUpdated>[],
+        drivers: <DriverCreatedUpdated>[],
+        diningFloors: [],
+        diningTables: [],
+        customers: <PosCustomer>[],
+        items: <ItemCreatedUpdated>[],
+      );
 
       currentPhase = 15; // Fetching completed (15% total)
 
@@ -76,11 +91,16 @@ class SyncService {
           total: totalPhases,
         ));
 
+        final other = c.otherName;
         await db.categoryDao.insertOrUpdateCategory(
           CategoriesCompanion.insert(
             id: Value(c.id),
-            name: c.name,
-            otherName: c.otherName,
+            name: c.categoryName,
+            otherName: other == null ? '' : other.toString(),
+            recordUuid: Value(c.uuid),
+            branchId: Value(c.branchId),
+            categorySlug: Value(c.categorySlug),
+            deletedAt: Value(null),
           ),
         );
       }
@@ -104,9 +124,13 @@ class SyncService {
         await db.itemDao.upsertKitchen(
           KitchensCompanion.insert(
             id: Value(k.id),
-            name: k.name,
-            printerIp: k.printerIp != null ? Value(k.printerIp!) : const Value.absent(),
-            printerPort: Value(k.printerPort),
+            name: k.kitchenName,
+            printerPort: const Value(9100),
+            printerDetails: Value(k.printerDetails),
+            printerType: Value(k.printerType),
+            recordUuid: Value(k.uuid),
+            branchId: Value(k.branchId),
+            deletedAt: const Value(null),
           ),
         );
       }
@@ -118,17 +142,17 @@ class SyncService {
         await db.deliveryPartnersDao.upsertDeliveryPartner(
           DeliveryPartnersCompanion.insert(
             id: Value(dp.id),
-            name: dp.name,
+            name: dp.serviceName,
           ),
         );
       }
       currentPhase = 24;
 
-      for (final DriverModel d in payload.drivers) {
+      for (final DriverCreatedUpdated d in payload.drivers) {
         await db.driversDao.upsertDriver(
           DriversCompanion.insert(
             id: Value(d.id),
-            name: d.name,
+            name: d.driverName,
           ),
         );
       }
@@ -183,13 +207,18 @@ class SyncService {
 
         await db.customersDao.insertOrUpdateCustomer(
           CustomersCompanion.insert(
-            serverId: Value(c.serverId),
-            name: c.name,
-            email: Value(c.email),
-            phone: Value(c.phone),
-            gender: Value(c.gender),
-            createdAt: Value(c.createdAt ?? DateTime.now()),
-            updatedAt: Value(c.updatedAt ?? DateTime.now()),
+            serverId: c.serverIdStr != null ? Value(c.serverIdStr) : const Value.absent(),
+            name: c.row.customerName,
+            email: Value(c.row.customerEmail.isNotEmpty ? c.row.customerEmail : null),
+            phone: Value(c.row.customerNumber.isNotEmpty ? c.row.customerNumber : null),
+            gender: Value(c.row.customerGender.isNotEmpty ? c.row.customerGender : null),
+            address: Value(c.row.customerAddress.isNotEmpty ? c.row.customerAddress : null),
+            cardNo: Value(c.row.cardNo.isNotEmpty ? c.row.cardNo : null),
+            recordUuid: Value(c.row.uuid.isNotEmpty ? c.row.uuid : null),
+            branchId: Value(c.row.branchId),
+            customerNumber: Value(c.row.customerNumber.isNotEmpty ? c.row.customerNumber : null),
+            createdAt: Value(c.row.createdAt),
+            updatedAt: Value(c.row.updatedAt),
             isSynced: const Value(true),
           ),
         );
@@ -214,55 +243,57 @@ class SyncService {
           message: 'Syncing items ($index / $itemsTotal)',
         ));
 
-        String? localPath = '';
-        try {
-          localPath = await ImageUtils.downloadImage(
-            i.imagePath,
-            buildSafeImageName(i.id, i.imagePath),
-          );
-        } catch (e) {
-          print(e);
+        String? localPath;
+        if (i.image.isNotEmpty) {
+          try {
+            localPath = await ImageUtils.downloadImage(
+              i.image,
+              buildSafeImageName(i.id, i.image),
+            );
+          } catch (e) {
+            print(e);
+          }
         }
+
+        final firstPrice = i.itemprice.isNotEmpty ? i.itemprice.first.price : 0.0;
+        final firstStock = i.itemprice.isNotEmpty ? i.itemprice.first.stock : 0;
+        final kId = _firstIntFromKitchenIdsString(i.kitchenIds);
+        final stockOn = i.stockApplicable.toLowerCase() == 'yes' || i.stockApplicable == '1';
 
         await db.itemDao.upsertItem(
           ItemsCompanion.insert(
             id: Value(i.id),
-            name: i.name,
-            otherName: i.otherName,
-            sku: i.sku,
-            price: i.price,
-            stock: i.stock,
-            stockEnabled: Value(i.stockEnabled),
+            name: i.itemName,
+            otherName: i.itemOtherName,
+            sku: i.itemSlug,
+            price: firstPrice,
+            stock: firstStock,
+            stockEnabled: Value(stockOn),
             localImagePath: Value(localPath),
-            categoryName: i.categoryName,
-            barcode: i.barcode,
-            categoryOtherName: i.categoryOtherName,
-            imagePath: Value(i.imagePath),
+            categoryName: '',
+            categoryOtherName: '',
+            barcode: i.itemSlug,
+            imagePath: Value(i.image),
             categoryId: i.categoryId,
-            kitchenId: Value(i.kitchenId),
-            kitchenName: Value(i.kitchenName),
-            deliveryPartner: i.deliveryPartner != null ? Value(i.deliveryPartner) : const Value.absent(),
+            kitchenId: Value(kId),
+            kitchenName: const Value(null),
+            deliveryPartner: i.deliveryService.isNotEmpty ? Value(i.deliveryService) : const Value(null),
           ),
         );
-        await Future.wait([
-          for (var v in i.variants)
-            db.itemDao.upsertVariant(
-              ItemVariantsCompanion.insert(
-                itemId: i.id,
-                name: v.name,
-                price: v.price,
-              ),
+        for (final v in i.itemVariations) {
+          if (v is! Map) continue;
+          final vm = Map<String, dynamic>.from(v);
+          final vn = vm['name']?.toString() ?? 'Variant';
+          final rawP = vm['price'];
+          final vp = rawP is num ? rawP.toDouble() : (double.tryParse('$rawP') ?? 0.0);
+          await db.itemDao.upsertVariant(
+            ItemVariantsCompanion.insert(
+              itemId: i.id,
+              name: vn,
+              price: vp,
             ),
-          for (var t in i.toppings)
-            db.itemDao.upsertTopping(
-              ItemToppingsCompanion.insert(
-                itemId: i.id,
-                name: t.name,
-                price: t.price,
-                maxQty: Value(t.maxQty),
-              ),
-            ),
-        ]);
+          );
+        }
       }
 
       lastSyncedAt = DateTime.now();
@@ -341,10 +372,7 @@ class SyncService {
 
       // Get all placed and completed orders (exclude kot)
       final allOrders = await db.ordersDao.getAllOrders();
-      final ordersToUpload = allOrders.where((order) => 
-        order.status != 'kot' && 
-        (order.status == 'placed' || order.status == 'completed')
-      ).toList();
+      final ordersToUpload = allOrders.where((order) => order.status != 'kot' && (order.status == 'placed' || order.status == 'completed')).toList();
 
       if (ordersToUpload.isEmpty) {
         _emit(const SyncStatus(
@@ -394,7 +422,7 @@ class SyncService {
 
             customerUploaded++;
             final customerProgress = 15 + ((customerUploaded / unsyncedCustomers.length) * 5).toInt();
-            
+
             _emit(SyncStatus(
               phase: SyncPhase.items,
               message: 'Uploading customers ($customerUploaded / ${unsyncedCustomers.length})',
@@ -415,7 +443,7 @@ class SyncService {
         try {
           // Get cart items for this order
           final cartItems = await db.cartsDao.getItemsByCart(order.cartId);
-          
+
           // Prepare order data for upload
           final orderData = {
             'id': order.id,
@@ -436,17 +464,19 @@ class SyncService {
             'onlineAmount': order.onlineAmount,
             'status': order.status,
             'createdAt': order.createdAt.toIso8601String(),
-            'items': cartItems.map((item) => {
-              'id': item.id,
-              'itemId': item.itemId,
-              'itemVariantId': item.itemVariantId,
-              'itemToppingId': item.itemToppingId,
-              'quantity': item.quantity,
-              'total': item.total,
-              'discount': item.discount,
-              'discountType': item.discountType,
-              'notes': item.notes,
-            }).toList(),
+            'items': cartItems
+                .map((item) => {
+                      'id': item.id,
+                      'itemId': item.itemId,
+                      'itemVariantId': item.itemVariantId,
+                      'itemToppingId': item.itemToppingId,
+                      'quantity': item.quantity,
+                      'total': item.total,
+                      'discount': item.discount,
+                      'discountType': item.discountType,
+                      'notes': item.notes,
+                    })
+                .toList(),
           };
 
           // Upload to server (using isolate for network operations)
@@ -454,7 +484,7 @@ class SyncService {
 
           uploaded++;
           final progress = uploadStartProgress + (((uploaded / ordersToUpload.length) * (100 - uploadStartProgress)).toInt());
-          
+
           _emit(SyncStatus(
             phase: SyncPhase.items,
             message: 'Uploading orders ($uploaded / ${ordersToUpload.length})',
@@ -478,10 +508,7 @@ class SyncService {
       debugPrintStack(stackTrace: s);
 
       String errorMessage = 'Upload failed';
-      if (e.toString().contains('SocketException') || 
-          e.toString().contains('network') || 
-          e.toString().contains('connection') || 
-          e.toString().contains('timeout')) {
+      if (e.toString().contains('SocketException') || e.toString().contains('network') || e.toString().contains('connection') || e.toString().contains('timeout')) {
         errorMessage = 'Network error. Please check your internet connection and try again.';
       } else {
         errorMessage = 'Upload failed: ${e.toString()}';
@@ -499,7 +526,7 @@ class SyncService {
     // TODO: Implement actual server upload logic
     // This is a placeholder - replace with actual API call
     await Future.delayed(const Duration(milliseconds: 100));
-    
+
     // Example: Use HTTP client to upload
     // final response = await http.post(
     //   Uri.parse('$serverUrl/api/orders'),
@@ -516,7 +543,7 @@ class SyncService {
     // TODO: Implement actual server upload logic
     // This is a placeholder - replace with actual API call
     await Future.delayed(const Duration(milliseconds: 100));
-    
+
     // Example: Use HTTP client to upload
     // final response = await http.post(
     //   Uri.parse('$serverUrl/api/customers'),
@@ -527,4 +554,33 @@ class SyncService {
     //   throw Exception('Upload failed: ${response.statusCode}');
     // }
   }
+}
+
+class _SyncRuntimePayload {
+  const _SyncRuntimePayload({
+    required this.categories,
+    required this.kitchens,
+    required this.deliveryPartners,
+    required this.drivers,
+    required this.diningFloors,
+    required this.diningTables,
+    required this.customers,
+    required this.items,
+  });
+
+  final List<CategoryCreatedUpdated> categories;
+  final List<KitchensCreatedUpdated> kitchens;
+  final List<DeliveryServiceCreatedUpdated> deliveryPartners;
+  final List<DriverCreatedUpdated> drivers;
+  final List<DiningFloorModel> diningFloors;
+  final List<DiningTableModel> diningTables;
+  final List<PosCustomer> customers;
+  final List<ItemCreatedUpdated> items;
+}
+
+int? _firstIntFromKitchenIdsString(String kitchenIds) {
+  if (kitchenIds.isEmpty) return null;
+  final p = RegExp(r'\d+').firstMatch(kitchenIds);
+  if (p == null) return null;
+  return int.tryParse(p.group(0)!);
 }

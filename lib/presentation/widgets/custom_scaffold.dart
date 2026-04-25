@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/domain/models/branch_model.dart';
+import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/presentation/widgets/custom_app_bar.dart';
 import 'package:pos/presentation/widgets/custom_drawer.dart';
 
@@ -31,7 +33,9 @@ class CustomScaffold extends StatefulWidget {
 }
 
 class _CustomScaffoldState extends State<CustomScaffold> {
-  User? user;
+  BranchModel? branchModel;
+  UserModel? user;
+  int? branchId;
   bool _isLoading = true;
 
   @override
@@ -45,9 +49,12 @@ class _CustomScaffoldState extends State<CustomScaffold> {
       // Get user from active session
       final session = await locator<AppDatabase>().sessionDao.getActiveSession();
       if (session != null && mounted) {
+        final loadedBranch = await locator<AppDatabase>().branchesDao.getBranchById(session.branchId);
         final loadedUser = await locator<AppDatabase>().usersDao.findUserById(session.userId);
+
         if (mounted) {
           setState(() {
+            branchModel = loadedBranch;
             user = loadedUser;
             _isLoading = false;
           });
@@ -78,13 +85,13 @@ class _CustomScaffoldState extends State<CustomScaffold> {
     final drawerWidth = size.width > 600 ? size.width / 5 : size.width / 1.4;
 
     return Scaffold(
-      appBar: CustomAppBar(title: widget.title, screen: widget.appBarScreen, onBack: widget.onBack),
+      appBar: CustomAppBar(title: branchModel?.branchName ?? "", screen: widget.appBarScreen, onBack: widget.onBack),
       drawer: PosDrawer(
         width: drawerWidth,
-        companyLogo: user?.companyLogoLocal ?? "",
-        userName: user?.username ?? "",
-        role: user?.role ?? "",
-        companyName: user?.companyName ?? "",
+        companyLogo: branchModel?.localImage ?? '',
+        userName: user?.name ?? "",
+        role: user?.type.name ?? "",
+        companyName: branchModel?.branchName ?? "",
       ),
       floatingActionButton: widget.floatingActionButton,
       floatingActionButtonLocation: widget.floatingActionButtonLocation,

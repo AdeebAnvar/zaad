@@ -1,21 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:pos/presentation/widgets/custom_toast.dart';
 
-/// Floating snack bar with horizontal margin that scales with viewport width.
+/// App-wide toast: uses [CustomSnackBar] (icon + colored banner), not Material [SnackBar].
 void showAppSnackBar(
   BuildContext context,
   String message, {
   bool isError = false,
+  bool isWarning = false,
 }) {
-  final w = MediaQuery.sizeOf(context).width;
-  final horizontal = w < 360 ? 8.0 : w < 600 ? 16.0 : 24.0;
-  final messenger = ScaffoldMessenger.of(context);
-  messenger.hideCurrentSnackBar();
-  messenger.showSnackBar(
-    SnackBar(
-      content: Text(message),
-      behavior: SnackBarBehavior.floating,
-      margin: EdgeInsets.fromLTRB(horizontal, 0, horizontal, 16),
-      backgroundColor: isError ? Colors.red.shade700 : null,
-    ),
-  );
+  if (isError) {
+    CustomSnackBar.showError(message: message, floating: true);
+  } else if (isWarning) {
+    CustomSnackBar.showWarning(message: message, floating: true);
+  } else {
+    CustomSnackBar.showSuccess(message: message, floating: true);
+  }
 }

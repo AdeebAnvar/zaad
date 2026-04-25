@@ -3,11 +3,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/routes.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
@@ -21,13 +21,14 @@ import 'package:pos/presentation/dine_in_log/dine_in_split_merge_dialogs.dart';
 import 'package:pos/presentation/widgets/app_snackbar.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
-import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
-import 'package:pos/presentation/widgets/modern_bottom_sheet.dart' show filterPanelDecoration;
+import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
 import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
+import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
+import 'package:pos/presentation/widgets/qty_password_guard.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class DineInLogScreen extends StatelessWidget {
@@ -105,7 +106,7 @@ class DineInLogScreen extends StatelessWidget {
                                   runSpacing: spacing,
                                   children: state.orders
                                       .map((o) => SizedBox(
-                                            width: cardWidth,
+                                            width: 400,
                                             child: DineInLogCard(
                                               order: o,
                                               cartLineCount: state.cartLineCountsByCartId[o.cartId] ?? 0,
@@ -172,45 +173,21 @@ class _DineInFilterBar extends StatefulWidget {
 class _DineInFilterBarState extends State<_DineInFilterBar> {
   final _invoiceController = TextEditingController();
   final _referenceController = TextEditingController();
-  final _statusController = TextEditingController();
-  DateTime? _startDate;
-  DateTime? _endDate;
-
-  final List<String> _statusOptions = ['All', 'kot', 'completed', 'placed', 'cancelled'];
+  final _usersController = TextEditingController();
+  final List<String> _userOptions = ['All users', 'User 1', 'User 2'];
 
   @override
   void dispose() {
     _invoiceController.dispose();
     _referenceController.dispose();
-    _statusController.dispose();
+    _usersController.dispose();
     super.dispose();
-  }
-
-  Future<void> _selectDate(BuildContext context, bool isStart) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isStart ? (_startDate ?? DateTime.now()) : (_endDate ?? DateTime.now()),
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isStart) {
-          _startDate = picked;
-        } else {
-          _endDate = picked;
-        }
-      });
-    }
   }
 
   void _applyFilters() {
     context.read<DineInLogCubit>().filterOrders(
           invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
           referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
-          status: _statusController.text.isEmpty || _statusController.text == 'All' ? null : _statusController.text,
-          startDate: _startDate,
-          endDate: _endDate,
         );
   }
 
@@ -218,9 +195,7 @@ class _DineInFilterBarState extends State<_DineInFilterBar> {
     setState(() {
       _invoiceController.clear();
       _referenceController.clear();
-      _statusController.clear();
-      _startDate = null;
-      _endDate = null;
+      _usersController.clear();
     });
     context.read<DineInLogCubit>().loadOrders();
   }
@@ -229,93 +204,53 @@ class _DineInFilterBarState extends State<_DineInFilterBar> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxW = constraints.maxWidth;
-        final fieldW = maxW < 640 ? maxW : 220.0;
-        final narrowField = maxW < 640 ? maxW : 200.0;
-        final statusW = maxW < 640 ? maxW : 180.0;
-        final btnW = maxW < 640 ? maxW : 120.0;
-        return Container(
-          padding: AppPadding.card,
-          decoration: filterPanelDecoration(),
-          child: Wrap(
-            spacing: 16,
+        final m = LogFilterLayout(constraints.maxWidth);
+        return LogFilterShell(
+          title: 'Filters',
+          subtitle: 'Receipt No, Reference No, and Users',
+          icon: Icons.restaurant_outlined,
+          body: Wrap(
+            spacing: 12,
             runSpacing: 12,
             children: [
               SizedBox(
-                width: fieldW,
-                child: CustomTextField(controller: _invoiceController, labelText: 'Receipt No.'),
+                width: m.fieldWidth,
+                child: CustomTextField(
+                  controller: _invoiceController,
+                  labelText: 'Receipt No.',
+                  onChanged: (_) => _applyFilters(),
+                ),
               ),
               SizedBox(
-                width: fieldW,
-                child: CustomTextField(controller: _referenceController, labelText: 'Table / Ref'),
+                width: m.fieldWidth,
+                child: CustomTextField(
+                  controller: _referenceController,
+                  labelText: 'Reference No.',
+                  onChanged: (_) => _applyFilters(),
+                ),
               ),
               SizedBox(
-                width: statusW,
+                width: m.compactFieldWidth,
                 child: AutoCompleteTextField<String>(
-                  defaultText: 'Select Status',
+                  defaultText: 'All users',
+                  labelText: 'Users',
                   displayStringFunction: (v) => v,
-                  items: _statusOptions,
-                  onSelected: (v) => setState(() => _statusController.text = v),
-                  controller: _statusController,
+                  items: _userOptions,
+                  onSelected: (v) {
+                    setState(() => _usersController.text = v);
+                    _applyFilters();
+                  },
+                  onChanged: (_) => _applyFilters(),
+                  controller: _usersController,
                 ),
               ),
               SizedBox(
-                width: narrowField,
-                child: InkWell(
-                  onTap: () => _selectDate(context, true),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _startDate == null ? 'Start Date' : DateFormat('dd-MM-yyyy').format(_startDate!),
-                            style: TextStyle(color: _startDate == null ? Colors.grey : Colors.black),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                width: 42,
+                child: IconButton(
+                  tooltip: 'Clear all',
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.close_rounded),
                 ),
-              ),
-              SizedBox(
-                width: narrowField,
-                child: InkWell(
-                  onTap: () => _selectDate(context, false),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _endDate == null ? 'End Date' : DateFormat('dd-MM-yyyy').format(_endDate!),
-                            style: TextStyle(color: _endDate == null ? Colors.grey : Colors.black),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              CustomButton(width: btnW, onPressed: _applyFilters, text: 'Filter', elevation: 0),
-              CustomButton(
-                width: btnW,
-                onPressed: _clearFilters,
-                text: 'Clear',
-                backgroundColor: Colors.grey,
-                elevation: 0,
               ),
             ],
           ),
@@ -582,7 +517,7 @@ class _DineInLogCardState extends State<DineInLogCard> {
           Flexible(
             fit: FlexFit.loose,
             child: Text(
-              '₹ ${total.toStringAsFixed(2)}',
+              RuntimeAppSettings.money(total),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.end,
@@ -616,6 +551,11 @@ class _DineInLogCardState extends State<DineInLogCard> {
           label: 'Edit',
           onTap: () => _handleEdit(context, order),
         ),
+        _actionBtn(
+          icon: Icons.payments_outlined,
+          label: 'Pay',
+          onTap: () => _handlePay(context, order),
+        ),
         if (dineInBillIsSplittable(order) && widget.cartLineCount > 1)
           _actionBtn(
             icon: Icons.call_split,
@@ -637,11 +577,11 @@ class _DineInLogCardState extends State<DineInLogCard> {
           icon: Icons.drive_file_move_outline,
           label: 'Move',
           onTap: () => showMoveOrderDialog(
-                context,
-                order: order,
-                sourceOrderType: 'dine_in',
-                onSuccess: () => context.read<DineInLogCubit>().refreshOrders(),
-              ),
+            context,
+            order: order,
+            sourceOrderType: 'dine_in',
+            onSuccess: () => context.read<DineInLogCubit>().refreshOrders(),
+          ),
         ),
       ],
     );
@@ -716,13 +656,21 @@ class _DineInLogCardState extends State<DineInLogCard> {
     });
   }
 
+  void _handlePay(BuildContext context, Order order) {
+    showCartStylePaymentDialogForOrder(
+      context,
+      order: order,
+      onPaymentRecorded: () => context.read<DineInLogCubit>().refreshOrders(),
+    );
+  }
+
   Future<void> _handlePrint(BuildContext context, Order order) async {
     final cartRepo = locator<CartRepository>();
     final printService = locator<PrintService>();
     final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
     if (cartItems == null || cartItems.isEmpty) {
       if (context.mounted) {
-        showAppSnackBar(context, 'No items to print');
+        showAppSnackBar(context, 'No items to print', isWarning: true);
       }
       return;
     }
@@ -747,6 +695,8 @@ class _DineInLogCardState extends State<DineInLogCard> {
   }
 
   Future<void> _handleDelete(BuildContext context, Order order) async {
+    final auth = await requireQtyPassword(context, actionLabel: 'Delete');
+    if (!auth) return;
     final ok = await showAppConfirmDialog(
       context,
       title: 'Delete Order',

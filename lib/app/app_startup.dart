@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import 'package:pos/core/utils/app_directories.dart';
+import 'package:pos/core/utils/sales_csv_backup.dart';
 
 import '../core/constants/enums.dart';
 import '../data/local/drift_database.dart';
@@ -11,18 +12,9 @@ class AppStartup {
 
   AppStartup(this.db);
 
-  /// Clears incompatible local cache (DB file) on app update.
-  ///
-  /// Strategy:
-  /// - Persist the last-used data schema version in a small text file.
-  /// - Compare it with current Drift schema version.
-  /// - If versions differ, delete the Drift SQLite file so a fresh DB
-  ///   is created for the new build (all local cache reset).
-  ///
-  /// This runs once per version and is platform-agnostic (Android, Windows, etc.).
   Future<void> ensureCompatibleLocalData() async {
     final currentDataSchemaVersion = 'db_v${db.schemaVersion}';
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await AppDirectories.local();
     final versionFile = File(p.join(dir.path, 'data_schema_version.txt'));
 
     String? lastVersion;
@@ -35,7 +27,12 @@ class AppStartup {
     }
 
     if (lastVersion == currentDataSchemaVersion) {
-      // Same schema version as last time – nothing to do.
+      // Same schema version as last time.
+      try {
+        await SalesCsvBackup.refreshFromDatabase(db);
+      } catch (_) {
+        // Best-effort backup only.
+      }
       return;
     }
 
@@ -55,6 +52,13 @@ class AppStartup {
       await versionFile.writeAsString(currentDataSchemaVersion);
     } catch (_) {
       // If we can't persist, fallback is just to recreate DB next run if needed.
+    }
+
+    // Keep crash-safe XLSX backup in sync with local orders snapshot.
+    try {
+      await SalesCsvBackup.refreshFromDatabase(db);
+    } catch (_) {
+      // Best-effort backup only.
     }
   }
 

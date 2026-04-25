@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
 
@@ -185,7 +186,7 @@ class _ToppingsDialogState extends State<ToppingsDialog> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  "₹ ${topping.price.toStringAsFixed(2)}",
+                  RuntimeAppSettings.money(topping.price),
                   style: AppStyles.getRegularTextStyle(fontSize: 14, color: isSelected ? Colors.white70 : Colors.grey.shade700),
                 )
               ],
@@ -287,7 +288,7 @@ class _ToppingsDialogState extends State<ToppingsDialog> {
                 style: AppStyles.getRegularTextStyle(fontSize: 14, color: Colors.grey),
               ),
               Text(
-                "₹ ${total.toStringAsFixed(2)}",
+                RuntimeAppSettings.money(total),
                 style: AppStyles.getBoldTextStyle(fontSize: 22),
               ),
             ],

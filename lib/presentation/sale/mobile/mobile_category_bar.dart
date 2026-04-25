@@ -8,14 +8,17 @@ class MobileCategoryBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.sizeOf(context).width < 560;
     return SizedBox(
-      height: 46,
+      height: isNarrow ? 44 : 46,
       child: BlocBuilder<ItemsCubit, ItemState>(
         builder: (_, state) {
           final cubit = context.read<ItemsCubit>();
           if (state is ItemsLoadedState) {
             return ListView(
               scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.zero,
+              physics: const BouncingScrollPhysics(),
               children: [
                 CategoryButton(
                   label: "ALL",

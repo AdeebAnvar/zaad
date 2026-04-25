@@ -7,11 +7,11 @@ import 'package:pos/core/order/move_order_logic.dart';
 import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
+import 'package:pos/data/models/pos_customer.dart';
 import 'package:pos/data/repository/customer_repository.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
-import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/presentation/widgets/app_snackbar.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
@@ -96,7 +96,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
 
   List<DiningFloor> _floors = [];
   List<Driver> _drivers = [];
-  List<CustomerModel> _allCustomers = [];
+  List<PosCustomer> _allCustomers = [];
   List<String> _deliveryPartnerNames = [];
   bool _loadingCustomers = true;
 
@@ -199,7 +199,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
     });
   }
 
-  void _prefillCustomer(CustomerModel customer) {
+  void _prefillCustomer(PosCustomer customer) {
     setState(() {
       _custName.text = customer.name;
       _phone.text = customer.phone ?? '';
@@ -438,11 +438,9 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
       );
     }
 
-    final phoneSuggestions =
-        _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList();
+    final phoneSuggestions = _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList();
     final nameSuggestions = _allCustomers.map((c) => c.name).toSet().toList();
-    final emailSuggestions =
-        _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList();
+    final emailSuggestions = _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList();
     final narrow = MediaQuery.sizeOf(context).width < 560;
 
     Widget row3() {
@@ -460,9 +458,9 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
               onSelected: (selectedPhone) {
                 final customer = _allCustomers.firstWhere(
                   (c) => c.phone == selectedPhone,
-                  orElse: () => CustomerModel(name: '', phone: selectedPhone),
+                  orElse: () => PosCustomer.placeholder(phone: selectedPhone),
                 );
-                if (customer.id != null) _prefillCustomer(customer);
+                if (customer.id > 0) _prefillCustomer(customer);
               },
             ),
           ),
@@ -478,14 +476,13 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
               onSelected: (selectedName) {
                 final customer = _allCustomers.firstWhere(
                   (c) => c.name == selectedName,
-                  orElse: () => CustomerModel(name: selectedName),
+                  orElse: () => PosCustomer.placeholder(name: selectedName),
                 );
-                if (customer.id != null) _prefillCustomer(customer);
+                if (customer.id > 0) _prefillCustomer(customer);
               },
               onChanged: (value) {
                 setState(() {});
-                final matching =
-                    _allCustomers.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
+                final matching = _allCustomers.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
                 if (matching.isNotEmpty) _prefillCustomer(matching.first);
               },
             ),
@@ -502,9 +499,9 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
               onSelected: (selectedEmail) {
                 final customer = _allCustomers.firstWhere(
                   (c) => c.email == selectedEmail,
-                  orElse: () => CustomerModel(name: '', email: selectedEmail),
+                  orElse: () => PosCustomer.placeholder(email: selectedEmail),
                 );
-                if (customer.id != null) _prefillCustomer(customer);
+                if (customer.id > 0) _prefillCustomer(customer);
               },
             ),
           ),
@@ -526,9 +523,9 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
             onSelected: (selectedPhone) {
               final customer = _allCustomers.firstWhere(
                 (c) => c.phone == selectedPhone,
-                orElse: () => CustomerModel(name: '', phone: selectedPhone),
+                orElse: () => PosCustomer.placeholder(phone: selectedPhone),
               );
-              if (customer.id != null) _prefillCustomer(customer);
+              if (customer.id > 0) _prefillCustomer(customer);
             },
           ),
           const SizedBox(height: 10),
@@ -542,14 +539,13 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
             onSelected: (selectedName) {
               final customer = _allCustomers.firstWhere(
                 (c) => c.name == selectedName,
-                orElse: () => CustomerModel(name: selectedName),
+                orElse: () => PosCustomer.placeholder(name: selectedName),
               );
-              if (customer.id != null) _prefillCustomer(customer);
+              if (customer.id > 0) _prefillCustomer(customer);
             },
             onChanged: (value) {
               setState(() {});
-              final matching =
-                  _allCustomers.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
+              final matching = _allCustomers.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
               if (matching.isNotEmpty) _prefillCustomer(matching.first);
             },
           ),
@@ -564,9 +560,9 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
             onSelected: (selectedEmail) {
               final customer = _allCustomers.firstWhere(
                 (c) => c.email == selectedEmail,
-                orElse: () => CustomerModel(name: '', email: selectedEmail),
+                orElse: () => PosCustomer.placeholder(email: selectedEmail),
               );
-              if (customer.id != null) _prefillCustomer(customer);
+              if (customer.id > 0) _prefillCustomer(customer);
             },
           ),
         ],
@@ -612,9 +608,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
                     (p) => p.toUpperCase() == (_deliveryPartner ?? '').toUpperCase(),
                   )
                 : null,
-            items: _deliveryPartnerNames
-                .map((p) => DropdownMenuItem<String>(value: p, child: Text(p)))
-                .toList(),
+            items: _deliveryPartnerNames.map((p) => DropdownMenuItem<String>(value: p, child: Text(p))).toList(),
             onChanged: (v) => setState(() {
               _deliveryPartner = v;
               if ((v ?? '').toUpperCase() != 'NORMAL') _driverId = null;
@@ -652,9 +646,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
             AppDropdownField<int>(
               labelText: 'Driver',
               value: _drivers.any((d) => d.id == _driverId) ? _driverId : null,
-              items: _drivers
-                  .map((d) => DropdownMenuItem<int>(value: d.id, child: Text('${d.name} (${d.id})')))
-                  .toList(),
+              items: _drivers.map((d) => DropdownMenuItem<int>(value: d.id, child: Text('${d.name} (${d.id})'))).toList(),
               onChanged: (v) => setState(() => _driverId = v),
             ),
         ],
@@ -676,9 +668,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
           AppDropdownField<int>(
             labelText: 'Floor',
             value: _floors.any((f) => f.id == _floorId) ? _floorId : null,
-            items: _floors
-                .map((f) => DropdownMenuItem<int>(value: f.id, child: Text(f.name)))
-                .toList(),
+            items: _floors.map((f) => DropdownMenuItem<int>(value: f.id, child: Text(f.name))).toList(),
             onChanged: (v) async {
               if (v == null) return;
               setState(() {

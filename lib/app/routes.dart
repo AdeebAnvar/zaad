@@ -27,6 +27,10 @@ import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/presentation/dine_in/dine_in_screen.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_log_ui.dart';
 import 'package:pos/presentation/settings/settings_screen.dart';
+import 'package:pos/presentation/settings/printer_settings_screen.dart';
+import 'package:pos/presentation/credit_sales/credit_sales_screen.dart';
+import 'package:pos/presentation/day_closing/day_closing_screen.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class Routes {
@@ -45,16 +49,32 @@ class Routes {
   static const crm = "/crm";
   static const crmCustomerDetails = "/crm/customer_details";
   static const settings = "/settings";
+  static const printerSettings = "/printer_settings";
+  static const creditSales = "/credit_sales";
+  static const dayClosing = "/day_closing";
 
   static Map<String, WidgetBuilder> map = {
     login: (_) => const LoginScreen(),
     dashboard: (_) => const DashboardScreen(),
-    autoSyncScreen: (_) => const AutoSyncScreen(),
+    autoSyncScreen: (context) {
+      final rawArgs = ModalRoute.of(context)?.settings.arguments;
+      bool manual = false;
+      if (rawArgs is Map) {
+        final v = rawArgs['manual'];
+        if (v is bool) manual = v;
+      } else if (rawArgs is bool) {
+        manual = rawArgs;
+      }
+      return AutoSyncScreen(goToDashboardOnComplete: !manual);
+    },
     orders: (_) => const OrdersScreen(),
     recentSales: (_) => const RecentSalesScreen(),
     crm: (_) => const CrmScreen(),
     crmCustomerDetails: (_) => const CrmCustomerDetailsScreen(),
     settings: (_) => const SettingsScreen(),
+    printerSettings: (_) => const PrinterSettingsScreen(),
+    creditSales: (_) => const CreditSalesScreen(),
+    dayClosing: (_) => const DayClosingScreen(),
     counter: (context) {
       final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       final orderId = args?['orderId'] as int?;
@@ -62,6 +82,7 @@ class Routes {
       final deliveryPartner = args?['deliveryPartner'] as String?;
       final referenceNumber = args?['referenceNumber'] as String?;
       final fromDineIn = args?['fromDineIn'] as bool? ?? false;
+      final openPaymentOnLoad = args?['openPaymentOnLoad'] as bool? ?? false;
 
       return BlocProvider<CartCubit>(
         create: (context) {
@@ -94,6 +115,7 @@ class Routes {
             orderType: orderType,
             deliveryPartner: deliveryPartner,
             fromDineIn: fromDineIn,
+            openPaymentOnLoad: openPaymentOnLoad,
           ),
         ),
       );
@@ -102,7 +124,7 @@ class Routes {
           create: (context) => TakeAwayLogCubit(locator<OrderRepository>()),
           child: const TakeAwayLogScreen(),
         ),
-    deliverySale: (_) => const DeliverySaleScreen(),
+    deliverySale: (_) => RuntimeAppSettings.deliverySaleEnabled ? const DeliverySaleScreen() : const DashboardScreen(),
     deliveryLog: (_) => BlocProvider(
           create: (_) => DeliveryLogCubit(
             locator<OrderRepository>(),

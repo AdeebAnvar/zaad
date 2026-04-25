@@ -5,6 +5,7 @@ import 'package:pos/app/routes.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/app_settings_prefs.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
@@ -49,6 +50,7 @@ class _DineInScreenState extends State<DineInScreen> {
   final _orderRepo = locator<OrderRepository>();
 
   bool _loading = true;
+
   /// When false, Dine In does not allocate seats or cap orders by chair count.
   bool _seatHandlingEnabled = true;
   int _selectedFloorIndex = 0;
@@ -368,11 +370,12 @@ class _DineInScreenState extends State<DineInScreen> {
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: _tables.length,
-                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: isMobile ? 2 : cols,
+                            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                              // crossAxisCount: isMobile ? 2 : cols,
+                              maxCrossAxisExtent: 340,
                               crossAxisSpacing: 12,
                               mainAxisSpacing: 12,
-                              childAspectRatio: isMobile ? 0.65 : 1.05,
+                              childAspectRatio: 1.5,
                             ),
                             itemBuilder: (_, i) {
                               final t = _tables[i];
@@ -527,7 +530,7 @@ class _DineInTableOrdersPanel extends StatelessWidget {
                           Text(
                             [
                               o.status.toUpperCase(),
-                              '₹ ${o.finalAmount.toStringAsFixed(2)}',
+                              RuntimeAppSettings.money(o.finalAmount),
                               if (ref.isNotEmpty) ref,
                             ].join(' · '),
                             maxLines: 3,
@@ -760,9 +763,7 @@ class _TableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final showOccupiedOnTable = seatHandlingEnabled
-        ? (chairs > 0 && !canAddOrder)
-        : (activeOrders > 0);
+    final showOccupiedOnTable = seatHandlingEnabled ? (chairs > 0 && !canAddOrder) : (activeOrders > 0);
     final (topCount, bottomCount) = _chairRowsSplit(chairs);
     final occupiedSeats = occupiedPax.clamp(0, chairs);
     final tableW = _tableWidthForChairs(chairs);
@@ -793,105 +794,99 @@ class _TableCard extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           child: Column(
             children: [
-          Row(
-            children: [
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _cardAccentFree.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    code,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: _cardAccentFree),
-                  ),
-                ),
-              ),
-              Tooltip(
-                message: 'Orders on this table',
-                child: IconButton(
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                  icon: Icon(Icons.receipt_long_outlined, size: 22, color: AppColors.primaryColor),
-                  onPressed: onViewOrders,
-                ),
-              ),
-              Tooltip(
-                message: !seatHandlingEnabled
-                    ? 'Add customer order'
-                    : (canAddOrder ? 'Add customer order' : 'All seats occupied'),
-                child: IconButton(
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                  icon: Icon(canAddOrder ? Icons.add_circle_outline : Icons.block, size: 22),
-                  color: canAddOrder ? AppColors.primaryColor : AppColors.hintFontColor,
-                  onPressed: canAddOrder
-                      ? () {
-                          onAdd();
-                        }
-                      : null,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (topCount > 0)
-            _ChairRow(
-              startSeatIndex: 0,
-              count: topCount,
-              occupiedSeats: occupiedSeats,
-              facingDown: true,
-            ),
-          if (topCount > 0) const SizedBox(height: 6),
-          Container(
-            height: 44,
-            width: tableW,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: showOccupiedOnTable
-                  ? AppColors.danger
-                  : _cardAccentFree.withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: showOccupiedOnTable
-                    ? AppColors.danger.withValues(alpha: 0.85)
-                    : _cardAccentFree.withValues(alpha: 0.35),
-              ),
-            ),
-            child: showOccupiedOnTable
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
+              Row(
+                children: [
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _cardAccentFree.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       child: Text(
-                        'Occupied',
+                        code,
                         maxLines: 1,
-                        softWrap: false,
-                        style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: Colors.white),
+                        overflow: TextOverflow.ellipsis,
+                        style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: _cardAccentFree),
                       ),
                     ),
-                  )
-                : null,
-          ),
-          if (bottomCount > 0) const SizedBox(height: 6),
-          if (bottomCount > 0)
-            _ChairRow(
-              startSeatIndex: topCount,
-              count: bottomCount,
-              occupiedSeats: occupiedSeats,
-              facingDown: false,
-            ),
-          const Spacer(),
-          if (activeOrders > 0)
-            Text(
-              '$activeOrders active order${activeOrders > 1 ? 's' : ''}',
-              style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
-            ),
+                  ),
+                  Tooltip(
+                    message: 'Orders on this table',
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      icon: Icon(Icons.receipt_long_outlined, size: 22, color: AppColors.primaryColor),
+                      onPressed: onViewOrders,
+                    ),
+                  ),
+                  Tooltip(
+                    message: !seatHandlingEnabled ? 'Add customer order' : (canAddOrder ? 'Add customer order' : 'All seats occupied'),
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      icon: Icon(canAddOrder ? Icons.add_circle_outline : Icons.block, size: 22),
+                      color: canAddOrder ? AppColors.primaryColor : AppColors.hintFontColor,
+                      onPressed: canAddOrder
+                          ? () {
+                              onAdd();
+                            }
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (topCount > 0)
+                _ChairRow(
+                  startSeatIndex: 0,
+                  count: topCount,
+                  occupiedSeats: occupiedSeats,
+                  facingDown: true,
+                ),
+              if (topCount > 0) const SizedBox(height: 6),
+              Container(
+                height: 44,
+                width: tableW,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: showOccupiedOnTable ? AppColors.danger : _cardAccentFree.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: showOccupiedOnTable ? AppColors.danger.withValues(alpha: 0.85) : _cardAccentFree.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: showOccupiedOnTable
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            'Occupied',
+                            maxLines: 1,
+                            softWrap: false,
+                            style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: Colors.white),
+                          ),
+                        ),
+                      )
+                    : null,
+              ),
+              if (bottomCount > 0) const SizedBox(height: 6),
+              if (bottomCount > 0)
+                _ChairRow(
+                  startSeatIndex: topCount,
+                  count: bottomCount,
+                  occupiedSeats: occupiedSeats,
+                  facingDown: false,
+                ),
+              const Spacer(),
+              if (activeOrders > 0)
+                Text(
+                  '$activeOrders active order${activeOrders > 1 ? 's' : ''}',
+                  style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+                ),
             ],
           ),
         ),

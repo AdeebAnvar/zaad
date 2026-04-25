@@ -25,8 +25,8 @@ class ItemsPanel extends StatelessWidget {
                 if (state is ItemsLoadedState) {
                   return GridView.builder(
                     padding: const EdgeInsets.all(12),
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 200,
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: MediaQuery.sizeOf(context).width <= 1400 ? 152 : 200,
                       crossAxisSpacing: 5,
                       mainAxisSpacing: 5,
                     ),

@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
@@ -182,14 +183,14 @@ class _PreviewLineTile extends StatelessWidget {
           ),
         const SizedBox(height: 6),
         Text(
-          'Qty ${line.quantity} · Line total ₹${line.total.toStringAsFixed(2)}',
+          'Qty ${line.quantity} · Line total ${RuntimeAppSettings.money(line.total)}',
           style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.black87),
         ),
         if (line.discount > 0)
           Padding(
             padding: const EdgeInsets.only(top: 2),
             child: Text(
-              'Discount: -₹${line.discount.toStringAsFixed(2)}',
+              'Discount: -${RuntimeAppSettings.money(line.discount)}',
               style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red.shade700),
             ),
           ),
@@ -207,7 +208,7 @@ class _PreviewLineTile extends StatelessWidget {
             return Padding(
               padding: const EdgeInsets.only(left: 8, top: 4),
               child: Text(
-                '• $name × $qty — ₹${lineTotal.toStringAsFixed(2)}',
+                '• $name × $qty — ${RuntimeAppSettings.money(lineTotal)}',
                 style: AppStyles.getRegularTextStyle(fontSize: 12, color: toppingsColor),
               ),
             );

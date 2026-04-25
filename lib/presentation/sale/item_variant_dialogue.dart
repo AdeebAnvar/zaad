@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
@@ -85,7 +86,7 @@ class _ItemVariantDialogState extends State<ItemVariantDialog> {
                   ),
                 const SizedBox(height: 10),
                 Text(
-                  "₹ ${unitPrice.toStringAsFixed(2)}",
+                  RuntimeAppSettings.money(unitPrice),
                   style: AppStyles.getBoldTextStyle(fontSize: 16, color: theme.primaryColor),
                 ),
               ],
@@ -210,7 +211,7 @@ class _ItemVariantDialogState extends State<ItemVariantDialog> {
           final isNarrow = maxWidth < 360;
 
           final priceWidget = Text(
-            "₹ ${totalPrice.toStringAsFixed(2)}",
+            RuntimeAppSettings.money(totalPrice),
             style: AppStyles.getBoldTextStyle(fontSize: 16),
           );
 

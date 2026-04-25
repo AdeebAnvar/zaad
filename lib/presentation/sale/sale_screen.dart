@@ -9,13 +9,14 @@ import 'package:pos/presentation/sale/mobile/mobile_sale_layout.dart';
 import 'package:pos/presentation/sale/topping_dialogue.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 
-const double kTabletWidth = 900;
+const double kTabletWidth = 800;
 
 class SaleScreen extends StatefulWidget {
   const SaleScreen({
     this.orderType = 'take_away',
     this.deliveryPartner,
     this.fromDineIn = false,
+    this.openPaymentOnLoad = false,
     super.key,
   });
 
@@ -24,6 +25,7 @@ class SaleScreen extends StatefulWidget {
 
   /// Counter was opened from the Dine In floor plan (show back arrow to return there).
   final bool fromDineIn;
+  final bool openPaymentOnLoad;
 
   @override
   State<SaleScreen> createState() => _SaleScreenState();
@@ -53,7 +55,7 @@ class _SaleScreenState extends State<SaleScreen> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isMobile = constraints.maxWidth < kTabletWidth;
-          return isMobile ? const MobileSaleLayout() : const DesktopSaleLayout();
+          return isMobile ? const MobileSaleLayout() : DesktopSaleLayout(openPaymentOnLoad: widget.openPaymentOnLoad);
         },
       ),
     );
