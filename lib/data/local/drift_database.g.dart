@@ -2522,9 +2522,15 @@ class $ItemToppingsTable extends ItemToppings
   late final GeneratedColumn<int> maximum = GeneratedColumn<int>(
       'maximum', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _toppingsCategoryIdMeta =
+      const VerificationMeta('toppingsCategoryId');
+  @override
+  late final GeneratedColumn<int> toppingsCategoryId = GeneratedColumn<int>(
+      'toppings_category_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns =>
-      [id, itemId, name, price, maxQty, maximum];
+      [id, itemId, name, price, maxQty, maximum, toppingsCategoryId];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -2564,6 +2570,12 @@ class $ItemToppingsTable extends ItemToppings
       context.handle(_maximumMeta,
           maximum.isAcceptableOrUnknown(data['maximum']!, _maximumMeta));
     }
+    if (data.containsKey('toppings_category_id')) {
+      context.handle(
+          _toppingsCategoryIdMeta,
+          toppingsCategoryId.isAcceptableOrUnknown(
+              data['toppings_category_id']!, _toppingsCategoryIdMeta));
+    }
     return context;
   }
 
@@ -2589,6 +2601,8 @@ class $ItemToppingsTable extends ItemToppings
           .read(DriftSqlType.int, data['${effectivePrefix}max_qty'])!,
       maximum: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}maximum']),
+      toppingsCategoryId: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}toppings_category_id']),
     );
   }
 
@@ -2605,13 +2619,17 @@ class ItemTopping extends DataClass implements Insertable<ItemTopping> {
   final double price;
   final int maxQty;
   final int? maximum;
+
+  /// From API `toppings.toppings_category_id` (when [maximum] is missing, dialog still groups by category).
+  final int? toppingsCategoryId;
   const ItemTopping(
       {required this.id,
       required this.itemId,
       required this.name,
       required this.price,
       required this.maxQty,
-      this.maximum});
+      this.maximum,
+      this.toppingsCategoryId});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -2622,6 +2640,9 @@ class ItemTopping extends DataClass implements Insertable<ItemTopping> {
     map['max_qty'] = Variable<int>(maxQty);
     if (!nullToAbsent || maximum != null) {
       map['maximum'] = Variable<int>(maximum);
+    }
+    if (!nullToAbsent || toppingsCategoryId != null) {
+      map['toppings_category_id'] = Variable<int>(toppingsCategoryId);
     }
     return map;
   }
@@ -2636,6 +2657,9 @@ class ItemTopping extends DataClass implements Insertable<ItemTopping> {
       maximum: maximum == null && nullToAbsent
           ? const Value.absent()
           : Value(maximum),
+      toppingsCategoryId: toppingsCategoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(toppingsCategoryId),
     );
   }
 
@@ -2649,6 +2673,7 @@ class ItemTopping extends DataClass implements Insertable<ItemTopping> {
       price: serializer.fromJson<double>(json['price']),
       maxQty: serializer.fromJson<int>(json['maxQty']),
       maximum: serializer.fromJson<int?>(json['maximum']),
+      toppingsCategoryId: serializer.fromJson<int?>(json['toppingsCategoryId']),
     );
   }
   @override
@@ -2661,6 +2686,7 @@ class ItemTopping extends DataClass implements Insertable<ItemTopping> {
       'price': serializer.toJson<double>(price),
       'maxQty': serializer.toJson<int>(maxQty),
       'maximum': serializer.toJson<int?>(maximum),
+      'toppingsCategoryId': serializer.toJson<int?>(toppingsCategoryId),
     };
   }
 
@@ -2670,7 +2696,8 @@ class ItemTopping extends DataClass implements Insertable<ItemTopping> {
           String? name,
           double? price,
           int? maxQty,
-          Value<int?> maximum = const Value.absent()}) =>
+          Value<int?> maximum = const Value.absent(),
+          Value<int?> toppingsCategoryId = const Value.absent()}) =>
       ItemTopping(
         id: id ?? this.id,
         itemId: itemId ?? this.itemId,
@@ -2678,6 +2705,9 @@ class ItemTopping extends DataClass implements Insertable<ItemTopping> {
         price: price ?? this.price,
         maxQty: maxQty ?? this.maxQty,
         maximum: maximum.present ? maximum.value : this.maximum,
+        toppingsCategoryId: toppingsCategoryId.present
+            ? toppingsCategoryId.value
+            : this.toppingsCategoryId,
       );
   ItemTopping copyWithCompanion(ItemToppingsCompanion data) {
     return ItemTopping(
@@ -2687,6 +2717,9 @@ class ItemTopping extends DataClass implements Insertable<ItemTopping> {
       price: data.price.present ? data.price.value : this.price,
       maxQty: data.maxQty.present ? data.maxQty.value : this.maxQty,
       maximum: data.maximum.present ? data.maximum.value : this.maximum,
+      toppingsCategoryId: data.toppingsCategoryId.present
+          ? data.toppingsCategoryId.value
+          : this.toppingsCategoryId,
     );
   }
 
@@ -2698,13 +2731,15 @@ class ItemTopping extends DataClass implements Insertable<ItemTopping> {
           ..write('name: $name, ')
           ..write('price: $price, ')
           ..write('maxQty: $maxQty, ')
-          ..write('maximum: $maximum')
+          ..write('maximum: $maximum, ')
+          ..write('toppingsCategoryId: $toppingsCategoryId')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, itemId, name, price, maxQty, maximum);
+  int get hashCode =>
+      Object.hash(id, itemId, name, price, maxQty, maximum, toppingsCategoryId);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2714,7 +2749,8 @@ class ItemTopping extends DataClass implements Insertable<ItemTopping> {
           other.name == this.name &&
           other.price == this.price &&
           other.maxQty == this.maxQty &&
-          other.maximum == this.maximum);
+          other.maximum == this.maximum &&
+          other.toppingsCategoryId == this.toppingsCategoryId);
 }
 
 class ItemToppingsCompanion extends UpdateCompanion<ItemTopping> {
@@ -2724,6 +2760,7 @@ class ItemToppingsCompanion extends UpdateCompanion<ItemTopping> {
   final Value<double> price;
   final Value<int> maxQty;
   final Value<int?> maximum;
+  final Value<int?> toppingsCategoryId;
   const ItemToppingsCompanion({
     this.id = const Value.absent(),
     this.itemId = const Value.absent(),
@@ -2731,6 +2768,7 @@ class ItemToppingsCompanion extends UpdateCompanion<ItemTopping> {
     this.price = const Value.absent(),
     this.maxQty = const Value.absent(),
     this.maximum = const Value.absent(),
+    this.toppingsCategoryId = const Value.absent(),
   });
   ItemToppingsCompanion.insert({
     this.id = const Value.absent(),
@@ -2739,6 +2777,7 @@ class ItemToppingsCompanion extends UpdateCompanion<ItemTopping> {
     required double price,
     this.maxQty = const Value.absent(),
     this.maximum = const Value.absent(),
+    this.toppingsCategoryId = const Value.absent(),
   })  : itemId = Value(itemId),
         name = Value(name),
         price = Value(price);
@@ -2749,6 +2788,7 @@ class ItemToppingsCompanion extends UpdateCompanion<ItemTopping> {
     Expression<double>? price,
     Expression<int>? maxQty,
     Expression<int>? maximum,
+    Expression<int>? toppingsCategoryId,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -2757,6 +2797,8 @@ class ItemToppingsCompanion extends UpdateCompanion<ItemTopping> {
       if (price != null) 'price': price,
       if (maxQty != null) 'max_qty': maxQty,
       if (maximum != null) 'maximum': maximum,
+      if (toppingsCategoryId != null)
+        'toppings_category_id': toppingsCategoryId,
     });
   }
 
@@ -2766,7 +2808,8 @@ class ItemToppingsCompanion extends UpdateCompanion<ItemTopping> {
       Value<String>? name,
       Value<double>? price,
       Value<int>? maxQty,
-      Value<int?>? maximum}) {
+      Value<int?>? maximum,
+      Value<int?>? toppingsCategoryId}) {
     return ItemToppingsCompanion(
       id: id ?? this.id,
       itemId: itemId ?? this.itemId,
@@ -2774,6 +2817,7 @@ class ItemToppingsCompanion extends UpdateCompanion<ItemTopping> {
       price: price ?? this.price,
       maxQty: maxQty ?? this.maxQty,
       maximum: maximum ?? this.maximum,
+      toppingsCategoryId: toppingsCategoryId ?? this.toppingsCategoryId,
     );
   }
 
@@ -2798,6 +2842,9 @@ class ItemToppingsCompanion extends UpdateCompanion<ItemTopping> {
     if (maximum.present) {
       map['maximum'] = Variable<int>(maximum.value);
     }
+    if (toppingsCategoryId.present) {
+      map['toppings_category_id'] = Variable<int>(toppingsCategoryId.value);
+    }
     return map;
   }
 
@@ -2809,7 +2856,8 @@ class ItemToppingsCompanion extends UpdateCompanion<ItemTopping> {
           ..write('name: $name, ')
           ..write('price: $price, ')
           ..write('maxQty: $maxQty, ')
-          ..write('maximum: $maximum')
+          ..write('maximum: $maximum, ')
+          ..write('toppingsCategoryId: $toppingsCategoryId')
           ..write(')'))
         .toString();
   }
@@ -3740,6 +3788,14 @@ class $CartItemsTable extends CartItems
       requiredDuringInsert: true,
       defaultConstraints:
           GeneratedColumn.constraintIsAlways('REFERENCES items (id)'));
+  static const VerificationMeta _itemNameMeta =
+      const VerificationMeta('itemName');
+  @override
+  late final GeneratedColumn<String> itemName = GeneratedColumn<String>(
+      'item_name', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(''));
   static const VerificationMeta _itemVariantIdMeta =
       const VerificationMeta('itemVariantId');
   @override
@@ -3795,6 +3851,7 @@ class $CartItemsTable extends CartItems
         id,
         cartId,
         itemId,
+        itemName,
         itemVariantId,
         itemToppingId,
         quantity,
@@ -3827,6 +3884,10 @@ class $CartItemsTable extends CartItems
           itemId.isAcceptableOrUnknown(data['item_id']!, _itemIdMeta));
     } else if (isInserting) {
       context.missing(_itemIdMeta);
+    }
+    if (data.containsKey('item_name')) {
+      context.handle(_itemNameMeta,
+          itemName.isAcceptableOrUnknown(data['item_name']!, _itemNameMeta));
     }
     if (data.containsKey('item_variant_id')) {
       context.handle(
@@ -3879,6 +3940,8 @@ class $CartItemsTable extends CartItems
           .read(DriftSqlType.int, data['${effectivePrefix}cart_id'])!,
       itemId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}item_id'])!,
+      itemName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}item_name'])!,
       itemVariantId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}item_variant_id']),
       itemToppingId: attachedDatabase.typeMapping
@@ -3906,6 +3969,9 @@ class CartItem extends DataClass implements Insertable<CartItem> {
   final int id;
   final int cartId;
   final int itemId;
+
+  /// Snapshot of catalog name at time of sale (KOT, offline display; survives item rename).
+  final String itemName;
   final int? itemVariantId;
   final int? itemToppingId;
   final int quantity;
@@ -3917,6 +3983,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
       {required this.id,
       required this.cartId,
       required this.itemId,
+      required this.itemName,
       this.itemVariantId,
       this.itemToppingId,
       required this.quantity,
@@ -3930,6 +3997,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
     map['id'] = Variable<int>(id);
     map['cart_id'] = Variable<int>(cartId);
     map['item_id'] = Variable<int>(itemId);
+    map['item_name'] = Variable<String>(itemName);
     if (!nullToAbsent || itemVariantId != null) {
       map['item_variant_id'] = Variable<int>(itemVariantId);
     }
@@ -3953,6 +4021,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
       id: Value(id),
       cartId: Value(cartId),
       itemId: Value(itemId),
+      itemName: Value(itemName),
       itemVariantId: itemVariantId == null && nullToAbsent
           ? const Value.absent()
           : Value(itemVariantId),
@@ -3977,6 +4046,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
       id: serializer.fromJson<int>(json['id']),
       cartId: serializer.fromJson<int>(json['cartId']),
       itemId: serializer.fromJson<int>(json['itemId']),
+      itemName: serializer.fromJson<String>(json['itemName']),
       itemVariantId: serializer.fromJson<int?>(json['itemVariantId']),
       itemToppingId: serializer.fromJson<int?>(json['itemToppingId']),
       quantity: serializer.fromJson<int>(json['quantity']),
@@ -3993,6 +4063,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
       'id': serializer.toJson<int>(id),
       'cartId': serializer.toJson<int>(cartId),
       'itemId': serializer.toJson<int>(itemId),
+      'itemName': serializer.toJson<String>(itemName),
       'itemVariantId': serializer.toJson<int?>(itemVariantId),
       'itemToppingId': serializer.toJson<int?>(itemToppingId),
       'quantity': serializer.toJson<int>(quantity),
@@ -4007,6 +4078,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
           {int? id,
           int? cartId,
           int? itemId,
+          String? itemName,
           Value<int?> itemVariantId = const Value.absent(),
           Value<int?> itemToppingId = const Value.absent(),
           int? quantity,
@@ -4018,6 +4090,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
         id: id ?? this.id,
         cartId: cartId ?? this.cartId,
         itemId: itemId ?? this.itemId,
+        itemName: itemName ?? this.itemName,
         itemVariantId:
             itemVariantId.present ? itemVariantId.value : this.itemVariantId,
         itemToppingId:
@@ -4034,6 +4107,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
       id: data.id.present ? data.id.value : this.id,
       cartId: data.cartId.present ? data.cartId.value : this.cartId,
       itemId: data.itemId.present ? data.itemId.value : this.itemId,
+      itemName: data.itemName.present ? data.itemName.value : this.itemName,
       itemVariantId: data.itemVariantId.present
           ? data.itemVariantId.value
           : this.itemVariantId,
@@ -4056,6 +4130,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
           ..write('id: $id, ')
           ..write('cartId: $cartId, ')
           ..write('itemId: $itemId, ')
+          ..write('itemName: $itemName, ')
           ..write('itemVariantId: $itemVariantId, ')
           ..write('itemToppingId: $itemToppingId, ')
           ..write('quantity: $quantity, ')
@@ -4068,7 +4143,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
   }
 
   @override
-  int get hashCode => Object.hash(id, cartId, itemId, itemVariantId,
+  int get hashCode => Object.hash(id, cartId, itemId, itemName, itemVariantId,
       itemToppingId, quantity, total, discount, discountType, notes);
   @override
   bool operator ==(Object other) =>
@@ -4077,6 +4152,7 @@ class CartItem extends DataClass implements Insertable<CartItem> {
           other.id == this.id &&
           other.cartId == this.cartId &&
           other.itemId == this.itemId &&
+          other.itemName == this.itemName &&
           other.itemVariantId == this.itemVariantId &&
           other.itemToppingId == this.itemToppingId &&
           other.quantity == this.quantity &&
@@ -4090,6 +4166,7 @@ class CartItemsCompanion extends UpdateCompanion<CartItem> {
   final Value<int> id;
   final Value<int> cartId;
   final Value<int> itemId;
+  final Value<String> itemName;
   final Value<int?> itemVariantId;
   final Value<int?> itemToppingId;
   final Value<int> quantity;
@@ -4101,6 +4178,7 @@ class CartItemsCompanion extends UpdateCompanion<CartItem> {
     this.id = const Value.absent(),
     this.cartId = const Value.absent(),
     this.itemId = const Value.absent(),
+    this.itemName = const Value.absent(),
     this.itemVariantId = const Value.absent(),
     this.itemToppingId = const Value.absent(),
     this.quantity = const Value.absent(),
@@ -4113,6 +4191,7 @@ class CartItemsCompanion extends UpdateCompanion<CartItem> {
     this.id = const Value.absent(),
     required int cartId,
     required int itemId,
+    this.itemName = const Value.absent(),
     this.itemVariantId = const Value.absent(),
     this.itemToppingId = const Value.absent(),
     required int quantity,
@@ -4127,6 +4206,7 @@ class CartItemsCompanion extends UpdateCompanion<CartItem> {
     Expression<int>? id,
     Expression<int>? cartId,
     Expression<int>? itemId,
+    Expression<String>? itemName,
     Expression<int>? itemVariantId,
     Expression<int>? itemToppingId,
     Expression<int>? quantity,
@@ -4139,6 +4219,7 @@ class CartItemsCompanion extends UpdateCompanion<CartItem> {
       if (id != null) 'id': id,
       if (cartId != null) 'cart_id': cartId,
       if (itemId != null) 'item_id': itemId,
+      if (itemName != null) 'item_name': itemName,
       if (itemVariantId != null) 'item_variant_id': itemVariantId,
       if (itemToppingId != null) 'item_topping_id': itemToppingId,
       if (quantity != null) 'quantity': quantity,
@@ -4153,6 +4234,7 @@ class CartItemsCompanion extends UpdateCompanion<CartItem> {
       {Value<int>? id,
       Value<int>? cartId,
       Value<int>? itemId,
+      Value<String>? itemName,
       Value<int?>? itemVariantId,
       Value<int?>? itemToppingId,
       Value<int>? quantity,
@@ -4164,6 +4246,7 @@ class CartItemsCompanion extends UpdateCompanion<CartItem> {
       id: id ?? this.id,
       cartId: cartId ?? this.cartId,
       itemId: itemId ?? this.itemId,
+      itemName: itemName ?? this.itemName,
       itemVariantId: itemVariantId ?? this.itemVariantId,
       itemToppingId: itemToppingId ?? this.itemToppingId,
       quantity: quantity ?? this.quantity,
@@ -4185,6 +4268,9 @@ class CartItemsCompanion extends UpdateCompanion<CartItem> {
     }
     if (itemId.present) {
       map['item_id'] = Variable<int>(itemId.value);
+    }
+    if (itemName.present) {
+      map['item_name'] = Variable<String>(itemName.value);
     }
     if (itemVariantId.present) {
       map['item_variant_id'] = Variable<int>(itemVariantId.value);
@@ -4216,6 +4302,7 @@ class CartItemsCompanion extends UpdateCompanion<CartItem> {
           ..write('id: $id, ')
           ..write('cartId: $cartId, ')
           ..write('itemId: $itemId, ')
+          ..write('itemName: $itemName, ')
           ..write('itemVariantId: $itemVariantId, ')
           ..write('itemToppingId: $itemToppingId, ')
           ..write('quantity: $quantity, ')
@@ -4556,6 +4643,14 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
   late final GeneratedColumn<String> driverName = GeneratedColumn<String>(
       'driver_name', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<int> userId = GeneratedColumn<int>(
+      'user_id', aliasedName, true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES users (id)'));
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -4579,7 +4674,8 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
         orderType,
         deliveryPartner,
         driverId,
-        driverName
+        driverName,
+        userId
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4720,6 +4816,10 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           driverName.isAcceptableOrUnknown(
               data['driver_name']!, _driverNameMeta));
     }
+    if (data.containsKey('user_id')) {
+      context.handle(_userIdMeta,
+          userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta));
+    }
     return context;
   }
 
@@ -4773,6 +4873,8 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           .read(DriftSqlType.int, data['${effectivePrefix}driver_id']),
       driverName: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}driver_name']),
+      userId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}user_id']),
     );
   }
 
@@ -4807,6 +4909,9 @@ class Order extends DataClass implements Insertable<Order> {
   final String? deliveryPartner;
   final int? driverId;
   final String? driverName;
+
+  /// Cashier / staff who created the order (from session at save time).
+  final int? userId;
   const Order(
       {required this.id,
       required this.cartId,
@@ -4829,7 +4934,8 @@ class Order extends DataClass implements Insertable<Order> {
       this.orderType,
       this.deliveryPartner,
       this.driverId,
-      this.driverName});
+      this.driverName,
+      this.userId});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -4874,6 +4980,9 @@ class Order extends DataClass implements Insertable<Order> {
     }
     if (!nullToAbsent || driverName != null) {
       map['driver_name'] = Variable<String>(driverName);
+    }
+    if (!nullToAbsent || userId != null) {
+      map['user_id'] = Variable<int>(userId);
     }
     return map;
   }
@@ -4922,6 +5031,8 @@ class Order extends DataClass implements Insertable<Order> {
       driverName: driverName == null && nullToAbsent
           ? const Value.absent()
           : Value(driverName),
+      userId:
+          userId == null && nullToAbsent ? const Value.absent() : Value(userId),
     );
   }
 
@@ -4951,6 +5062,7 @@ class Order extends DataClass implements Insertable<Order> {
       deliveryPartner: serializer.fromJson<String?>(json['deliveryPartner']),
       driverId: serializer.fromJson<int?>(json['driverId']),
       driverName: serializer.fromJson<String?>(json['driverName']),
+      userId: serializer.fromJson<int?>(json['userId']),
     );
   }
   @override
@@ -4979,6 +5091,7 @@ class Order extends DataClass implements Insertable<Order> {
       'deliveryPartner': serializer.toJson<String?>(deliveryPartner),
       'driverId': serializer.toJson<int?>(driverId),
       'driverName': serializer.toJson<String?>(driverName),
+      'userId': serializer.toJson<int?>(userId),
     };
   }
 
@@ -5004,7 +5117,8 @@ class Order extends DataClass implements Insertable<Order> {
           Value<String?> orderType = const Value.absent(),
           Value<String?> deliveryPartner = const Value.absent(),
           Value<int?> driverId = const Value.absent(),
-          Value<String?> driverName = const Value.absent()}) =>
+          Value<String?> driverName = const Value.absent(),
+          Value<int?> userId = const Value.absent()}) =>
       Order(
         id: id ?? this.id,
         cartId: cartId ?? this.cartId,
@@ -5037,6 +5151,7 @@ class Order extends DataClass implements Insertable<Order> {
             : this.deliveryPartner,
         driverId: driverId.present ? driverId.value : this.driverId,
         driverName: driverName.present ? driverName.value : this.driverName,
+        userId: userId.present ? userId.value : this.userId,
       );
   Order copyWithCompanion(OrdersCompanion data) {
     return Order(
@@ -5089,6 +5204,7 @@ class Order extends DataClass implements Insertable<Order> {
       driverId: data.driverId.present ? data.driverId.value : this.driverId,
       driverName:
           data.driverName.present ? data.driverName.value : this.driverName,
+      userId: data.userId.present ? data.userId.value : this.userId,
     );
   }
 
@@ -5116,7 +5232,8 @@ class Order extends DataClass implements Insertable<Order> {
           ..write('orderType: $orderType, ')
           ..write('deliveryPartner: $deliveryPartner, ')
           ..write('driverId: $driverId, ')
-          ..write('driverName: $driverName')
+          ..write('driverName: $driverName, ')
+          ..write('userId: $userId')
           ..write(')'))
         .toString();
   }
@@ -5144,7 +5261,8 @@ class Order extends DataClass implements Insertable<Order> {
         orderType,
         deliveryPartner,
         driverId,
-        driverName
+        driverName,
+        userId
       ]);
   @override
   bool operator ==(Object other) =>
@@ -5171,7 +5289,8 @@ class Order extends DataClass implements Insertable<Order> {
           other.orderType == this.orderType &&
           other.deliveryPartner == this.deliveryPartner &&
           other.driverId == this.driverId &&
-          other.driverName == this.driverName);
+          other.driverName == this.driverName &&
+          other.userId == this.userId);
 }
 
 class OrdersCompanion extends UpdateCompanion<Order> {
@@ -5197,6 +5316,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
   final Value<String?> deliveryPartner;
   final Value<int?> driverId;
   final Value<String?> driverName;
+  final Value<int?> userId;
   const OrdersCompanion({
     this.id = const Value.absent(),
     this.cartId = const Value.absent(),
@@ -5220,6 +5340,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.deliveryPartner = const Value.absent(),
     this.driverId = const Value.absent(),
     this.driverName = const Value.absent(),
+    this.userId = const Value.absent(),
   });
   OrdersCompanion.insert({
     this.id = const Value.absent(),
@@ -5244,6 +5365,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.deliveryPartner = const Value.absent(),
     this.driverId = const Value.absent(),
     this.driverName = const Value.absent(),
+    this.userId = const Value.absent(),
   })  : cartId = Value(cartId),
         invoiceNumber = Value(invoiceNumber),
         totalAmount = Value(totalAmount),
@@ -5272,6 +5394,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     Expression<String>? deliveryPartner,
     Expression<int>? driverId,
     Expression<String>? driverName,
+    Expression<int>? userId,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -5296,6 +5419,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       if (deliveryPartner != null) 'delivery_partner': deliveryPartner,
       if (driverId != null) 'driver_id': driverId,
       if (driverName != null) 'driver_name': driverName,
+      if (userId != null) 'user_id': userId,
     });
   }
 
@@ -5321,7 +5445,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       Value<String?>? orderType,
       Value<String?>? deliveryPartner,
       Value<int?>? driverId,
-      Value<String?>? driverName}) {
+      Value<String?>? driverName,
+      Value<int?>? userId}) {
     return OrdersCompanion(
       id: id ?? this.id,
       cartId: cartId ?? this.cartId,
@@ -5345,6 +5470,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       deliveryPartner: deliveryPartner ?? this.deliveryPartner,
       driverId: driverId ?? this.driverId,
       driverName: driverName ?? this.driverName,
+      userId: userId ?? this.userId,
     );
   }
 
@@ -5417,6 +5543,9 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     if (driverName.present) {
       map['driver_name'] = Variable<String>(driverName.value);
     }
+    if (userId.present) {
+      map['user_id'] = Variable<int>(userId.value);
+    }
     return map;
   }
 
@@ -5444,7 +5573,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
           ..write('orderType: $orderType, ')
           ..write('deliveryPartner: $deliveryPartner, ')
           ..write('driverId: $driverId, ')
-          ..write('driverName: $driverName')
+          ..write('driverName: $driverName, ')
+          ..write('userId: $userId')
           ..write(')'))
         .toString();
   }
@@ -13096,6 +13226,25 @@ typedef $$UsersTableUpdateCompanionBuilder = UsersCompanion Function({
   Value<String?> role,
 });
 
+final class $$UsersTableReferences
+    extends BaseReferences<_$AppDatabase, $UsersTable, User> {
+  $$UsersTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$OrdersTable, List<Order>> _ordersRefsTable(
+          _$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(db.orders,
+          aliasName: $_aliasNameGenerator(db.users.id, db.orders.userId));
+
+  $$OrdersTableProcessedTableManager get ordersRefs {
+    final manager = $$OrdersTableTableManager($_db, $_db.orders)
+        .filter((f) => f.userId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_ordersRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
+
 class $$UsersTableFilterComposer extends Composer<_$AppDatabase, $UsersTable> {
   $$UsersTableFilterComposer({
     required super.$db,
@@ -13125,6 +13274,27 @@ class $$UsersTableFilterComposer extends Composer<_$AppDatabase, $UsersTable> {
 
   ColumnFilters<String> get role => $composableBuilder(
       column: $table.role, builder: (column) => ColumnFilters(column));
+
+  Expression<bool> ordersRefs(
+      Expression<bool> Function($$OrdersTableFilterComposer f) f) {
+    final $$OrdersTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.orders,
+        getReferencedColumn: (t) => t.userId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$OrdersTableFilterComposer(
+              $db: $db,
+              $table: $db.orders,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$UsersTableOrderingComposer
@@ -13188,6 +13358,27 @@ class $$UsersTableAnnotationComposer
 
   GeneratedColumn<String> get role =>
       $composableBuilder(column: $table.role, builder: (column) => column);
+
+  Expression<T> ordersRefs<T extends Object>(
+      Expression<T> Function($$OrdersTableAnnotationComposer a) f) {
+    final $$OrdersTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.orders,
+        getReferencedColumn: (t) => t.userId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$OrdersTableAnnotationComposer(
+              $db: $db,
+              $table: $db.orders,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$UsersTableTableManager extends RootTableManager<
@@ -13199,9 +13390,9 @@ class $$UsersTableTableManager extends RootTableManager<
     $$UsersTableAnnotationComposer,
     $$UsersTableCreateCompanionBuilder,
     $$UsersTableUpdateCompanionBuilder,
-    (User, BaseReferences<_$AppDatabase, $UsersTable, User>),
+    (User, $$UsersTableReferences),
     User,
-    PrefetchHooks Function()> {
+    PrefetchHooks Function({bool ordersRefs})> {
   $$UsersTableTableManager(_$AppDatabase db, $UsersTable table)
       : super(TableManagerState(
           db: db,
@@ -13249,9 +13440,31 @@ class $$UsersTableTableManager extends RootTableManager<
             role: role,
           ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map((e) =>
+                  (e.readTable(table), $$UsersTableReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: null,
+          prefetchHooksCallback: ({ordersRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (ordersRefs) db.orders],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (ordersRefs)
+                    await $_getPrefetchedData<User, $UsersTable, Order>(
+                        currentTable: table,
+                        referencedTable:
+                            $$UsersTableReferences._ordersRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$UsersTableReferences(db, table, p0).ordersRefs,
+                        referencedItemsForCurrentItem: (item,
+                                referencedItems) =>
+                            referencedItems.where((e) => e.userId == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
         ));
 }
 
@@ -13264,9 +13477,9 @@ typedef $$UsersTableProcessedTableManager = ProcessedTableManager<
     $$UsersTableAnnotationComposer,
     $$UsersTableCreateCompanionBuilder,
     $$UsersTableUpdateCompanionBuilder,
-    (User, BaseReferences<_$AppDatabase, $UsersTable, User>),
+    (User, $$UsersTableReferences),
     User,
-    PrefetchHooks Function()>;
+    PrefetchHooks Function({bool ordersRefs})>;
 typedef $$CategoriesTableCreateCompanionBuilder = CategoriesCompanion Function({
   Value<int> id,
   required String name,
@@ -14472,6 +14685,7 @@ typedef $$ItemToppingsTableCreateCompanionBuilder = ItemToppingsCompanion
   required double price,
   Value<int> maxQty,
   Value<int?> maximum,
+  Value<int?> toppingsCategoryId,
 });
 typedef $$ItemToppingsTableUpdateCompanionBuilder = ItemToppingsCompanion
     Function({
@@ -14481,6 +14695,7 @@ typedef $$ItemToppingsTableUpdateCompanionBuilder = ItemToppingsCompanion
   Value<double> price,
   Value<int> maxQty,
   Value<int?> maximum,
+  Value<int?> toppingsCategoryId,
 });
 
 final class $$ItemToppingsTableReferences
@@ -14530,6 +14745,10 @@ class $$ItemToppingsTableFilterComposer
   ColumnFilters<int> get maximum => $composableBuilder(
       column: $table.maximum, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<int> get toppingsCategoryId => $composableBuilder(
+      column: $table.toppingsCategoryId,
+      builder: (column) => ColumnFilters(column));
+
   Expression<bool> cartItemsRefs(
       Expression<bool> Function($$CartItemsTableFilterComposer f) f) {
     final $$CartItemsTableFilterComposer composer = $composerBuilder(
@@ -14578,6 +14797,10 @@ class $$ItemToppingsTableOrderingComposer
 
   ColumnOrderings<int> get maximum => $composableBuilder(
       column: $table.maximum, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get toppingsCategoryId => $composableBuilder(
+      column: $table.toppingsCategoryId,
+      builder: (column) => ColumnOrderings(column));
 }
 
 class $$ItemToppingsTableAnnotationComposer
@@ -14606,6 +14829,9 @@ class $$ItemToppingsTableAnnotationComposer
 
   GeneratedColumn<int> get maximum =>
       $composableBuilder(column: $table.maximum, builder: (column) => column);
+
+  GeneratedColumn<int> get toppingsCategoryId => $composableBuilder(
+      column: $table.toppingsCategoryId, builder: (column) => column);
 
   Expression<T> cartItemsRefs<T extends Object>(
       Expression<T> Function($$CartItemsTableAnnotationComposer a) f) {
@@ -14658,6 +14884,7 @@ class $$ItemToppingsTableTableManager extends RootTableManager<
             Value<double> price = const Value.absent(),
             Value<int> maxQty = const Value.absent(),
             Value<int?> maximum = const Value.absent(),
+            Value<int?> toppingsCategoryId = const Value.absent(),
           }) =>
               ItemToppingsCompanion(
             id: id,
@@ -14666,6 +14893,7 @@ class $$ItemToppingsTableTableManager extends RootTableManager<
             price: price,
             maxQty: maxQty,
             maximum: maximum,
+            toppingsCategoryId: toppingsCategoryId,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -14674,6 +14902,7 @@ class $$ItemToppingsTableTableManager extends RootTableManager<
             required double price,
             Value<int> maxQty = const Value.absent(),
             Value<int?> maximum = const Value.absent(),
+            Value<int?> toppingsCategoryId = const Value.absent(),
           }) =>
               ItemToppingsCompanion.insert(
             id: id,
@@ -14682,6 +14911,7 @@ class $$ItemToppingsTableTableManager extends RootTableManager<
             price: price,
             maxQty: maxQty,
             maximum: maximum,
+            toppingsCategoryId: toppingsCategoryId,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) => (
@@ -15373,6 +15603,7 @@ typedef $$CartItemsTableCreateCompanionBuilder = CartItemsCompanion Function({
   Value<int> id,
   required int cartId,
   required int itemId,
+  Value<String> itemName,
   Value<int?> itemVariantId,
   Value<int?> itemToppingId,
   required int quantity,
@@ -15385,6 +15616,7 @@ typedef $$CartItemsTableUpdateCompanionBuilder = CartItemsCompanion Function({
   Value<int> id,
   Value<int> cartId,
   Value<int> itemId,
+  Value<String> itemName,
   Value<int?> itemVariantId,
   Value<int?> itemToppingId,
   Value<int> quantity,
@@ -15468,6 +15700,9 @@ class $$CartItemsTableFilterComposer
   });
   ColumnFilters<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get itemName => $composableBuilder(
+      column: $table.itemName, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get quantity => $composableBuilder(
       column: $table.quantity, builder: (column) => ColumnFilters(column));
@@ -15577,6 +15812,9 @@ class $$CartItemsTableOrderingComposer
   ColumnOrderings<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get itemName => $composableBuilder(
+      column: $table.itemName, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get quantity => $composableBuilder(
       column: $table.quantity, builder: (column) => ColumnOrderings(column));
 
@@ -15685,6 +15923,9 @@ class $$CartItemsTableAnnotationComposer
   });
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get itemName =>
+      $composableBuilder(column: $table.itemName, builder: (column) => column);
 
   GeneratedColumn<int> get quantity =>
       $composableBuilder(column: $table.quantity, builder: (column) => column);
@@ -15809,6 +16050,7 @@ class $$CartItemsTableTableManager extends RootTableManager<
             Value<int> id = const Value.absent(),
             Value<int> cartId = const Value.absent(),
             Value<int> itemId = const Value.absent(),
+            Value<String> itemName = const Value.absent(),
             Value<int?> itemVariantId = const Value.absent(),
             Value<int?> itemToppingId = const Value.absent(),
             Value<int> quantity = const Value.absent(),
@@ -15821,6 +16063,7 @@ class $$CartItemsTableTableManager extends RootTableManager<
             id: id,
             cartId: cartId,
             itemId: itemId,
+            itemName: itemName,
             itemVariantId: itemVariantId,
             itemToppingId: itemToppingId,
             quantity: quantity,
@@ -15833,6 +16076,7 @@ class $$CartItemsTableTableManager extends RootTableManager<
             Value<int> id = const Value.absent(),
             required int cartId,
             required int itemId,
+            Value<String> itemName = const Value.absent(),
             Value<int?> itemVariantId = const Value.absent(),
             Value<int?> itemToppingId = const Value.absent(),
             required int quantity,
@@ -15845,6 +16089,7 @@ class $$CartItemsTableTableManager extends RootTableManager<
             id: id,
             cartId: cartId,
             itemId: itemId,
+            itemName: itemName,
             itemVariantId: itemVariantId,
             itemToppingId: itemToppingId,
             quantity: quantity,
@@ -16164,6 +16409,7 @@ typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
   Value<String?> deliveryPartner,
   Value<int?> driverId,
   Value<String?> driverName,
+  Value<int?> userId,
 });
 typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<int> id,
@@ -16188,6 +16434,7 @@ typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<String?> deliveryPartner,
   Value<int?> driverId,
   Value<String?> driverName,
+  Value<int?> userId,
 });
 
 final class $$OrdersTableReferences
@@ -16217,6 +16464,20 @@ final class $$OrdersTableReferences
     final manager = $$DriversTableTableManager($_db, $_db.drivers)
         .filter((f) => f.id.sqlEquals($_column));
     final item = $_typedResult.readTableOrNull(_driverIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+
+  static $UsersTable _userIdTable(_$AppDatabase db) =>
+      db.users.createAlias($_aliasNameGenerator(db.orders.userId, db.users.id));
+
+  $$UsersTableProcessedTableManager? get userId {
+    final $_column = $_itemColumn<int>('user_id');
+    if ($_column == null) return null;
+    final manager = $$UsersTableTableManager($_db, $_db.users)
+        .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_userIdTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: [item]));
@@ -16328,6 +16589,26 @@ class $$OrdersTableFilterComposer
             $$DriversTableFilterComposer(
               $db: $db,
               $table: $db.drivers,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+
+  $$UsersTableFilterComposer get userId {
+    final $$UsersTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.userId,
+        referencedTable: $db.users,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$UsersTableFilterComposer(
+              $db: $db,
+              $table: $db.users,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -16456,6 +16737,26 @@ class $$OrdersTableOrderingComposer
             ));
     return composer;
   }
+
+  $$UsersTableOrderingComposer get userId {
+    final $$UsersTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.userId,
+        referencedTable: $db.users,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$UsersTableOrderingComposer(
+              $db: $db,
+              $table: $db.users,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
 }
 
 class $$OrdersTableAnnotationComposer
@@ -16566,6 +16867,26 @@ class $$OrdersTableAnnotationComposer
             ));
     return composer;
   }
+
+  $$UsersTableAnnotationComposer get userId {
+    final $$UsersTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.userId,
+        referencedTable: $db.users,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$UsersTableAnnotationComposer(
+              $db: $db,
+              $table: $db.users,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
 }
 
 class $$OrdersTableTableManager extends RootTableManager<
@@ -16579,7 +16900,7 @@ class $$OrdersTableTableManager extends RootTableManager<
     $$OrdersTableUpdateCompanionBuilder,
     (Order, $$OrdersTableReferences),
     Order,
-    PrefetchHooks Function({bool cartId, bool driverId})> {
+    PrefetchHooks Function({bool cartId, bool driverId, bool userId})> {
   $$OrdersTableTableManager(_$AppDatabase db, $OrdersTable table)
       : super(TableManagerState(
           db: db,
@@ -16613,6 +16934,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<String?> deliveryPartner = const Value.absent(),
             Value<int?> driverId = const Value.absent(),
             Value<String?> driverName = const Value.absent(),
+            Value<int?> userId = const Value.absent(),
           }) =>
               OrdersCompanion(
             id: id,
@@ -16637,6 +16959,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             deliveryPartner: deliveryPartner,
             driverId: driverId,
             driverName: driverName,
+            userId: userId,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -16661,6 +16984,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<String?> deliveryPartner = const Value.absent(),
             Value<int?> driverId = const Value.absent(),
             Value<String?> driverName = const Value.absent(),
+            Value<int?> userId = const Value.absent(),
           }) =>
               OrdersCompanion.insert(
             id: id,
@@ -16685,12 +17009,14 @@ class $$OrdersTableTableManager extends RootTableManager<
             deliveryPartner: deliveryPartner,
             driverId: driverId,
             driverName: driverName,
+            userId: userId,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>
                   (e.readTable(table), $$OrdersTableReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: ({cartId = false, driverId = false}) {
+          prefetchHooksCallback: (
+              {cartId = false, driverId = false, userId = false}) {
             return PrefetchHooks(
               db: db,
               explicitlyWatchedTables: [],
@@ -16725,6 +17051,15 @@ class $$OrdersTableTableManager extends RootTableManager<
                         $$OrdersTableReferences._driverIdTable(db).id,
                   ) as T;
                 }
+                if (userId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.userId,
+                    referencedTable: $$OrdersTableReferences._userIdTable(db),
+                    referencedColumn:
+                        $$OrdersTableReferences._userIdTable(db).id,
+                  ) as T;
+                }
 
                 return state;
               },
@@ -16747,7 +17082,7 @@ typedef $$OrdersTableProcessedTableManager = ProcessedTableManager<
     $$OrdersTableUpdateCompanionBuilder,
     (Order, $$OrdersTableReferences),
     Order,
-    PrefetchHooks Function({bool cartId, bool driverId})>;
+    PrefetchHooks Function({bool cartId, bool driverId, bool userId})>;
 typedef $$OrderLogsTableCreateCompanionBuilder = OrderLogsCompanion Function({
   Value<int> id,
   required String orderJson,
@@ -20469,6 +20804,7 @@ mixin _$SessionDaoMixin on DatabaseAccessor<AppDatabase> {
 mixin _$OrdersDaoMixin on DatabaseAccessor<AppDatabase> {
   $CartsTable get carts => attachedDatabase.carts;
   $DriversTable get drivers => attachedDatabase.drivers;
+  $UsersTable get users => attachedDatabase.users;
   $OrdersTable get orders => attachedDatabase.orders;
   $OrderLogsTable get orderLogs => attachedDatabase.orderLogs;
   $ItemsTable get items => attachedDatabase.items;

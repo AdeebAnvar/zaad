@@ -118,10 +118,6 @@ class UsersDao extends DatabaseAccessor<AppDatabase> with _$UsersDaoMixin {
       usertype: user.usertype,
       mobilePassword: user.mobilePassword,
       permissions: List<String>.from(jsonDecode(user.permissions)),
-      type: UserType.values.firstWhere(
-        (e) => e.name == user.role,
-        orElse: () => UserType.counter,
-      ),
     );
   }
 }

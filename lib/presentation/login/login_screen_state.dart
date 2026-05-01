@@ -11,7 +11,15 @@ class LoginError extends LoginState {
 
 class LoginSuccess extends LoginState {
   final UserModel user;
-  LoginSuccess(this.user);
+  final int? expiryDaysLeft;
+  final String? expiryWarning;
+  final bool showExpiryPopup;
+  LoginSuccess(
+    this.user, {
+    this.expiryDaysLeft,
+    this.expiryWarning,
+    this.showExpiryPopup = false,
+  });
 }
 
 class LoginServerConnected extends LoginState {}

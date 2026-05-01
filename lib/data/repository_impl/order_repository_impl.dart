@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:pos/core/services/backup_service.dart';
+import 'package:pos/core/sync/outbound_push_coordinator.dart';
 import 'package:pos/core/utils/sales_csv_backup.dart';
 import 'package:pos/core/utils/invoice_number_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -39,6 +40,7 @@ class OrderRepositoryImpl implements OrderRepository {
           deliveryPartner: Value(order.deliveryPartner),
           driverId: Value(order.driverId),
           driverName: Value(order.driverName),
+          userId: Value(order.userId),
         ),
       );
       final cartItems = await db.cartsDao.getItemsByCart(order.cartId);
@@ -47,6 +49,7 @@ class OrderRepositoryImpl implements OrderRepository {
     });
     await SalesCsvBackup.refreshFromDatabase(db);
     await BackupService.instance.recordOrderMutation(db);
+    scheduleOutboundPushAfterLocalOrder();
     return id;
   }
 
@@ -110,6 +113,7 @@ class OrderRepositoryImpl implements OrderRepository {
         deliveryPartner: Value(order.deliveryPartner),
         driverId: Value(order.driverId),
         driverName: Value(order.driverName),
+        userId: Value(order.userId),
       ),
     );
     await SalesCsvBackup.refreshFromDatabase(db);
@@ -127,6 +131,7 @@ class OrderRepositoryImpl implements OrderRepository {
     DateTime? startDate,
     DateTime? endDate,
     int? driverId,
+    int? userId,
   }) {
     return db.ordersDao.filterOrders(
       invoiceNumber: invoiceNumber,
@@ -138,6 +143,7 @@ class OrderRepositoryImpl implements OrderRepository {
       startDate: startDate,
       endDate: endDate,
       driverId: driverId,
+      userId: userId,
     );
   }
 
@@ -156,7 +162,10 @@ class OrderRepositoryImpl implements OrderRepository {
 
   @override
   Future<String> getNextInvoiceNumber(String orderType) async {
-    final prefix = invoicePrefixForOrderType(orderType);
+    final session = await db.sessionDao.getActiveSession();
+    final branch = session == null ? null : await db.branchesDao.getBranchById(session.branchId);
+    final branchPrefix = branch?.prefixInv.trim();
+    final prefix = (branchPrefix != null && branchPrefix.isNotEmpty) ? branchPrefix : invoicePrefixForOrderType(orderType);
     final oMax = await db.ordersDao.maxInvoiceNumericSuffixForPrefix(prefix);
     final cMax = await db.cartsDao.maxInvoiceNumericSuffixForPrefix(prefix);
     final next = (oMax > cMax ? oMax : cMax) + 1;
@@ -190,6 +199,7 @@ class OrderRepositoryImpl implements OrderRepository {
       'delivery_partner': order.deliveryPartner,
       'driver_id': order.driverId,
       'driver_name': order.driverName,
+      'user_id': order.userId,
       'created_at': order.createdAt.toIso8601String(),
       'items': cartItems
           .map(
@@ -197,6 +207,7 @@ class OrderRepositoryImpl implements OrderRepository {
               'id': item.id,
               'cart_id': item.cartId,
               'item_id': item.itemId,
+              'item_name': item.itemName,
               'item_variant_id': item.itemVariantId,
               'item_topping_id': item.itemToppingId,
               'quantity': item.quantity,

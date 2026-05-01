@@ -36,6 +36,7 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
     String? paymentMethod,
     DateTime? startDate,
     DateTime? endDate,
+    int? userId,
   }) async {
     emit(RecentSalesLoading());
     try {
@@ -49,6 +50,7 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
         orderType: dbOrderType,
         startDate: startDate,
         endDate: endDate,
+        userId: userId,
       );
 
       // Recent Sales default: completed only. If user picks a status, respect it (except hide kot noise).

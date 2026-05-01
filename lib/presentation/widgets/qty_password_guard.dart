@@ -114,3 +114,134 @@ Future<bool> requireQtyPassword(
   return allowed;
 }
 
+/// Requires qty password and a non-empty reason in one dialog.
+/// Returns reason text when successful, otherwise null.
+Future<String?> requireQtyPasswordWithReason(
+  BuildContext context, {
+  String actionLabel = 'continue',
+  String reasonLabel = 'Reason',
+}) async {
+  final expected = RuntimeAppSettings.qtyReducePassword;
+  if (expected.isEmpty) return null;
+
+  final passController = TextEditingController();
+  final reasonController = TextEditingController();
+  String? result;
+
+  await showGeneralDialog<void>(
+    context: context,
+    barrierLabel: 'Qty Password',
+    barrierDismissible: true,
+    barrierColor: Colors.black.withValues(alpha: 0.35),
+    transitionDuration: const Duration(milliseconds: 220),
+    pageBuilder: (_, __, ___) {
+      String? errorText;
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          void submit() {
+            final ok = passController.text.trim() == expected;
+            final reason = reasonController.text.trim();
+            if (!ok) {
+              CustomSnackBar.showError(message: 'Invalid qty password');
+              return;
+            }
+            if (reason.isEmpty) {
+              setDialogState(() {
+                errorText = 'Reason is required.';
+              });
+              return;
+            }
+            result = reason;
+            Navigator.of(context).pop();
+          }
+
+          return Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 420,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_outline, color: AppColors.primaryColor, size: 32),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Enter qty password',
+                      style: AppStyles.getBoldTextStyle(fontSize: 18),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Password is required to $actionLabel.',
+                      style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.grey.shade700),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    CustomTextField(
+                      controller: passController,
+                      labelText: 'Password',
+                      obscureText: true,
+                      onSubmitted: (_) => submit(),
+                    ),
+                    const SizedBox(height: 12),
+                    CustomTextField(
+                      controller: reasonController,
+                      labelText: reasonLabel,
+                      maxLines: 2,
+                      onSubmitted: (_) => submit(),
+                    ),
+                    if (errorText != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        errorText!,
+                        style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red.shade700),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: CustomButton(
+                            text: actionLabel,
+                            onPressed: submit,
+                          ),
+                        ),
+                      ],
+                    )
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+    transitionBuilder: (_, animation, __, child) {
+      return FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(
+          scale: Tween(begin: 0.92, end: 1.0).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          ),
+          child: child,
+        ),
+      );
+    },
+  );
+
+  passController.dispose();
+  reasonController.dispose();
+  return result;
+}
+

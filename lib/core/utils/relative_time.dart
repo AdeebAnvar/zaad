@@ -11,15 +11,15 @@ String formatRelativeTimeAgo(DateTime at, {DateTime? clock}) {
   if (diff.inSeconds < 5) return 'Just now';
   if (diff.inSeconds < 60) {
     final s = diff.inSeconds;
-    return '$s ${s == 1 ? 'second' : 'seconds'} ago';
+    return '$s ${s == 1 ? 's' : 's'} ago';
   }
   if (diff.inMinutes < 60) {
     final m = diff.inMinutes;
-    return '$m ${m == 1 ? 'min' : 'mins'} ago';
+    return '$m ${m == 1 ? 'm' : 'm'} ago';
   }
   if (diff.inHours < 24) {
     final h = diff.inHours;
-    return '$h ${h == 1 ? 'hour' : 'hours'} ago';
+    return '$h ${h == 1 ? 'hr' : 'hr'} ago';
   }
   if (diff.inDays < 7) {
     final d = diff.inDays;

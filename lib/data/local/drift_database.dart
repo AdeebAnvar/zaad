@@ -3,13 +3,11 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
-import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/core/utils/image_utils.dart';
 import 'package:pos/domain/models/branch_model.dart';
 import 'package:pos/domain/models/settings_model.dart';
 import 'package:pos/domain/models/user_model.dart';
-import 'package:sqlite3/sqlite3.dart' show SqliteException;
 import 'package:path/path.dart' as p;
 
 part 'drift_database.g.dart';
@@ -78,7 +76,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
 
   @override
-  int get schemaVersion => 25;
+  int get schemaVersion => 31;
 
   @override
   MigrationStrategy get migration {
@@ -215,6 +213,15 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 24) {
           await m.createTable(orderLogs);
+        }
+        if (from < 26) {
+          await safeAddColumn(cartItems, cartItems.itemName);
+        }
+        if (from < 27) {
+          await safeAddColumn(itemToppings, itemToppings.toppingsCategoryId);
+        }
+        if (from < 30) {
+          await safeAddColumn(orders, orders.userId);
         }
       },
       // Legacy rows (or partial inserts) can leave NULL in NOT NULL columns; Drift’s

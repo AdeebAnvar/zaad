@@ -20,7 +20,7 @@ class MobileItemsList extends StatelessWidget {
             itemCount: state.items.length,
             itemBuilder: (_, i) {
               final item = state.items[i];
-              return ItemCard(item: item);
+              return ItemCard(key: ValueKey<int>(item.id), item: item);
             },
           );
         } else {

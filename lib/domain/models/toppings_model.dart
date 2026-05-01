@@ -1,5 +1,18 @@
 import 'package:pos/domain/models/pagination_model.dart';
 
+/// Handles int fields that may be encoded as int, num, or string in API JSON.
+int? _parseIntLoose(dynamic value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.round();
+  if (value is String) {
+    final t = value.trim();
+    if (t.isEmpty) return null;
+    return int.tryParse(t) ?? num.tryParse(t)?.round();
+  }
+  return null;
+}
+
 class ToppingModel {
   final List<ToppingCategoriesCreatedUpdated> createdUpdated;
   final List<dynamic> deleted;
@@ -23,9 +36,17 @@ class ToppingModel {
       );
 
   factory ToppingModel.fromJson(Map<String, dynamic> json) => ToppingModel(
-        createdUpdated: List<ToppingCategoriesCreatedUpdated>.from(json["created_updated"].map((x) => ToppingCategoriesCreatedUpdated.fromJson(x))),
-        deleted: List<dynamic>.from(json["deleted"].map((x) => x)),
-        pagination: PaginationModel.fromJson(json["pagination"]),
+        createdUpdated: List<ToppingCategoriesCreatedUpdated>.from(
+          (json["created_updated"] as List? ?? const <dynamic>[]).map(
+            (x) => ToppingCategoriesCreatedUpdated.fromJson(
+              Map<String, dynamic>.from(x as Map),
+            ),
+          ),
+        ),
+        deleted: List<dynamic>.from(
+          (json["deleted"] as List? ?? const <dynamic>[]).map((x) => x),
+        ),
+        pagination: PaginationModel.fromJson(json["pagination"] as Map<String, dynamic>),
       );
 
   Map<String, dynamic> toJson() => {
@@ -102,20 +123,26 @@ class ToppingCategoriesCreatedUpdated {
       );
 
   factory ToppingCategoriesCreatedUpdated.fromJson(Map<String, dynamic> json) => ToppingCategoriesCreatedUpdated(
-        id: json["id"],
-        uuid: json["uuid"],
-        slug: json["slug"],
-        branchId: json["branch_id"],
-        name: json["name"],
-        minSelect: json["min_select"],
-        maxSelect: json["max_select"],
-        status: json["status"],
-        createdAt: DateTime.parse(json["created_at"]),
-        updatedAt: DateTime.parse(json["updated_at"]),
+        id: _parseIntLoose(json["id"]) ?? 0,
+        uuid: (json["uuid"] ?? '').toString(),
+        slug: (json["slug"] ?? '').toString(),
+        branchId: _parseIntLoose(json["branch_id"]) ?? 0,
+        name: (json["name"] ?? '').toString(),
+        // Category rows use min_select / max_select; individual toppings do not.
+        minSelect: _parseIntLoose(json["min_select"] ?? json["minSelect"]),
+        maxSelect: _parseIntLoose(json["max_select"] ?? json["maxSelect"]),
+        status: _parseIntLoose(json["status"]) ?? 0,
+        createdAt: DateTime.parse(json["created_at"].toString()),
+        updatedAt: DateTime.parse(json["updated_at"].toString()),
         deletedAt: json["deleted_at"],
-        toppingsCategoryId: json["toppings_category_id"],
-        price: json["price"],
-        toppingType: json["topping_type"],
+        toppingsCategoryId: _parseIntLoose(
+          json["toppings_category_id"] ??
+              json["toppingsCategoryId"] ??
+              json["topping_category_id"] ??
+              json["toppingCategoryId"],
+        ),
+        price: json["price"]?.toString(),
+        toppingType: _parseIntLoose(json["topping_type"] ?? json["toppingType"]),
       );
 
   Map<String, dynamic> toJson() => {

@@ -32,12 +32,12 @@ class AppDialogLayout {
   static double maxContentHeight(BuildContext context) =>
       MediaQuery.sizeOf(context).height * 0.88;
 
-  /// Wider dialogs (order line items, reports).
+  /// Detail dialogs (e.g. order line items)—kept intentionally narrow so they stay scannable.
   static double maxDetailContentWidth(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
     final padded = w - 24;
-    if (w > 1000) return math.min(760.0, padded);
-    if (w > 700) return math.min(640.0, padded);
+    if (w > 1000) return math.min(480.0, padded);
+    if (w > 700) return math.min(440.0, padded);
     return math.max(280.0, w * 0.96);
   }
 }

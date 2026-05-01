@@ -31,6 +31,7 @@ class ZaadPOSApp extends StatelessWidget {
         );
       },
       theme: ThemeData(
+        fontFamily: 'Poppins',
         primaryColor: AppColors.primaryColor,
         scaffoldBackgroundColor: AppColors.scaffoldColor,
         textTheme: TextTheme(

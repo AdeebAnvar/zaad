@@ -28,16 +28,15 @@ class _RelativeTimeTextState extends State<RelativeTimeText> {
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
-    });
+    _startTicker();
   }
 
   @override
   void didUpdateWidget(RelativeTimeText oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.at != widget.at) {
-      setState(() {});
+      _startTicker();
+      if (mounted) setState(() {});
     }
   }
 
@@ -45,6 +44,21 @@ class _RelativeTimeTextState extends State<RelativeTimeText> {
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  Duration _refreshInterval() {
+    final age = DateTime.now().difference(widget.at);
+    if (age.inHours < 1) return const Duration(seconds: 1);
+    return const Duration(minutes: 1);
+  }
+
+  void _startTicker() {
+    _timer?.cancel();
+    final interval = _refreshInterval();
+    _timer = Timer.periodic(interval, (_) {
+      if (!mounted) return;
+      setState(() {});
+    });
   }
 
   @override

@@ -37,6 +37,7 @@ class CartRepositoryImpl implements CartRepository {
       CartItemsCompanion.insert(
         cartId: cartId,
         itemId: item.itemId,
+        itemName: Value(item.itemName),
         itemVariantId: Value(item.itemVariantId),
         itemToppingId: Value(item.itemToppingId),
         quantity: item.quantity,
@@ -55,6 +56,7 @@ class CartRepositoryImpl implements CartRepository {
         id: Value(item.id),
         cartId: Value(item.cartId),
         itemId: Value(item.itemId),
+        itemName: Value(item.itemName),
         itemVariantId: Value(item.itemVariantId),
         itemToppingId: Value(item.itemToppingId),
         quantity: Value(item.quantity),

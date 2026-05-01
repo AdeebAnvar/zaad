@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:pos/app/di.dart';
 import 'package:pos/app/navigation.dart';
 import 'package:pos/app/routes.dart';
 import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/data/local/drift_database.dart';
 import '../../core/constants/colors.dart';
 
 class CustomAppBar extends StatefulWidget implements PreferredSizeWidget {
@@ -26,17 +28,39 @@ class CustomAppBar extends StatefulWidget implements PreferredSizeWidget {
 
 class _CustomAppBarState extends State<CustomAppBar> {
   DateTime? _lastSyncAt;
+  int? _expiryDaysLeft;
 
   @override
   void initState() {
     super.initState();
-    _loadLastSync();
+    _loadMeta();
   }
 
-  Future<void> _loadLastSync() async {
+  int _daysUntil(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+    return target.difference(today).inDays;
+  }
+
+  Future<void> _loadMeta() async {
     final value = await AppSettingsPrefs.getLastManualSyncAt();
+    int? daysLeft;
+    try {
+      final db = locator<AppDatabase>();
+      final session = await db.sessionDao.getActiveSession();
+      if (session != null) {
+        final branch = await db.branchesDao.getBranchById(session.branchId);
+        if (branch != null) {
+          daysLeft = _daysUntil(branch.expiryDate.toLocal());
+        }
+      }
+    } catch (_) {}
     if (!mounted) return;
-    setState(() => _lastSyncAt = value);
+    setState(() {
+      _lastSyncAt = value;
+      _expiryDaysLeft = daysLeft;
+    });
   }
 
   Future<void> _runManualSync() async {
@@ -44,12 +68,40 @@ class _CustomAppBarState extends State<CustomAppBar> {
       Routes.autoSyncScreen,
       args: {'manual': true},
     );
-    await _loadLastSync();
+    await _loadMeta();
   }
 
   String _lastSyncLabel() {
     if (_lastSyncAt == null) return 'Not synced';
     return RuntimeAppSettings.formatDateTime(_lastSyncAt!.toLocal());
+  }
+
+  Widget? _buildExpiryBadge() {
+    final days = _expiryDaysLeft;
+    if (days == null || days < 0 || days > 10) return null;
+    final isCritical = days <= 5;
+    final bg = isCritical ? const Color(0xFFFFEBEE) : const Color(0xFFFFF8E1);
+    final border = isCritical ? const Color(0xFFE53935) : const Color(0xFFF9A825);
+    final text = days == 0 ? 'Expires today' : 'Expires in $days day${days == 1 ? '' : 's'}';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border.all(color: border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 14, color: border),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: AppStyles.getMediumTextStyle(fontSize: 11, color: border),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -61,6 +113,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
     final iconPad = compact ? 5.0 : 6.0;
     final iconSize = compact ? 20.0 : 22.0;
     final leftWidth = widget.onBack != null ? (compact ? 136.0 : 168.0) : (compact ? 84.0 : 95.0);
+    final expiryBadge = _buildExpiryBadge();
 
     return AppBar(
       backgroundColor: Colors.white,
@@ -103,11 +156,16 @@ class _CustomAppBarState extends State<CustomAppBar> {
       ),
       title: Text(
         widget.title,
+        // '${MediaQuery.sizeOf(context).width}',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: AppStyles.getSemiBoldTextStyle(fontSize: compact ? 16 : 18),
       ),
       actions: [
+        if (expiryBadge != null) ...[
+          expiryBadge,
+          const SizedBox(width: 8),
+        ],
         if (showSyncText) ...[
           Text(
             _lastSyncLabel(),
@@ -118,6 +176,12 @@ class _CustomAppBarState extends State<CustomAppBar> {
           ),
           const SizedBox(width: 6),
         ],
+        const SizedBox(width: 6),
+        Text(
+          'Sync',
+          style: AppStyles.getSemiBoldTextStyle(fontSize: 13),
+        ),
+        const SizedBox(width: 6),
         IconButton(
           tooltip: 'Sync now',
           onPressed: _runManualSync,

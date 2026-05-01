@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:pos/core/constants/colors.dart';
-import 'package:pos/core/constants/styles.dart';
 import 'package:pos/presentation/settings/kitchen_settings_dialog.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 

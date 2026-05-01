@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/branch_model.dart';
 import 'package:pos/domain/models/user_model.dart';
@@ -53,6 +54,7 @@ class _CustomScaffoldState extends State<CustomScaffold> {
         final loadedUser = await locator<AppDatabase>().usersDao.findUserById(session.userId);
 
         if (mounted) {
+          locator<CurrentCounterSession>().setUser(loadedUser);
           setState(() {
             branchModel = loadedBranch;
             user = loadedUser;
@@ -60,12 +62,14 @@ class _CustomScaffoldState extends State<CustomScaffold> {
           });
         }
       } else if (mounted) {
+        locator<CurrentCounterSession>().clear();
         setState(() {
           _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
+        locator<CurrentCounterSession>().clear();
         setState(() {
           _isLoading = false;
         });
@@ -92,6 +96,7 @@ class _CustomScaffoldState extends State<CustomScaffold> {
         userName: user?.name ?? "",
         role: user?.type.name ?? "",
         companyName: branchModel?.branchName ?? "",
+        sessionUser: user,
       ),
       floatingActionButton: widget.floatingActionButton,
       floatingActionButtonLocation: widget.floatingActionButtonLocation,

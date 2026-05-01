@@ -1,7 +1,4 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/routes.dart';
@@ -10,8 +7,8 @@ import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
-import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -19,17 +16,17 @@ import 'package:pos/presentation/dine_in_log/dine_in_log_cubit.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_move_table_sheet.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_split_merge_dialogs.dart';
 import 'package:pos/presentation/widgets/app_snackbar.dart';
-import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
+import 'package:pos/presentation/widgets/order_log_user_filter_autocomplete.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
+import 'package:pos/presentation/widgets/common_log_card.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
 import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
 import 'package:pos/presentation/widgets/qty_password_guard.dart';
-import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class DineInLogScreen extends StatelessWidget {
   const DineInLogScreen({super.key});
@@ -94,19 +91,16 @@ class DineInLogScreen extends StatelessWidget {
                             LayoutBuilder(
                               builder: (context, c) {
                                 final width = c.maxWidth;
-                                final columns = width >= 1200
-                                    ? 3
-                                    : width >= 700
-                                        ? 2
-                                        : 1;
-                                const spacing = 16.0;
+                                const spacing = 12.0;
+                                const minCardWidth = 260.0;
+                                final columns = ((width + spacing) / (minCardWidth + spacing)).floor().clamp(1, 8);
                                 final cardWidth = (width - (columns - 1) * spacing) / columns;
                                 return Wrap(
                                   spacing: spacing,
                                   runSpacing: spacing,
                                   children: state.orders
                                       .map((o) => SizedBox(
-                                            width: 400,
+                                            width: cardWidth,
                                             child: DineInLogCard(
                                               order: o,
                                               cartLineCount: state.cartLineCountsByCartId[o.cartId] ?? 0,
@@ -174,7 +168,7 @@ class _DineInFilterBarState extends State<_DineInFilterBar> {
   final _invoiceController = TextEditingController();
   final _referenceController = TextEditingController();
   final _usersController = TextEditingController();
-  final List<String> _userOptions = ['All users', 'User 1', 'User 2'];
+  int? _filterUserId;
 
   @override
   void dispose() {
@@ -188,6 +182,7 @@ class _DineInFilterBarState extends State<_DineInFilterBar> {
     context.read<DineInLogCubit>().filterOrders(
           invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
           referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
+          userId: _filterUserId,
         );
   }
 
@@ -196,6 +191,7 @@ class _DineInFilterBarState extends State<_DineInFilterBar> {
       _invoiceController.clear();
       _referenceController.clear();
       _usersController.clear();
+      _filterUserId = null;
     });
     context.read<DineInLogCubit>().loadOrders();
   }
@@ -210,8 +206,8 @@ class _DineInFilterBarState extends State<_DineInFilterBar> {
           subtitle: 'Receipt No, Reference No, and Users',
           icon: Icons.restaurant_outlined,
           body: Wrap(
-            spacing: 12,
-            runSpacing: 12,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               SizedBox(
                 width: m.fieldWidth,
@@ -231,25 +227,20 @@ class _DineInFilterBarState extends State<_DineInFilterBar> {
               ),
               SizedBox(
                 width: m.compactFieldWidth,
-                child: AutoCompleteTextField<String>(
-                  defaultText: 'All users',
-                  labelText: 'Users',
-                  displayStringFunction: (v) => v,
-                  items: _userOptions,
-                  onSelected: (v) {
-                    setState(() => _usersController.text = v);
+                child: OrderLogUserFilterAutocomplete(
+                  controller: _usersController,
+                  onSelectedUserId: (id) {
+                    setState(() => _filterUserId = id);
                     _applyFilters();
                   },
-                  onChanged: (_) => _applyFilters(),
-                  controller: _usersController,
                 ),
               ),
               SizedBox(
-                width: 42,
+                width: 34,
                 child: IconButton(
                   tooltip: 'Clear all',
                   onPressed: _clearFilters,
-                  icon: const Icon(Icons.close_rounded),
+                  icon: const Icon(Icons.close_rounded, size: 18),
                 ),
               ),
             ],
@@ -275,307 +266,84 @@ class DineInLogCard extends StatefulWidget {
 }
 
 class _DineInLogCardState extends State<DineInLogCard> {
-  bool _hovered = false;
-  bool _customerExpanded = false;
+  String? _orderUserName;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOrderUserName();
+  }
+
+  Future<void> _loadOrderUserName() async {
+    final order = widget.order;
+    final db = locator<AppDatabase>();
+    final uid = order.userId;
+    UserModel? u;
+    if (uid != null) {
+      u = await db.usersDao.findUserById(uid);
+    } else {
+      final session = await db.sessionDao.getActiveSession();
+      if (session == null) return;
+      u = await db.usersDao.findUserById(session.userId);
+    }
+    if (!mounted) return;
+    setState(() {
+      _orderUserName = u?.name;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        transform: Matrix4.translationValues(0, _hovered ? -8 : 0, 0),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: _hovered ? 0.25 : 0.08),
-              blurRadius: _hovered ? 22 : 14,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _header(),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                height: 1,
-                color: AppColors.divider.withValues(alpha: 0.65),
-              ),
-              const SizedBox(height: 12),
-              _infoRow(),
-              if (orderHasCustomerDetails(widget.order)) _customerPeekSection(),
-              const SizedBox(height: 14),
-              _netTotal(),
-              const SizedBox(height: 14),
-              _actions(context),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _header() {
     final order = widget.order;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: const Color(0xFF2F3A56),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.restaurant, size: 14, color: Colors.white),
-              SizedBox(width: 6),
-              Text(
-                'DINE IN',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Spacer(),
-        Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      order.status.toUpperCase(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.end,
-                      style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: AppColors.hintFontColor),
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.delete_outline, color: Colors.red.shade700),
-                    tooltip: 'Delete order',
-                    onPressed: () => _handleDelete(context, order),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                  ),
-                ],
-              ),
-              RelativeTimeText(
-                at: order.createdAt,
-                maxLines: 1,
-                textAlign: TextAlign.end,
-                style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _customerPeekSection() {
-    final label = orderLogCustomerLabel(widget.order);
-    return LayoutBuilder(
-      builder: (context, c) {
-        final blockW = math.min(220.0, c.maxWidth);
-        return AnimatedSize(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: _customerExpanded
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: blockW,
-                      child: _infoBlock('Customer', label.isEmpty ? '—' : label),
-                    ),
-                    InkWell(
-                      onTap: () => setState(() => _customerExpanded = false),
-                      borderRadius: BorderRadius.circular(10),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'View less',
-                              style: AppStyles.getMediumTextStyle(fontSize: 13, color: AppColors.hintFontColor),
-                            ),
-                            const SizedBox(width: 2),
-                            Icon(Icons.keyboard_arrow_up_rounded, color: AppColors.hintFontColor, size: 22),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              : InkWell(
-                  onTap: () => setState(() => _customerExpanded = true),
-                  borderRadius: BorderRadius.circular(10),
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'View more',
-                          style: AppStyles.getMediumTextStyle(fontSize: 13, color: AppColors.primaryColor),
-                        ),
-                        const SizedBox(width: 2),
-                        Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primaryColor, size: 22),
-                      ],
-                    ),
-                  ),
-                ),
-        );
-      },
-    );
-  }
-
-  Widget _infoRow() {
-    final order = widget.order;
-    return LayoutBuilder(
-      builder: (context, c) {
-        final blockW = math.min(220.0, c.maxWidth);
-        return Wrap(
-          spacing: 20,
-          runSpacing: 10,
-          children: [
-            SizedBox(width: blockW, child: _infoBlock('Receipt No', order.invoiceNumber)),
-            SizedBox(width: blockW, child: _infoBlock('Table / Ref', order.referenceNumber ?? 'N/A')),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _infoBlock(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          value,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: AppStyles.getMediumTextStyle(fontSize: 15, color: AppColors.textColor),
-        ),
-      ],
-    );
-  }
-
-  Widget _netTotal() {
-    final total = widget.order.totalAmount;
-    return Container(
-      height: 56,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1F3F8),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 6,
-            decoration: BoxDecoration(
-              color: AppColors.primaryColor,
-              borderRadius: const BorderRadius.horizontal(left: Radius.circular(14)),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              'Net Total',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppStyles.getMediumTextStyle(fontSize: 14, color: Colors.grey.shade600),
-            ),
-          ),
-          Flexible(
-            fit: FlexFit.loose,
-            child: Text(
-              RuntimeAppSettings.money(total),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.end,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-          ),
-          const SizedBox(width: 20),
-        ],
-      ),
-    );
-  }
-
-  Widget _actions(BuildContext context) {
-    final order = widget.order;
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _actionBtn(
+    return CommonLogCard(
+      tag: 'DI',
+      amount: RuntimeAppSettings.money(order.totalAmount),
+      invoiceNumber: order.invoiceNumber,
+      referenceNumber: order.referenceNumber ?? '',
+      createdAt: order.createdAt,
+      orderTakerName: _orderUserName,
+      onDelete: () => _handleDelete(context, order),
+      actions: [
+        LogCardAction(
           icon: Icons.remove_red_eye_outlined,
-          label: 'View',
+          tooltip: 'View',
           onTap: () => _handleView(context, order),
         ),
-        _actionBtn(
-          icon: Icons.print_outlined,
-          label: 'Print',
-          onTap: () => _handlePrint(context, order),
-        ),
-        _actionBtn(
-          icon: Icons.edit_outlined,
-          label: 'Edit',
-          onTap: () => _handleEdit(context, order),
-        ),
-        _actionBtn(
+        LogCardAction(
           icon: Icons.payments_outlined,
-          label: 'Pay',
+          tooltip: 'Pay',
           onTap: () => _handlePay(context, order),
         ),
+        LogCardAction(
+          icon: Icons.print_outlined,
+          tooltip: 'Print',
+          onTap: () => _handlePrint(context, order),
+        ),
+        LogCardAction(
+          icon: Icons.edit_outlined,
+          tooltip: 'Edit',
+          onTap: () => _handleEdit(context, order),
+        ),
         if (dineInBillIsSplittable(order) && widget.cartLineCount > 1)
-          _actionBtn(
+          LogCardAction(
             icon: Icons.call_split,
-            label: 'Split',
+            tooltip: 'Split',
             onTap: () => _handleSplit(context, order),
           ),
         if (dineInBillIsSplittable(order))
-          _actionBtn(
+          LogCardAction(
             icon: Icons.merge_type,
-            label: 'Merge',
+            tooltip: 'Merge',
             onTap: () => _handleMerge(context, order),
           ),
-        _actionBtn(
+        LogCardAction(
           icon: Icons.layers_outlined,
-          label: 'Floor',
+          tooltip: 'Floor',
           onTap: () => _handleMoveFloorTable(context, order),
         ),
-        _actionBtn(
+        LogCardAction(
           icon: Icons.drive_file_move_outline,
-          label: 'Move',
+          tooltip: 'Move',
           onTap: () => showMoveOrderDialog(
             context,
             order: order,
@@ -613,32 +381,6 @@ class _DineInLogCardState extends State<DineInLogCard> {
 
   void _handleMoveFloorTable(BuildContext context, Order order) {
     showDineInMoveFloorTableUi(context, order);
-  }
-
-  Widget _actionBtn({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    bool danger = false,
-  }) {
-    return OutlinedButton.icon(
-      onPressed: onTap,
-      icon: Icon(icon, size: 18, color: danger ? Colors.red : AppColors.primaryColor),
-      label: Text(
-        label,
-        style: AppStyles.getMediumTextStyle(
-          fontSize: 13,
-          color: danger ? Colors.red : AppColors.primaryColor,
-        ),
-      ),
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        side: BorderSide(
-          color: danger ? Colors.red.withValues(alpha: 0.35) : AppColors.primaryColor.withValues(alpha: 0.25),
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
   }
 
   void _handleEdit(BuildContext context, Order order) {
@@ -695,12 +437,16 @@ class _DineInLogCardState extends State<DineInLogCard> {
   }
 
   Future<void> _handleDelete(BuildContext context, Order order) async {
-    final auth = await requireQtyPassword(context, actionLabel: 'Delete');
-    if (!auth) return;
+    final reason = await requireQtyPasswordWithReason(
+      context,
+      actionLabel: 'Delete',
+      reasonLabel: 'Reason for deleting',
+    );
+    if (reason == null || !context.mounted) return;
     final ok = await showAppConfirmDialog(
       context,
       title: 'Delete Order',
-      message: 'Are you sure you want to delete order ${order.invoiceNumber}?',
+      message: 'Are you sure you want to delete order ${order.invoiceNumber}?\n\nReason: $reason',
       confirmText: 'Delete',
       confirmBackgroundColor: Colors.red,
     );

@@ -58,13 +58,13 @@ Future<DateTime?> showLogFilterDatePicker({
 BoxDecoration logFilterPanelDecoration() {
   return BoxDecoration(
     color: Colors.white,
-    borderRadius: BorderRadius.circular(16),
+    borderRadius: BorderRadius.circular(12),
     border: Border.all(color: AppColors.divider.withValues(alpha: 0.85)),
     boxShadow: [
       BoxShadow(
         color: AppColors.textColor.withValues(alpha: 0.06),
-        blurRadius: 24,
-        offset: const Offset(0, 8),
+        blurRadius: 14,
+        offset: const Offset(0, 4),
         spreadRadius: -4,
       ),
     ],
@@ -94,19 +94,19 @@ class LogFilterLayout {
 
   int get columnCount => _cols;
 
-  static const double _gap = 12;
+  static const double _gap = 8;
 
   /// Text fields and similar controls.
   double get fieldWidth {
     if (_cols <= 1) return _safeWidth;
     final w = (_safeWidth - (_cols - 1) * _gap) / _cols;
-    return w.clamp(140.0, 260.0);
+    return w.clamp(124.0, 220.0);
   }
 
   /// Date and compact dropdowns: slightly tighter when multiple columns.
   double get compactFieldWidth {
     if (_cols <= 1) return _safeWidth;
-    return fieldWidth.clamp(148.0, 210.0);
+    return fieldWidth.clamp(120.0, 180.0);
   }
 
   bool get stackActions => _safeWidth < 480;
@@ -138,15 +138,11 @@ class LogFilterShell extends StatelessWidget {
         final boundedWidth = c.maxWidth.isFinite ? c.maxWidth : MediaQuery.sizeOf(context).width;
         final desktop = c.maxWidth >= 700;
         final compactDesktop = desktop && boundedWidth < 1100;
-        final padH = desktop ? (compactDesktop ? 8.0 : 10.0) : 14.0;
-        final padVTop = desktop ? (compactDesktop ? 5.0 : 6.0) : 14.0;
-        final padVBottom = desktop ? (compactDesktop ? 6.0 : 8.0) : 14.0;
-        final afterHeader = desktop ? (compactDesktop ? 4.0 : 6.0) : 14.0;
-        final beforeFooter = desktop ? (compactDesktop ? 4.0 : 6.0) : 14.0;
-        final iconBox = desktop ? 7.0 : 10.0;
-        final titleSize = desktop ? 14.0 : 16.0;
-        final subSize = desktop ? 12.0 : 12.5;
-        final showSubtitle = subtitle != null && subtitle!.isNotEmpty && (!compactDesktop || boundedWidth >= 980);
+        final padH = desktop ? (compactDesktop ? 6.0 : 8.0) : 10.0;
+        final padVTop = desktop ? (compactDesktop ? 4.0 : 5.0) : 10.0;
+        final padVBottom = desktop ? (compactDesktop ? 5.0 : 6.0) : 10.0;
+        final afterHeader = desktop ? (compactDesktop ? 3.0 : 4.0) : 10.0;
+        final beforeFooter = desktop ? (compactDesktop ? 3.0 : 4.0) : 10.0;
         return Container(
           width: boundedWidth,
           padding: EdgeInsets.fromLTRB(padH, padVTop, padH, padVBottom),
@@ -197,29 +193,29 @@ class LogFilterDateTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final desktop = MediaQuery.sizeOf(context).width >= 700;
-    final vPad = desktop ? 7.5 : 11.0;
+    final vPad = desktop ? 6.0 : 8.0;
     return SizedBox(
       width: width,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 12, vertical: vPad),
+            padding: EdgeInsets.symmetric(horizontal: 10, vertical: vPad),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(color: AppColors.divider.withValues(alpha: 0.7)),
             ),
             child: Row(
               children: [
                 Icon(
                   Icons.calendar_today_outlined,
-                  size: 16,
+                  size: 14,
                   color: AppColors.primaryColor.withValues(alpha: 0.8),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -227,7 +223,7 @@ class LogFilterDateTile extends StatelessWidget {
                     children: [
                       Text(
                         hint,
-                        style: AppStyles.getRegularTextStyle(fontSize: 10.5, color: AppColors.hintFontColor),
+                        style: AppStyles.getRegularTextStyle(fontSize: 10, color: AppColors.hintFontColor),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -235,7 +231,7 @@ class LogFilterDateTile extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppStyles.getMediumTextStyle(
-                          fontSize: 13,
+                          fontSize: 12,
                           color: value == null || value!.isEmpty ? AppColors.hintFontColor : AppColors.textColor,
                         ),
                       ),
@@ -278,17 +274,17 @@ class LogFilterActionButtons extends StatelessWidget {
               onPressed: onClear,
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppColors.textColor,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 visualDensity: VisualDensity.compact,
                 side: BorderSide(color: AppColors.divider.withValues(alpha: 0.9)),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: Text(clearLabel, style: AppStyles.getMediumTextStyle(fontSize: 13.5)),
+              child: Text(clearLabel, style: AppStyles.getMediumTextStyle(fontSize: 12)),
             ),
             const SizedBox(width: 10),
           ],
           CustomButton(
-            width: 136,
+            width: 120,
             onPressed: onApply,
             text: applyLabel,
             elevation: 0,
@@ -304,17 +300,17 @@ class LogFilterActionButtons extends StatelessWidget {
             onPressed: onClear,
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.textColor,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               visualDensity: VisualDensity.compact,
               side: BorderSide(color: AppColors.divider.withValues(alpha: 0.9)),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            child: Text(clearLabel, style: AppStyles.getMediumTextStyle(fontSize: 13.5)),
+            child: Text(clearLabel, style: AppStyles.getMediumTextStyle(fontSize: 12)),
           ),
           const SizedBox(width: 10),
         ],
         CustomButton(
-          width: 136,
+          width: 120,
           onPressed: onApply,
           text: applyLabel,
           elevation: 0,

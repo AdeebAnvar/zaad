@@ -4,7 +4,9 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:multi_expansion_card/multi_expansion_card.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/dine_in_sale_navigation.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
@@ -32,6 +34,14 @@ bool _cartListStructureChanged(CartState prev, CartState curr) {
 }
 
 final Set<String> _autoPaymentShownKeys = <String>{};
+
+typedef PaymentDialogOnSave = Future<void> Function(
+  Map<String, dynamic> customerDetails,
+  Map<String, dynamic> discount,
+  Map<String, double> payments, {
+  required bool printInvoice,
+  required bool printKot,
+});
 
 Future<void> showCartStylePaymentDialogForOrder(
   BuildContext context, {
@@ -61,7 +71,7 @@ Future<void> showCartStylePaymentDialogForOrder(
       isDelivery: order.orderType == 'delivery',
       deliveryPartner: order.deliveryPartner,
       prefill: prefill,
-      onSave: (customerDetails, discount, payments) async {
+      onSave: (customerDetails, discount, payments, {required printInvoice, required printKot}) async {
         final repo = locator<OrderRepository>();
         final freshOrder = await repo.getOrderById(order.id);
         if (freshOrder == null) return;
@@ -69,9 +79,7 @@ Future<void> showCartStylePaymentDialogForOrder(
         final discountAmount = (discount['value'] as double?) ?? 0.0;
         final finalAmount = (freshOrder.totalAmount - discountAmount).clamp(0.0, double.infinity);
         final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
-        final updatedRef = freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty
-            ? onlineOrderNumber
-            : freshOrder.referenceNumber;
+        final updatedRef = freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : freshOrder.referenceNumber;
 
         final updatedOrder = freshOrder.copyWith(
           referenceNumber: Value(updatedRef),
@@ -90,6 +98,28 @@ Future<void> showCartStylePaymentDialogForOrder(
         );
 
         await repo.updateOrder(updatedOrder);
+
+        final db = locator<AppDatabase>();
+        final printSvc = locator<PrintService>();
+        final cartItems = await db.cartsDao.getItemsByCart(updatedOrder.cartId);
+        final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
+        final printFailed = <String>[];
+        if (printKot && cartItems.isNotEmpty) {
+          printFailed.addAll(
+            await printSvc.printKOTPerKitchen(cartItems: cartItems, referenceNumber: ref),
+          );
+        }
+        if (printInvoice) {
+          printFailed.addAll(await printSvc.printFinalBill(order: updatedOrder, cartItems: cartItems));
+          final cashAmt = payments['cash'] ?? 0.0;
+          if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
+            printFailed.addAll(await printSvc.openCashDrawer());
+          }
+        }
+        if (printFailed.isNotEmpty && dialogContext.mounted) {
+          showPrintFailedDialog(dialogContext, printFailed);
+        }
+
         if (dialogContext.mounted) Navigator.of(dialogContext).pop(true);
         onPaymentRecorded?.call();
       },
@@ -211,36 +241,37 @@ class CartPanel extends StatelessWidget {
                         }
                       }
                       final isNarrow = constraints.maxWidth < 420;
-                      final preferHorizontalButtons = MediaQuery.sizeOf(context).width < 1400;
+                      // final preferHorizontalButtons = MediaQuery.sizeOf(context).width < 1400;
 
-                      Widget totalWidget = MediaQuery.sizeOf(context).width <= 1400
-                          ? Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                              Text(
-                                "$itemCount item${itemCount == 1 ? '' : 's'}",
-                                style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.black54),
-                              ),
-                              Text(
-                                RuntimeAppSettings.money(totalAmount),
-                                style: AppStyles.getBoldTextStyle(fontSize: 18),
-                              ),
-                            ])
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "$itemCount item${itemCount == 1 ? '' : 's'}",
-                                  style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.black54),
-                                ),
-                                Text(
-                                  "Total payable",
-                                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
-                                ),
-                                Text(
-                                  RuntimeAppSettings.money(totalAmount),
-                                  style: AppStyles.getBoldTextStyle(fontSize: 18),
-                                ),
-                              ],
-                            );
+                      //  MediaQuery.sizeOf(context).width <= 1400
+                      //     ?
+                      Widget totalWidget = Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        Text(
+                          "$itemCount item${itemCount == 1 ? '' : 's'}",
+                          style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.black54),
+                        ),
+                        Text(
+                          RuntimeAppSettings.money(totalAmount),
+                          style: AppStyles.getBoldTextStyle(fontSize: 18),
+                        ),
+                      ]);
+                      // : Column(
+                      //     crossAxisAlignment: CrossAxisAlignment.start,
+                      //     children: [
+                      //       Text(
+                      //         "$itemCount item${itemCount == 1 ? '' : 's'}",
+                      //         style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.black54),
+                      //       ),
+                      //       Text(
+                      //         "Total payable",
+                      //         style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
+                      //       ),
+                      //       Text(
+                      //         RuntimeAppSettings.money(totalAmount),
+                      //         style: AppStyles.getBoldTextStyle(fontSize: 18),
+                      //       ),
+                      //     ],
+                      //   );
 
                       Widget buttonsWidget = BlocBuilder<CartCubit, CartState>(
                         builder: (context, cartState) {
@@ -253,7 +284,7 @@ class CartPanel extends StatelessWidget {
                           // Delivery: only Save button (no KOT, no Pay) — Save opens payment dialog
                           if (isDelivery || isEditingPaidOrder) {
                             final saveButton = CustomButton(
-                              width: (isNarrow && !preferHorizontalButtons) ? constraints.maxWidth : 150,
+                              width: 80,
                               onPressed: state.items.isEmpty
                                   ? () {}
                                   : () async {
@@ -276,16 +307,16 @@ class CartPanel extends StatelessWidget {
                               ),
                               onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
                             );
-                            if (isNarrow && !preferHorizontalButtons) {
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Align(alignment: Alignment.centerRight, child: eye),
-                                  const SizedBox(height: 4),
-                                  saveButton,
-                                ],
-                              );
-                            }
+                            // if (!isNarrow) {
+                            //   return Column(
+                            //     crossAxisAlignment: CrossAxisAlignment.stretch,
+                            //     children: [
+                            //       Align(alignment: Alignment.centerRight, child: eye),
+                            //       const SizedBox(height: 4),
+                            //       saveButton,
+                            //     ],
+                            //   );
+                            // }
                             return Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -296,79 +327,21 @@ class CartPanel extends StatelessWidget {
                             );
                           }
 
-                          if (!isNarrow || preferHorizontalButtons) {
-                            return Row(
-                              children: [
-                                IconButton(
-                                  tooltip: 'View cart',
-                                  icon: Icon(
-                                    Icons.visibility_outlined,
-                                    color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
-                                  ),
-                                  onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
-                                ),
-                                const SizedBox(width: 4),
-                                _KitchenOrderIconButton(
-                                  width: 110,
-                                  onPressed: state.items.isEmpty
-                                      ? null
-                                      : () async {
-                                          final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
-                                          final skipKotReferenceDialog = hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
-                                          if (skipKotReferenceDialog) {
-                                            try {
-                                              final printFailed = await cartCubit.saveKOTWithExistingReference();
-                                              if (context.mounted) {
-                                                CustomSnackBar.showKotSaved(context: context);
-                                                if (printFailed.isNotEmpty) {
-                                                  showPrintFailedDialog(context, printFailed);
-                                                }
-                                                if (closeOnComplete) {
-                                                  Navigator.maybePop(context);
-                                                }
-                                                schedulePopSaleScreenToDineIn(context);
-                                              }
-                                            } catch (e) {
-                                              if (context.mounted) showErrorDialog(context, e);
-                                            }
-                                          } else {
-                                            showKOTDialog(context);
-                                          }
-                                        },
-                                ),
-                                const SizedBox(width: 12),
-                                CustomButton(
-                                  width: 150,
-                                  onPressed: state.items.isEmpty
-                                      ? () {}
-                                      : () async {
-                                          await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
-                                          onCloseCart?.call(true);
-                                        },
-                                  text: "Pay",
-                                ),
-                              ],
-                            );
-                          }
-
-                          // Narrow screens: stack buttons to avoid overflow.
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                          // if (isNarrow) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: IconButton(
-                                  tooltip: 'View cart',
-                                  icon: Icon(
-                                    Icons.visibility_outlined,
-                                    color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
-                                  ),
-                                  onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
+                              IconButton(
+                                tooltip: 'View cart',
+                                icon: Icon(
+                                  Icons.visibility_outlined,
+                                  color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
                                 ),
+                                onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(width: 4),
                               _KitchenOrderIconButton(
-                                width: constraints.maxWidth,
+                                width: 110,
                                 onPressed: state.items.isEmpty
                                     ? null
                                     : () async {
@@ -395,9 +368,9 @@ class CartPanel extends StatelessWidget {
                                         }
                                       },
                               ),
-                              const SizedBox(height: 10),
+                              const SizedBox(width: 12),
                               CustomButton(
-                                width: constraints.maxWidth,
+                                width: 80,
                                 onPressed: state.items.isEmpty
                                     ? () {}
                                     : () async {
@@ -408,6 +381,65 @@ class CartPanel extends StatelessWidget {
                               ),
                             ],
                           );
+                          // }
+
+                          // Narrow screens: stack buttons to avoid overflow.
+                          // return Column(
+                          //   crossAxisAlignment: CrossAxisAlignment.stretch,
+                          //   children: [
+                          //     Align(
+                          //       alignment: Alignment.centerRight,
+                          //       child: IconButton(
+                          //         tooltip: 'View cart',
+                          //         icon: Icon(
+                          //           Icons.visibility_outlined,
+                          //           color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
+                          //         ),
+                          //         onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
+                          //       ),
+                          //     ),
+                          //     const SizedBox(height: 4),
+                          //     _KitchenOrderIconButton(
+                          //       width: constraints.maxWidth,
+                          //       onPressed: state.items.isEmpty
+                          //           ? null
+                          //           : () async {
+                          //               final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
+                          //               final skipKotReferenceDialog = hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
+                          //               if (skipKotReferenceDialog) {
+                          //                 try {
+                          //                   final printFailed = await cartCubit.saveKOTWithExistingReference();
+                          //                   if (context.mounted) {
+                          //                     CustomSnackBar.showKotSaved(context: context);
+                          //                     if (printFailed.isNotEmpty) {
+                          //                       showPrintFailedDialog(context, printFailed);
+                          //                     }
+                          //                     if (closeOnComplete) {
+                          //                       Navigator.maybePop(context);
+                          //                     }
+                          //                     schedulePopSaleScreenToDineIn(context);
+                          //                   }
+                          //                 } catch (e) {
+                          //                   if (context.mounted) showErrorDialog(context, e);
+                          //                 }
+                          //               } else {
+                          //                 showKOTDialog(context);
+                          //               }
+                          //             },
+                          //     ),
+                          //     const SizedBox(height: 10),
+                          //     CustomButton(
+                          //       width: 80,
+                          //       onPressed: state.items.isEmpty
+                          //           ? () {}
+                          //           : () async {
+                          //               await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
+                          //               onCloseCart?.call(true);
+                          //             },
+                          //       text: "Pay",
+                          //     ),
+                          //   ],
+                          // );
                         },
                       );
 
@@ -520,7 +552,7 @@ class CartPanel extends StatelessWidget {
                           ),
                           const Spacer(),
                           CustomButton(
-                            width: 120,
+                            width: 80,
                             text: 'Save',
                             onPressed: () async {
                               final value = referenceController.text.trim();
@@ -577,7 +609,7 @@ class CartPanel extends StatelessWidget {
         isDelivery: isDelivery,
         deliveryPartner: deliveryPartner,
         prefill: prefill,
-        onSave: (customerDetails, discount, payments) async {
+        onSave: (customerDetails, discount, payments, {required printInvoice, required printKot}) async {
           try {
             List<String> printFailed;
             if (isEditing) {
@@ -586,6 +618,8 @@ class CartPanel extends StatelessWidget {
                 discount: discount,
                 payments: payments,
                 onlineOrderNumber: customerDetails['onlineOrderNumber'] as String?,
+                printInvoice: printInvoice,
+                printKot: printKot,
               );
             } else {
               printFailed = await cartCubit.placeOrderWithPayment(
@@ -593,6 +627,8 @@ class CartPanel extends StatelessWidget {
                 discount: discount,
                 payments: payments,
                 onlineOrderNumber: customerDetails['onlineOrderNumber'] as String?,
+                printInvoice: printInvoice,
+                printKot: printKot,
               );
             }
 
@@ -633,11 +669,7 @@ class PaymentDialog extends StatefulWidget {
   final bool isDelivery;
   final String? deliveryPartner;
   final Map<String, dynamic>? prefill;
-  final Function(
-    Map<String, dynamic> customer,
-    Map<String, dynamic> discount,
-    Map<String, double> payments,
-  ) onSave;
+  final PaymentDialogOnSave onSave;
 
   const PaymentDialog({
     super.key,
@@ -691,6 +723,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
   bool _loadingCustomers = true;
   bool _isSubmitting = false;
   bool _showOtherPaymentField = false;
+  bool _printInvoice = true;
+  /// Off by default: KOT is usually sent earlier via the KOT button; enable when settling should re-print kitchen.
+  bool _printKot = false;
 
   @override
   void initState() {
@@ -1014,7 +1049,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
                           style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red.shade700),
                         ),
                       ),
-                    SizedBox(height: 20),
                     if (widget.isDelivery && _isPartnerDelivery)
                       SizedBox(
                         width: 260,
@@ -1336,9 +1370,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
         ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               // CLOSE - light grey bg, dark blue border and text
               TextButton(
@@ -1430,6 +1465,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
                               'online': double.tryParse(_onlineController.text) ?? 0,
                               'other': double.tryParse(_otherController.text) ?? 0,
                             },
+                            printInvoice: _printInvoice,
+                            printKot: _printKot,
                           );
                         } finally {
                           if (mounted) {
@@ -1438,6 +1475,66 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         }
                       },
               ),
+            ],
+          ),
+          Expanded(
+            child: Center(child: _footerPrintOptions()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _footerPrintOptions() {
+    final scheme = Theme.of(context).colorScheme;
+    final labelStyle = AppStyles.getRegularTextStyle(fontSize: 13, color: scheme.onSurface);
+    return Theme(
+      data: Theme.of(context).copyWith(
+        checkboxTheme: CheckboxThemeData(
+          fillColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return scheme.primary;
+            }
+            return Colors.transparent;
+          }),
+          checkColor: WidgetStateProperty.all(scheme.onPrimary),
+          side: BorderSide(color: scheme.outline.withValues(alpha: 0.7), width: 1.5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                height: 32,
+                width: 32,
+                child: Checkbox(
+                  value: _printInvoice,
+                  onChanged: (v) => setState(() => _printInvoice = v ?? true),
+                ),
+              ),
+              Text('Invoice print', style: labelStyle),
+            ],
+          ),
+          const SizedBox(width: 20),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                height: 32,
+                width: 32,
+                child: Checkbox(
+                  value: _printKot,
+                  onChanged: (v) => setState(() => _printKot = v ?? true),
+                ),
+              ),
+              Text('KOT print', style: labelStyle),
             ],
           ),
         ],

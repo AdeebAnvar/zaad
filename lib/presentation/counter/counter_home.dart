@@ -3,9 +3,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/navigation.dart';
 import 'package:pos/app/routes.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -16,54 +18,91 @@ import 'package:pos/presentation/take_away_log/take_away_log_ui.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 
 class CounterHome extends StatefulWidget {
-  const CounterHome({super.key, required this.id});
-  final int id;
+  const CounterHome({super.key, required this.sessionUser});
+  final UserModel? sessionUser;
+
   @override
   State<CounterHome> createState() => _CounterHomeState();
 }
 
 class _CounterHomeState extends State<CounterHome> {
-  void _handleCardTap(BuildContext context, int index) {
-    switch (index) {
-      case 0:
-        AppNavigator.pushNamed(Routes.counter, args: {'orderType': 'take_away'});
-        break;
-      case 1:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => BlocProvider(
-              create: (context) => TakeAwayLogCubit(locator<OrderRepository>()),
-              child: const TakeAwayLogScreen(),
-            ),
-          ),
-        );
-        break;
-      case 2:
-        _showDeliveryPartnerPopup(context);
-        break;
-      case 3:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => BlocProvider(
-              create: (context) => DeliveryLogCubit(
-                locator<OrderRepository>(),
-                locator<DeliveryPartnerRepository>(),
-                locator<DriverRepository>(),
-              ),
-              child: const DeliveryLogScreen(),
-            ),
-          ),
-        );
-        break;
-      case 4:
-        AppNavigator.pushNamed(Routes.dineIn);
-        break;
-      case 5:
-        AppNavigator.pushNamed(Routes.dineInLog);
-        break;
+  List<_DashboardTile> _tilesForAccess(CounterAccess access) {
+    final list = <_DashboardTile>[];
+    if (access.canTakeAwayCounter) {
+      list.add(
+        _DashboardTile(
+          title: 'Take Away',
+          icon: Icons.point_of_sale_rounded,
+          onTap: (ctx) => AppNavigator.pushNamed(Routes.counter, args: {'orderType': 'take_away'}),
+        ),
+      );
     }
+    if (access.canTakeAwayLog) {
+      list.add(
+        _DashboardTile(
+          title: 'Take Away Log',
+          icon: Icons.receipt_long_rounded,
+          onTap: (ctx) => Navigator.push(
+            ctx,
+            MaterialPageRoute(
+              builder: (_) => BlocProvider(
+                create: (context) => TakeAwayLogCubit(locator<OrderRepository>()),
+                child: const TakeAwayLogScreen(),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    if (access.canDeliverySale) {
+      list.add(
+        _DashboardTile(
+          title: 'Delivery Sale',
+          icon: Icons.delivery_dining_rounded,
+          onTap: (ctx) => _showDeliveryPartnerPopup(ctx),
+        ),
+      );
+    }
+    if (access.canDeliveryLog) {
+      list.add(
+        _DashboardTile(
+          title: 'Delivery Sale Log',
+          icon: Icons.local_shipping_rounded,
+          onTap: (ctx) => Navigator.push(
+            ctx,
+            MaterialPageRoute(
+              builder: (_) => BlocProvider(
+                create: (context) => DeliveryLogCubit(
+                  locator<OrderRepository>(),
+                  locator<DeliveryPartnerRepository>(),
+                  locator<DriverRepository>(),
+                ),
+                child: const DeliveryLogScreen(),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    if (access.canDineIn) {
+      list.add(
+        _DashboardTile(
+          title: 'Dine In',
+          icon: Icons.table_restaurant_rounded,
+          onTap: (_) => AppNavigator.pushNamed(Routes.dineIn),
+        ),
+      );
+    }
+    if (access.canDineInLog) {
+      list.add(
+        _DashboardTile(
+          title: 'Dine In Log',
+          icon: Icons.event_note_rounded,
+          onTap: (_) => AppNavigator.pushNamed(Routes.dineInLog),
+        ),
+      );
+    }
+    return list;
   }
 
   Future<void> _showDeliveryPartnerPopup(BuildContext context) async {
@@ -89,11 +128,27 @@ class _CounterHomeState extends State<CounterHome> {
 
   @override
   Widget build(BuildContext context) {
+    final access = CounterAccess.fromUser(widget.sessionUser);
+    final tiles = _tilesForAccess(access);
+
     return CustomScaffold(
       title: 'Zaad Dine',
       appBarScreen: 'dashboard',
       body: LayoutBuilder(
         builder: (context, constraints) {
+          if (tiles.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No counter modules are assigned to your account. Contact your administrator.',
+                  textAlign: TextAlign.center,
+                  style: AppStyles.getRegularTextStyle(fontSize: 15, color: AppColors.hintFontColor),
+                ),
+              ),
+            );
+          }
+
           final width = constraints.maxWidth;
           final crossAxisCount = width >= 1200
               ? 3
@@ -113,7 +168,7 @@ class _CounterHomeState extends State<CounterHome> {
                 child: GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _titles.length,
+                  itemCount: tiles.length,
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: crossAxisCount,
                     crossAxisSpacing: gap,
@@ -122,10 +177,11 @@ class _CounterHomeState extends State<CounterHome> {
                     // childAspectRatio: width >= 980 ? 3.2 : (width >= 760 ? 1.8 : 3.0),
                   ),
                   itemBuilder: (context, index) {
+                    final t = tiles[index];
                     return _DashboardCard(
-                      title: _titles[index],
-                      icon: _icons[index],
-                      onTap: () => _handleCardTap(context, index),
+                      title: t.title,
+                      icon: t.icon,
+                      onTap: () => t.onTap(context),
                     );
                   },
                 ),
@@ -136,6 +192,13 @@ class _CounterHomeState extends State<CounterHome> {
       ),
     );
   }
+}
+
+class _DashboardTile {
+  const _DashboardTile({required this.title, required this.icon, required this.onTap});
+  final String title;
+  final IconData icon;
+  final void Function(BuildContext context) onTap;
 }
 
 /// -------------------- DELIVERY SERVICE DIALOG --------------------
@@ -340,26 +403,6 @@ class _DashboardCard extends StatelessWidget {
     );
   }
 }
-
-/// -------------------- DATA --------------------
-
-const _titles = [
-  "Take Away",
-  "Take Away Log",
-  "Delivery Sale",
-  "Delivery Sale Log",
-  "Dine In",
-  "Dine In Log",
-];
-
-const _icons = [
-  Icons.point_of_sale_rounded,
-  Icons.receipt_long_rounded,
-  Icons.delivery_dining_rounded,
-  Icons.local_shipping_rounded,
-  Icons.table_restaurant_rounded,
-  Icons.event_note_rounded,
-];
 
 class AppScaffold extends StatelessWidget {
   const AppScaffold({super.key});

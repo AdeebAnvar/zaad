@@ -42,7 +42,7 @@ Future<List<_LoadedLine>> _loadLines(List<CartItem> items, CartCubit cubit) asyn
     final toppings = cubit.getToppingsFromCartItem(cartItem);
     out.add(
       _LoadedLine(
-        name: item?.name ?? 'Item #${cartItem.itemId}',
+        name: cartItem.itemName.isNotEmpty ? cartItem.itemName : (item?.name ?? 'Item #${cartItem.itemId}'),
         variantName: variant?.name,
         quantity: cartItem.quantity,
         total: cartItem.total,

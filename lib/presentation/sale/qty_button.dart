@@ -17,7 +17,7 @@ class QtyButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(7),
           border: Border.all(color: Colors.grey.shade300),
         ),
-        child: Icon(icon, size: 24),
+        child: Icon(icon, size: 18),
       ),
     );
   }

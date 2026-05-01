@@ -18,6 +18,12 @@ class NetworkExceptions implements Exception {
       case DioExceptionType.cancel:
         return NetworkExceptions("Request cancelled");
       case DioExceptionType.connectionError:
+        final msg = (e.message ?? '').toLowerCase();
+        if (msg.contains('semaphore timeout')) {
+          return NetworkExceptions(
+            "Network timeout from Windows socket layer. Check internet/VPN/firewall and try again.",
+          );
+        }
         return NetworkExceptions("No internet connection");
       default:
         return NetworkExceptions("Unexpected error");

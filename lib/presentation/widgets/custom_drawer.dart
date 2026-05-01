@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 import '../../core/constants/colors.dart';
 import '../../core/constants/styles.dart';
@@ -15,6 +17,9 @@ class PosDrawer extends StatefulWidget {
   final String companyName;
   final String companyLogo;
   final double width;
+  /// Logged-in user profile (permissions). When null, menu uses empty counter grants except Dashboard.
+  final UserModel? sessionUser;
+
   const PosDrawer({
     super.key,
     required this.userName,
@@ -22,6 +27,7 @@ class PosDrawer extends StatefulWidget {
     required this.companyName,
     required this.companyLogo,
     required this.width,
+    this.sessionUser,
   });
 
   @override
@@ -31,38 +37,45 @@ class PosDrawer extends StatefulWidget {
 class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<Offset> _slideAnimation;
-  final List<DrawerMenuItem> _menus = [
-    DrawerMenuItem(
-      icon: Icons.dashboard,
-      title: "Dashboard",
-      route: "/dashboard",
-    ),
-    DrawerMenuItem(
-      icon: Icons.person_outlined,
-      title: "CRM",
-      route: "/crm",
-    ),
-    DrawerMenuItem(
-      icon: Icons.edit_document,
-      title: "Recent Sales",
-      route: "/recent_sales",
-    ),
-    DrawerMenuItem(
-      icon: Icons.account_balance_wallet_outlined,
-      title: "Credit Sales",
-      route: Routes.creditSales,
-    ),
-    DrawerMenuItem(
-      icon: Icons.print_outlined,
-      title: "Printer Settings",
-      route: Routes.printerSettings,
-    ),
-    DrawerMenuItem(
-      icon: Icons.event_available_rounded,
-      title: "Day Closing",
-      route: Routes.dayClosing,
-    ),
-  ];
+
+  List<DrawerMenuItem> _allMenuItems() => [
+        DrawerMenuItem(
+          icon: Icons.dashboard,
+          title: 'Dashboard',
+          route: '/dashboard',
+          visibleWhen: (_) => true,
+        ),
+        DrawerMenuItem(
+          icon: Icons.person_outlined,
+          title: 'CRM',
+          route: '/crm',
+          visibleWhen: (a) => a.canCrm,
+        ),
+        DrawerMenuItem(
+          icon: Icons.edit_document,
+          title: 'Recent Sales',
+          route: '/recent_sales',
+          visibleWhen: (a) => a.canRecentSales,
+        ),
+        DrawerMenuItem(
+          icon: Icons.account_balance_wallet_outlined,
+          title: 'Credit Sales',
+          route: Routes.creditSales,
+          visibleWhen: (a) => a.canCreditSale,
+        ),
+        DrawerMenuItem(
+          icon: Icons.print_outlined,
+          title: 'Printer Settings',
+          route: Routes.printerSettings,
+          visibleWhen: (a) => a.canPrinterSettings,
+        ),
+        DrawerMenuItem(
+          icon: Icons.event_available_rounded,
+          title: 'Day Closing',
+          route: Routes.dayClosing,
+          visibleWhen: (a) => a.canDayClosing,
+        ),
+      ];
 
   @override
   void initState() {
@@ -98,6 +111,10 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
             ? dynamicWidth
             : widget.width
         : dynamicWidth;
+
+    final access = CounterAccess.fromUser(widget.sessionUser);
+    final menus = _allMenuItems().where((m) => m.visibleWhen(access)).toList();
+
     return SlideTransition(
       position: _slideAnimation,
       child: Drawer(
@@ -106,14 +123,14 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
         child: Column(
           children: [
             _header(),
-            _openingBalanceTile(),
+            if (access.canOpeningBalance) _openingBalanceTile(),
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                itemCount: _menus.length,
+                itemCount: menus.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 6),
                 itemBuilder: (context, index) {
-                  final item = _menus[index];
+                  final item = menus[index];
                   return _menuItem(
                     icon: item.icon,
                     title: item.title,
@@ -139,33 +156,37 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
 
   // ================= HEADER =================
   Widget _header() {
-    final logoWidget = widget.companyLogo.isNotEmpty
-        ? Image.file(
-            File(widget.companyLogo),
-            errorBuilder: (c, e, s) {
-              return Image.asset(
-                'assets/images/png/appicon2.webp',
-                width: 96,
-                height: 96,
-                fit: BoxFit.contain,
-              );
-            },
-            // width: 96,
-            // height: 96,
-            fit: BoxFit.contain,
-          )
-        : Image.asset(
-            'assets/images/png/appicon2.webp',
-            width: 96,
-            height: 96,
-            fit: BoxFit.cover,
-          );
+    Widget logoImage() {
+      const size = 96.0;
+      if (widget.companyLogo.isNotEmpty) {
+        return Image.file(
+          File(widget.companyLogo),
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (c, e, s) {
+            return Image.asset(
+              'assets/images/png/appicon2.webp',
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+            );
+          },
+        );
+      }
+      return Image.asset(
+        'assets/images/png/appicon2.webp',
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 40, 20, 20),
-      color: AppColors.primaryColor.withOpacity(0.06),
+      color: AppColors.primaryColor.withValues(alpha: 0.06),
       child: Column(
-        // crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             width: 108,
@@ -175,20 +196,30 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Center(child: logoWidget),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Center(child: logoImage()),
+            ),
           ),
           const SizedBox(height: 12),
           Text(
             widget.companyName.isNotEmpty ? widget.companyName : "Company Name",
+            textAlign: TextAlign.center,
             style: AppStyles.getBoldTextStyle(fontSize: 16, color: Colors.black),
           ),
-          const Divider(height: 24),
+          Divider(height: 24, color: Colors.grey.shade300),
           Text(
             widget.userName.isNotEmpty ? widget.userName : "User",
+            textAlign: TextAlign.center,
             style: AppStyles.getMediumTextStyle(fontSize: 14),
           ),
           Text(
-            widget.role.isNotEmpty ? widget.role.substring(0, 1).toUpperCase() + widget.role.substring(1) : "",
+            widget.role.isNotEmpty
+                ? (widget.role.length == 1
+                    ? widget.role.toUpperCase()
+                    : widget.role.substring(0, 1).toUpperCase() + widget.role.substring(1))
+                : "",
+            textAlign: TextAlign.center,
             style: AppStyles.getRegularTextStyle(
               fontSize: 12,
               color: AppColors.hintFontColor,
@@ -374,6 +405,7 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
 
   void _logout() async {
     await locator<AppDatabase>().sessionDao.clearSession();
+    locator<CurrentCounterSession>().clear();
 
     AppNavigator.pop();
     AppNavigator.pushReplacementNamed("/login");
@@ -389,11 +421,14 @@ class DrawerMenuItem {
   /// Optional [Navigator] arguments (e.g. delivery counter: orderType + partner).
   final Map<String, dynamic>? arguments;
 
-  const DrawerMenuItem({
+  final bool Function(CounterAccess access) visibleWhen;
+
+  DrawerMenuItem({
     required this.icon,
     required this.title,
     required this.route,
     this.color,
     this.arguments,
+    required this.visibleWhen,
   });
 }

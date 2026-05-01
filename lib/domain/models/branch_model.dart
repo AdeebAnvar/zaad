@@ -3,18 +3,19 @@ class BranchModel {
   final String branchName;
   final String location;
   final String contactNo;
-  final dynamic email;
-  final dynamic socialMedia;
+  final String? email;
+  final String? socialMedia;
   final String vat;
   final dynamic vatPercent;
-  final dynamic trnNumber;
+  final String? trnNumber;
   final String prefixInv;
   final String invoiceHeader;
   final String image;
+  /// Cached path after download (empty when loaded from API only).
   final String localImage;
   final DateTime installationDate;
   final DateTime expiryDate;
-  final int openingCash;
+  final int? openingCash;
 
   BranchModel({
     required this.id,
@@ -29,7 +30,7 @@ class BranchModel {
     required this.prefixInv,
     required this.invoiceHeader,
     required this.image,
-    required this.localImage,
+    this.localImage = '',
     required this.installationDate,
     required this.expiryDate,
     required this.openingCash,
@@ -40,11 +41,11 @@ class BranchModel {
     String? branchName,
     String? location,
     String? contactNo,
-    dynamic email,
-    dynamic socialMedia,
+    String? email,
+    String? socialMedia,
     String? vat,
     dynamic vatPercent,
-    dynamic trnNumber,
+    String? trnNumber,
     String? prefixInv,
     String? invoiceHeader,
     String? image,

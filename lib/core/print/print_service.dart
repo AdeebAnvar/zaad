@@ -149,6 +149,38 @@ class PrintService {
     return failed;
   }
 
+  /// ESC/POS pulse to open cash drawer via the **bill printer** (same IP/USB as receipt).
+  Future<List<String>> openCashDrawer({PosDrawer pin = PosDrawer.pin2}) async {
+    final failed = <String>[];
+    final billPrinter = await _db.itemDao.getBillPrinter();
+    if (billPrinter == null || billPrinter.printerIp.isEmpty) {
+      if (kDebugMode) debugPrint('PrintService: No bill printer configured for cash drawer');
+      return failed;
+    }
+
+    const printerLabel = 'Cash drawer (bill printer)';
+    try {
+      final profile = await CapabilityProfile.load();
+      final generator = Generator(PaperSize.mm80, profile);
+      final bytes = generator.drawer(pin: pin);
+      final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
+      await _sendToPrinter(
+        address: address,
+        port: billPrinter.printerPort,
+        bytes: bytes,
+        printerLabel: printerLabel,
+        connectionType: connType,
+        vendorId: vendorId,
+        productId: productId,
+      );
+    } catch (e, st) {
+      debugPrint('PrintService: Cash drawer failed [$printerLabel]: $e');
+      debugPrint('PrintService: stack trace:\n$st');
+      failed.add(printerLabel);
+    }
+    return failed;
+  }
+
   /// Prints a compact day-closing report to the bill printer.
   Future<List<String>> printDayClosingReport({
     required String title,
@@ -209,7 +241,9 @@ class PrintService {
       }
 
       lines.add(_PrintLine(
-        itemName: _sanitize(item?.name ?? 'Unknown'),
+        itemName: _sanitize(
+          ci.itemName.isNotEmpty ? ci.itemName : (item?.name ?? 'Unknown'),
+        ),
         variantName: variant?.name != null ? _sanitize(variant!.name) : null,
         toppingInfo: toppingInfo?.isNotEmpty == true ? _sanitize(toppingInfo!) : null,
         quantity: ci.quantity,
@@ -230,10 +264,35 @@ class PrintService {
       if (decoded is List) {
         return decoded.cast<Map<String, dynamic>>();
       }
+      if (decoded is Map) {
+        final t = decoded['toppings'];
+        if (t is List) {
+          return t.cast<Map<String, dynamic>>();
+        }
+      }
       return null;
     } catch (_) {
       return null;
     }
+  }
+
+  String? _lineNoteFromCartNotes(String? notes) {
+    if (notes == null || notes.isEmpty) return null;
+    final t = notes.trimLeft();
+    if (t.startsWith('[')) return null;
+    if (t.startsWith('{')) {
+      try {
+        final d = jsonDecode(notes);
+        if (d is Map) {
+          final n = d['lineNote'];
+          if (n is String && n.trim().isNotEmpty) return n.trim();
+        }
+      } catch (_) {
+        return null;
+      }
+      return null;
+    }
+    return notes.trim();
   }
 
   Future<List<int>> _generateKOTTicket({
@@ -274,14 +333,9 @@ class PrintService {
         PosColumn(text: _sanitize('${line.quantity}x $name'), width: 8),
         PosColumn(text: '$_currency${line.total.toStringAsFixed(0)}', width: 4),
       ]);
-      // Show free-text note only if notes is not JSON (toppings stored as JSON)
-      if (line.notes != null && line.notes!.isNotEmpty) {
-        try {
-          jsonDecode(line.notes!);
-          // It's JSON (toppings), already shown in toppingInfo
-        } catch (_) {
-          bytes += generator.text('  Note: ${_sanitize(line.notes!)}');
-        }
+      final lineNote = _lineNoteFromCartNotes(line.notes);
+      if (lineNote != null && lineNote.isNotEmpty) {
+        bytes += generator.text('  Note: ${_sanitize(lineNote)}');
       }
     }
 
@@ -313,13 +367,30 @@ class PrintService {
       caption,
       styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2),
     );
+    final session = await _db.sessionDao.getActiveSession();
+    final branch = session == null ? null : await _db.branchesDao.getBranchById(session.branchId);
     if (RuntimeAppSettings.printBranchNameInBillEnabled) {
-      final session = await _db.sessionDao.getActiveSession();
-      final branch = session == null ? null : await _db.branchesDao.getBranchById(session.branchId);
       if (branch != null && branch.branchName.trim().isNotEmpty) {
         bytes += generator.text(
           _sanitize(branch.branchName.trim()),
           styles: const PosStyles(align: PosAlign.center, bold: true),
+        );
+      }
+    }
+    if (branch != null) {
+      final trn = (branch.trnNumber ?? '').toString().trim();
+      if (trn.isNotEmpty) {
+        bytes += generator.text(
+          'TRN: ${_sanitize(trn)}',
+          styles: const PosStyles(align: PosAlign.center),
+        );
+      }
+      final vatMode = branch.vat.trim().toLowerCase();
+      final vatPercent = branch.vatPercent;
+      if (vatMode != 'no_vat' && vatPercent != null) {
+        bytes += generator.text(
+          'VAT: ${vatPercent.toStringAsFixed(2)}%',
+          styles: const PosStyles(align: PosAlign.center),
         );
       }
     }

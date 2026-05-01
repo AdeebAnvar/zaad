@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/constants/colors.dart';
@@ -7,6 +5,7 @@ import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
+import 'package:pos/presentation/widgets/catalog_item_image.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 
@@ -14,6 +13,7 @@ class ItemVariantDialog extends StatefulWidget {
   final Item item;
   final List<ItemVariant> variants;
   final List<ItemTopping> toppings;
+  final List<ToppingGroup> toppingGroups;
   final BuildContext parentContext;
 
   const ItemVariantDialog({
@@ -21,6 +21,7 @@ class ItemVariantDialog extends StatefulWidget {
     required this.item,
     required this.variants,
     required this.toppings,
+    required this.toppingGroups,
     required this.parentContext,
   });
 
@@ -110,12 +111,7 @@ class _ItemVariantDialogState extends State<ItemVariantDialog> {
         borderRadius: BorderRadius.circular(14),
       ),
       clipBehavior: Clip.antiAlias,
-      child: widget.item.localImagePath != null && widget.item.localImagePath!.isNotEmpty
-          ? Image.file(
-              File(widget.item.localImagePath!),
-              fit: BoxFit.cover,
-            )
-          : const Icon(Icons.fastfood, size: 40, color: Colors.grey),
+      child: CatalogItemImage(item: widget.item, fit: BoxFit.cover),
     );
   }
 

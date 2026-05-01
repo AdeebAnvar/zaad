@@ -5,12 +5,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 class DioClient {
   static Dio? _dio;
 
-  static Future<Dio> getInstance() async {
+  static Future<Dio> getInstance({String? overrideBaseUrl}) async {
     _dio ??= Dio();
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String baseUrl = prefs.getString('baseUrl') ?? "";
-    _dio!.options.baseUrl = baseUrl;
-
+    if (overrideBaseUrl != null) {
+      _dio!.options.baseUrl = overrideBaseUrl;
+    } else {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String baseUrl = prefs.getString('baseUrl') ?? "";
+      _dio!.options.baseUrl = baseUrl;
+    }
+    _dio!.options.headers = {'X-Auth-Key': 'd0ff75bf-77e6-4032-a7d4-9061ddd89752'};
     _dio!.options.connectTimeout = const Duration(seconds: 30);
     _dio!.options.receiveTimeout = const Duration(seconds: 30);
 

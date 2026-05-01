@@ -109,7 +109,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
       image: Value(b.image),
       installationDate: Value(b.installationDate),
       expiryDate: Value(b.expiryDate),
-      openingCash: Value(b.openingCash),
+      openingCash: Value(b.openingCash ?? 0),
       localImage: Value(localImage ?? ""),
     );
   }

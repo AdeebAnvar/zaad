@@ -1,6 +1,6 @@
-import 'dart:math' show pi;
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/navigation.dart';
@@ -8,6 +8,7 @@ import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
+import 'package:pos/data/repository/push_records_repository.dart';
 
 class AutoSyncScreen extends StatefulWidget {
   const AutoSyncScreen({
@@ -21,11 +22,14 @@ class AutoSyncScreen extends StatefulWidget {
   State<AutoSyncScreen> createState() => _AutoSyncScreenState();
 }
 
-class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProviderStateMixin {
+class _AutoSyncScreenState extends State<AutoSyncScreen> {
   StreamSubscription<PullSyncProgress>? _progressSub;
+  Timer? _pushProgressTimer;
 
   String message = 'Preparing sync...';
-  double progress = 0;
+  double pullProgress = 0;
+  double pushProgress = 0;
+  bool _pushPhase = false;
 
   @override
   void initState() {
@@ -33,12 +37,26 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProvid
     WidgetsBinding.instance.addPostFrameCallback((_) => _startSync());
   }
 
+  void _startPushProgressTicker() {
+    _pushProgressTimer?.cancel();
+    _pushProgressTimer = Timer.periodic(const Duration(milliseconds: 140), (_) {
+      if (!mounted) return;
+      setState(() {
+        if (pushProgress < 0.92) {
+          pushProgress = (pushProgress + 0.035).clamp(0.0, 0.92);
+        }
+      });
+    });
+  }
+
   Future<void> _startSync() async {
     final repo = locator<PullDataRepository>();
 
     setState(() {
       message = 'Pulling data from server...';
-      progress = 0.0;
+      pullProgress = 0.0;
+      pushProgress = 0.0;
+      _pushPhase = false;
     });
 
     _progressSub = repo.progressStream.listen((e) {
@@ -47,11 +65,11 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProvid
       final total = e.total <= 0 ? 1 : e.total;
       final target = (e.current / total).clamp(0.0, 1.0);
 
-      final p = target > progress ? target : (target < 1.0 ? (progress + 0.003).clamp(0.0, 0.98) : 1.0);
+      final p = target > pullProgress ? target : (target < 1.0 ? (pullProgress + 0.003).clamp(0.0, 0.98) : 1.0);
 
       setState(() {
         message = e.message;
-        progress = p;
+        pullProgress = p;
       });
     });
 
@@ -60,22 +78,52 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProvid
       await AppSettingsPrefs.setLastManualSyncAt(DateTime.now());
       await RuntimeAppSettings.refreshFromLocalSettings();
 
+      if (mounted) {
+        setState(() {
+          pullProgress = 1.0;
+          _pushPhase = true;
+          message = 'Pushing sales to server...';
+          pushProgress = 0.0;
+        });
+      } else if (kDebugMode) {
+        debugPrint('[auto_sync] widget not mounted before push — still calling push_records');
+      }
+
+      _startPushProgressTicker();
+
+      final pushOut = await locator<PushRecordsRepository>().pushSalesAndCreditSalesFromLocal();
+      _pushProgressTimer?.cancel();
+      _pushProgressTimer = null;
+
+      if (kDebugMode) {
+        debugPrint(
+          '[auto_sync] push outcome ok=${pushOut.ok} orders=${pushOut.ordersPosted} http=${pushOut.httpStatus}',
+        );
+      }
+
       if (!mounted) return;
 
       setState(() {
-        message = 'Sync completed';
-        progress = 1.0;
+        pushProgress = 1.0;
+        message = !pushOut.ok
+            ? 'Pull OK · push failed (${pushOut.message})'
+            : pushOut.ordersPosted <= 0
+                ? 'Sync completed · push OK (no pending sales)'
+                : 'Sync completed · pushed ${pushOut.ordersPosted} sale(s)';
       });
 
       await Future.delayed(const Duration(milliseconds: 600));
 
       if (mounted) await _goToDashboard();
     } catch (e) {
+      _pushProgressTimer?.cancel();
+      _pushProgressTimer = null;
       if (!mounted) return;
 
       setState(() {
         message = 'Sync failed: $e';
-        progress = 0;
+        pullProgress = _pushPhase ? 1.0 : pullProgress;
+        pushProgress = _pushPhase ? pushProgress : 0.0;
       });
 
       await Future.delayed(const Duration(seconds: 2));
@@ -84,12 +132,14 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProvid
     } finally {
       await _progressSub?.cancel();
       _progressSub = null;
+      _pushProgressTimer?.cancel();
+      _pushProgressTimer = null;
     }
   }
 
   Future<void> _goToDashboard() async {
     if (widget.goToDashboardOnComplete) {
-      AppNavigator.pushReplacementNamed("/dashboard");
+      AppNavigator.pushReplacementNamed('/dashboard');
       return;
     }
     AppNavigator.pop();
@@ -98,11 +148,14 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProvid
   @override
   void dispose() {
     _progressSub?.cancel();
+    _pushProgressTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -121,7 +174,12 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProvid
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _AnimatedCardLoader(progress: progress),
+                _SyncProgressCard(
+                  primary: primary,
+                  pullProgress: pullProgress,
+                  pushProgress: pushProgress,
+                  pushStarted: _pushPhase,
+                ),
                 const SizedBox(height: 28),
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 400),
@@ -149,106 +207,104 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> with SingleTickerProvid
   }
 }
 
-class _AnimatedCardLoader extends StatelessWidget {
-  final double progress;
+class _SyncProgressCard extends StatelessWidget {
+  const _SyncProgressCard({
+    required this.primary,
+    required this.pullProgress,
+    required this.pushProgress,
+    required this.pushStarted,
+  });
 
-  const _AnimatedCardLoader({required this.progress});
+  final Color primary;
+  final double pullProgress;
+  final double pushProgress;
+  final bool pushStarted;
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(maxWidth: 440),
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.9),
+        color: Colors.white.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
             blurRadius: 30,
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: ModernSyncLoader(progress: progress),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.cloud_sync_rounded, size: 40, color: primary),
+          const SizedBox(height: 20),
+          _SyncLinearBar(
+            label: 'Pull',
+            value: pullProgress.clamp(0.0, 1.0),
+            active: true,
+            color: primary,
+          ),
+          const SizedBox(height: 22),
+          _SyncLinearBar(
+            label: 'Push',
+            value: pushProgress.clamp(0.0, 1.0),
+            active: pushStarted,
+            color: primary,
+          ),
+        ],
+      ),
     );
   }
 }
 
-class ModernSyncLoader extends StatefulWidget {
-  final double progress;
+class _SyncLinearBar extends StatelessWidget {
+  const _SyncLinearBar({
+    required this.label,
+    required this.value,
+    required this.active,
+    required this.color,
+  });
 
-  const ModernSyncLoader({super.key, required this.progress});
-
-  @override
-  State<ModernSyncLoader> createState() => _ModernSyncLoaderState();
-}
-
-class _ModernSyncLoaderState extends State<ModernSyncLoader> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  final String label;
+  final double value;
+  final bool active;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final pct = active ? '${(value * 100).round()}%' : '—';
+    final trackColor = Colors.grey.shade200;
+    final barColor = active ? color : Colors.grey.shade400;
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        AnimatedBuilder(
-          animation: _controller,
-          builder: (_, __) {
-            return Transform.rotate(
-              angle: _controller.value * 2 * pi,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 120,
-                    height: 120,
-                    child: CircularProgressIndicator(
-                      value: widget.progress,
-                      strokeWidth: 6,
-                      backgroundColor: Colors.grey.shade200,
-                      valueColor: AlwaysStoppedAnimation(primary),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: primary.withOpacity(0.1),
-                    ),
-                    child: Icon(
-                      Icons.cloud_sync_rounded,
-                      size: 32,
-                      color: primary,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: active ? null : Colors.grey.shade600),
+            ),
+            Text(
+              pct,
+              style: AppStyles.getBoldTextStyle(fontSize: 14, color: active ? null : Colors.grey.shade500),
+            ),
+          ],
         ),
-        const SizedBox(height: 16),
-        TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0, end: widget.progress),
-          duration: const Duration(milliseconds: 300),
-          builder: (_, value, __) {
-            return Text(
-              '${(value * 100).toInt()}%',
-              style: AppStyles.getBoldTextStyle(fontSize: 20),
-            );
-          },
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: LinearProgressIndicator(
+            value: active ? value : 0,
+            minHeight: 10,
+            backgroundColor: trackColor,
+            color: barColor,
+          ),
         ),
       ],
     );

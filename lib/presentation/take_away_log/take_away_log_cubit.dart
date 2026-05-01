@@ -32,6 +32,7 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
     String? status,
     DateTime? startDate,
     DateTime? endDate,
+    int? userId,
   }) async {
     emit(TakeAwayLogLoading());
     try {
@@ -42,6 +43,7 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
         orderType: 'take_away',
         startDate: startDate,
         endDate: endDate,
+        userId: userId,
       );
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where((o) => o.status == 'kot').toList();

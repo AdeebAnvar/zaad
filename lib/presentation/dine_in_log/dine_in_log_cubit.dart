@@ -24,8 +24,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     try {
       final orders = await orderRepo.filterOrders(orderType: 'dine_in');
       // Show KOT + paid + other active; exclude cancelled (same idea as floor + history).
-      final visible = orders.where((o) => o.status != 'cancelled').toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final visible = orders.where((o) => o.status != 'cancelled').toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       final cartIds = visible.map((o) => o.cartId).toSet().toList();
       final counts = await cartRepo.countCartItemsByCartIds(cartIds);
       emit(DineInLogLoaded(visible, counts));
@@ -42,6 +41,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     String? status,
     DateTime? startDate,
     DateTime? endDate,
+    int? userId,
   }) async {
     emit(DineInLogLoading());
     try {
@@ -52,6 +52,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         orderType: 'dine_in',
         startDate: startDate,
         endDate: endDate,
+        userId: userId,
       );
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where((o) => o.status != 'cancelled').toList();
@@ -94,8 +95,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     }
   }
 
-  double _sumLineTotals(List<CartItem> items) =>
-      items.fold<double>(0, (sum, e) => sum + e.total);
+  double _sumLineTotals(List<CartItem> items) => items.fold<double>(0, (sum, e) => sum + e.total);
 
   Future<void> _syncOrderTotalsFromCart(Order order) async {
     final items = await cartRepo.getCartItemsByCartId(order.cartId) ?? [];
@@ -163,6 +163,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         deliveryPartner: null,
         driverId: null,
         driverName: null,
+        userId: source.userId,
       );
       await orderRepo.createOrder(newOrder);
 

@@ -7,7 +7,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
   final AppDatabase db;
   SettingsRepositoryImpl(this.db);
   @override
-  void saveSettingsToLocal(SettingsModel settingsModel) async {
+  Future<void> saveSettingsToLocal(SettingsModel settingsModel) async {
     await db.delete(db.settings).go();
 
     await db.settingsDao.saveSettings(settingsModel);

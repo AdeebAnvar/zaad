@@ -1,6 +1,9 @@
 // To parse this JSON data, do
 //
 //     final companyData = companyDataFromJson(jsonString);
+// To parse this JSON data, do
+//
+//     final companyDataModel = companyDataModelFromJson(jsonString);
 
 import 'dart:convert';
 
@@ -8,9 +11,9 @@ import 'package:pos/domain/models/branch_model.dart';
 import 'package:pos/domain/models/settings_model.dart';
 import 'package:pos/domain/models/user_model.dart';
 
-CompanyDataModel companyDataFromJson(String str) => CompanyDataModel.fromJson(json.decode(str));
+CompanyDataModel companyDataModelFromJson(String str) => CompanyDataModel.fromJson(json.decode(str));
 
-String companyDataToJson(CompanyDataModel data) => json.encode(data.toJson());
+String companyDataModelToJson(CompanyDataModel data) => json.encode(data.toJson());
 
 class CompanyDataModel {
   final bool success;

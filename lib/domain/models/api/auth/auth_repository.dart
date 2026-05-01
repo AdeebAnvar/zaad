@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import 'package:http/http.dart';
 import 'package:pos/domain/models/api/auth/auth_api.dart';
 import 'package:pos/domain/models/company_Data.dart';
 
@@ -9,9 +8,15 @@ class AuthRepository {
   final AuthApi api;
 
   AuthRepository(this.api);
+
+  Future<String?> getSavedBaseUrl() => api.getSavedBaseUrl();
+
   Future<CompanyDataModel> connectToServer(String code) async {
     try {
-      await api.getBaseUrl(code);
+      final connectMessage = await api.getBaseUrl(code);
+      if (connectMessage != null && connectMessage.isNotEmpty) {
+        throw NetworkExceptions(connectMessage);
+      }
 
       final response = await api.getCompanyData();
 

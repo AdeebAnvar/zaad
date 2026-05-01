@@ -9,12 +9,11 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_actions.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_cubit.dart';
-import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
+import 'package:pos/presentation/widgets/order_log_user_filter_autocomplete.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
-import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class RecentSalesScreen extends StatelessWidget {
@@ -149,7 +148,7 @@ class _FilterBarState extends State<_FilterBar> {
   final _invoiceController = TextEditingController();
   final _referenceController = TextEditingController();
   final _usersController = TextEditingController();
-  final List<String> _userOptions = ['All users', 'User 1', 'User 2'];
+  int? _filterUserId;
 
   @override
   void dispose() {
@@ -164,6 +163,7 @@ class _FilterBarState extends State<_FilterBar> {
     cubit.filterOrders(
       invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
       referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
+      userId: _filterUserId,
     );
   }
 
@@ -172,6 +172,7 @@ class _FilterBarState extends State<_FilterBar> {
       _invoiceController.clear();
       _referenceController.clear();
       _usersController.clear();
+      _filterUserId = null;
     });
     context.read<RecentSalesCubit>().loadOrders();
   }
@@ -186,8 +187,8 @@ class _FilterBarState extends State<_FilterBar> {
           subtitle: 'Receipt No, Reference No, and Users',
           icon: Icons.receipt_long_outlined,
           body: Wrap(
-            spacing: 12,
-            runSpacing: 12,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               SizedBox(
                 width: m.fieldWidth,
@@ -207,25 +208,20 @@ class _FilterBarState extends State<_FilterBar> {
               ),
               SizedBox(
                 width: m.compactFieldWidth,
-                child: AutoCompleteTextField<String>(
-                  defaultText: 'All users',
-                  labelText: 'Users',
-                  displayStringFunction: (v) => v,
-                  items: _userOptions,
-                  onSelected: (v) {
-                    setState(() => _usersController.text = v);
+                child: OrderLogUserFilterAutocomplete(
+                  controller: _usersController,
+                  onSelectedUserId: (id) {
+                    setState(() => _filterUserId = id);
                     _applyFilters();
                   },
-                  onChanged: (_) => _applyFilters(),
-                  controller: _usersController,
                 ),
               ),
               SizedBox(
-                width: 42,
+                width: 34,
                 child: IconButton(
                   tooltip: 'Clear all',
                   onPressed: _clearFilters,
-                  icon: const Icon(Icons.close_rounded),
+                  icon: const Icon(Icons.close_rounded, size: 18),
                 ),
               ),
             ],
@@ -323,9 +319,7 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                         DataCell(Text(order.referenceNumber?.isNotEmpty == true ? order.referenceNumber! : '—')),
                         DataCell(
                           Text(
-                            order.customerName?.isNotEmpty == true
-                                ? order.customerName!
-                                : (order.customerPhone ?? '—'),
+                            order.customerName?.isNotEmpty == true ? order.customerName! : (order.customerPhone ?? '—'),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -370,16 +364,6 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                                   context,
                                   order,
                                   onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.payments_outlined, size: 20),
-                                color: AppColors.primaryColor,
-                                tooltip: 'Pay',
-                                onPressed: () => showCartStylePaymentDialogForOrder(
-                                  context,
-                                  order: order,
-                                  onPaymentRecorded: () => context.read<RecentSalesCubit>().refreshOrders(),
                                 ),
                               ),
                             ],
@@ -528,10 +512,7 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
           children: [
             _infoBlock('Receipt No', order.invoiceNumber),
             const SizedBox(width: 24),
-            if (key == 'delivery')
-              _infoBlock('Partner', order.deliveryPartner ?? '—')
-            else
-              _infoBlock('Ref. / Table', order.referenceNumber ?? '—'),
+            if (key == 'delivery') _infoBlock('Partner', order.deliveryPartner ?? '—') else _infoBlock('Ref. / Table', order.referenceNumber ?? '—'),
           ],
         ),
         if (order.driverName != null && order.driverName!.isNotEmpty) ...[
@@ -624,19 +605,10 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
           Icons.edit_outlined,
           tooltip: 'Edit',
           onTap: () => openRecentSaleForEdit(
-                context,
-                order,
-                onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
-              ),
-        ),
-        _icon(
-          Icons.payments_outlined,
-          tooltip: 'Pay',
-          onTap: () => showCartStylePaymentDialogForOrder(
-                context,
-                order: order,
-                onPaymentRecorded: () => context.read<RecentSalesCubit>().refreshOrders(),
-              ),
+            context,
+            order,
+            onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+          ),
         ),
       ],
     );

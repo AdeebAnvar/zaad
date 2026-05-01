@@ -67,7 +67,9 @@ class ItemToppings extends Table {
   TextColumn get name => text()();
   RealColumn get price => real()();
   IntColumn get maxQty => integer().withDefault(const Constant(1))();
-  IntColumn get maximum => integer().nullable()(); // Maximum total toppings allowed for the item
+  IntColumn get maximum => integer().nullable()(); // Synthetic group id: itemId*100000 + categoryId
+  /// From API `toppings.toppings_category_id` (when [maximum] is missing, dialog still groups by category).
+  IntColumn get toppingsCategoryId => integer().nullable()();
 
   @override
   List<Set<Column>> get uniqueKeys => [
@@ -142,10 +144,6 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
 
   /// Insert OR update stock if SKU exists
   Future<void> upsertItem(ItemsCompanion data) async {
-    print('''===============
-    ${data.toColumns(true)}
-    
-     ''');
     await into(items).insertOnConflictUpdate(data);
   }
 
@@ -184,6 +182,10 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
     return (select(itemVariants)..where((v) => v.itemId.equals(itemId))).get();
   }
 
+  Future<void> deleteVariantsByItem(int itemId) async {
+    await (delete(itemVariants)..where((v) => v.itemId.equals(itemId))).go();
+  }
+
   Future<ItemVariant?> getVariantById(int variantId) {
     return (select(itemVariants)..where((v) => v.id.equals(variantId))).getSingleOrNull();
   }
@@ -209,6 +211,8 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
           name: data.name,
           price: data.price,
           maxQty: data.maxQty,
+          maximum: data.maximum,
+          toppingsCategoryId: data.toppingsCategoryId,
         ),
       );
     } else {
@@ -221,6 +225,10 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
     return (select(itemToppings)..where((t) => t.itemId.equals(itemId))).get();
   }
 
+  Future<void> deleteToppingsByItem(int itemId) async {
+    await (delete(itemToppings)..where((t) => t.itemId.equals(itemId))).go();
+  }
+
   Future<ItemTopping?> getToppingById(int toppingId) {
     return (select(itemToppings)..where((t) => t.id.equals(toppingId))).getSingleOrNull();
   }
@@ -229,5 +237,13 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
 
   Future<List<ToppingGroup>> getToppingGroups(int itemId) {
     return (select(toppingGroups)..where((g) => g.itemId.equals(itemId))).get();
+  }
+
+  Future<void> upsertToppingGroup(ToppingGroupsCompanion data) async {
+    await into(toppingGroups).insertOnConflictUpdate(data);
+  }
+
+  Future<void> deleteToppingGroupsByItem(int itemId) async {
+    await (delete(toppingGroups)..where((g) => g.itemId.equals(itemId))).go();
   }
 }

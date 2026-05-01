@@ -91,6 +91,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (state is LoginSuccess) {
       LoaderOverlay.hide();
+      if ((state.expiryWarning ?? '').isNotEmpty) {
+        CustomSnackBar.showWarning(message: state.expiryWarning!);
+      }
+
+      if (state.showExpiryPopup) {
+        _showExpiryWarningDialog(state).then((_) {
+          AppNavigator.pushReplacementNamed(
+            "/auto_sync_screen",
+            args: state.user,
+          );
+        });
+        return;
+      }
 
       AppNavigator.pushReplacementNamed(
         "/auto_sync_screen",
@@ -234,7 +247,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _openServerDialog() {
     final controller = TextEditingController();
-
+    if (kDebugMode) {
+      controller.text = 'R3M2KZ';
+    }
     CustomDialog.showResponsiveDialog(
       context,
       Column(
@@ -273,6 +288,71 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _showExpiryWarningDialog(LoginSuccess state) {
+    final isCritical = (state.expiryDaysLeft ?? 99) <= 5;
+    final accent = isCritical ? const Color(0xFFC62828) : const Color(0xFFF9A825);
+    final bg = isCritical ? const Color(0xFFFFEBEE) : const Color(0xFFFFF8E1);
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            width: 420,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: accent.withValues(alpha: 0.35)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: accent, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Subscription Warning',
+                          style: AppStyles.getSemiBoldTextStyle(fontSize: 16, color: accent),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  state.expiryWarning ?? 'Subscription is near expiry.',
+                  style: AppStyles.getRegularTextStyle(
+                    fontSize: 13,
+                    color: AppColors.textColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 40,
+                  child: CustomButton(
+                    text: 'OK',
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

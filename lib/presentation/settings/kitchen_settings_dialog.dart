@@ -484,7 +484,7 @@ class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
           Align(
             alignment: Alignment.centerRight,
             child: CustomButton(
-              width: isDesktop ? 120 : 110,
+              width: 80,
               text: 'Save',
               onPressed: widget.onSave,
             ),

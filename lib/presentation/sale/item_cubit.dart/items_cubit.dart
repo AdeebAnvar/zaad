@@ -74,6 +74,10 @@ class ItemsCubit extends Cubit<ItemState> {
   Future<List<ItemTopping>> getToppings(int itemId) {
     return _repo.fetchToppingsByItem(itemId);
   }
+
+  Future<List<ToppingGroup>> getToppingGroups(int itemId) {
+    return _repo.fetchToppingGroups(itemId);
+  }
 }
 
 extension ItemUiX on Item {

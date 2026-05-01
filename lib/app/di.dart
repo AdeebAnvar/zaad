@@ -1,4 +1,5 @@
 import 'package:get_it/get_it.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/services/backup_service.dart';
 import 'package:pos/data/repository/branch_repository.dart';
@@ -23,8 +24,11 @@ import 'package:pos/data/repository_impl/settings_repository_impl.dart';
 import 'package:pos/domain/models/api/auth/auth_api.dart';
 import 'package:pos/domain/models/api/auth/auth_repository.dart';
 import 'package:pos/presentation/login/login_screen_cubit.dart';
+import 'package:pos/core/sync/outbound_push_coordinator.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
+import 'package:pos/data/repository/push_records_repository.dart';
 import 'package:pos/data/repository_impl/pull_data_repository_impl.dart';
+import 'package:pos/data/repository_impl/push_records_repository_impl.dart';
 import 'package:pos/domain/models/api/sync/sync_api.dart';
 
 import '../data/local/drift_database.dart';
@@ -41,6 +45,9 @@ class ZaadDI {
       final db = AppDatabase();
       locator.registerSingleton<AppDatabase>(db);
       BackupService.instance.startAutoBackup(db);
+    }
+    if (!locator.isRegistered<CurrentCounterSession>()) {
+      locator.registerSingleton<CurrentCounterSession>(CurrentCounterSession());
     }
 
     // ---------- REPOSITORIES ----------
@@ -112,6 +119,26 @@ class ZaadDI {
         ),
       );
     }
+    if (!locator.isRegistered<PushRecordsRepository>()) {
+      locator.registerLazySingleton<PushRecordsRepository>(
+        () => PushRecordsRepositoryImpl(
+          locator<AppDatabase>(),
+          locator<SyncApi>(),
+        ),
+      );
+    }
+    if (!locator.isRegistered<OutboundPushCoordinator>()) {
+      locator.registerLazySingleton<OutboundPushCoordinator>(
+        () {
+          final c = OutboundPushCoordinator(
+            locator<PushRecordsRepository>(),
+            locator<AppDatabase>(),
+          );
+          c.ensureListening();
+          return c;
+        },
+      );
+    }
     if (!locator.isRegistered<AuthRepository>()) {
       locator.registerLazySingleton<AuthRepository>(
         () => AuthRepository(locator<AuthApi>()),
@@ -135,5 +162,8 @@ class ZaadDI {
         ),
       );
     }
+
+    // Connectivity listener + flush pending unsynced logs when the app starts online.
+    locator<OutboundPushCoordinator>().scheduleFlush();
   }
 }

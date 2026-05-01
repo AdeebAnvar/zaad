@@ -36,6 +36,10 @@ class PullDataRepositoryImpl implements PullDataRepository {
   final AppDatabase _db;
   final SyncApi _api;
   final StreamController<PullSyncProgress> _progressController = StreamController<PullSyncProgress>.broadcast();
+  final Map<int, ToppingCategoriesCreatedUpdated> _toppingLookupById = <int, ToppingCategoriesCreatedUpdated>{};
+  final Map<int, ToppingCategoriesCreatedUpdated> _toppingCategoryLookupById = <int, ToppingCategoriesCreatedUpdated>{};
+  final Map<int, VariationsCreatedUpdated> _variationLookupById = <int, VariationsCreatedUpdated>{};
+  final Map<int, VariationOptionsCreatedUpdated> _variationOptionLookupById = <int, VariationOptionsCreatedUpdated>{};
 
   @override
   Stream<PullSyncProgress> get progressStream => _progressController.stream;
@@ -568,6 +572,122 @@ class PullDataRepositoryImpl implements PullDataRepository {
     return jsonEncode(t);
   }
 
+  List<int> _parseIntIds(dynamic raw) {
+    if (raw == null) return const <int>[];
+    if (raw is int) return <int>[raw];
+    if (raw is List) {
+      return raw
+          .map((e) => int.tryParse(e.toString()))
+          .whereType<int>()
+          .toSet()
+          .toList();
+    }
+    final text = raw.toString().trim();
+    if (text.isEmpty) return const <int>[];
+    if (text.startsWith('[') && text.endsWith(']')) {
+      try {
+        final decoded = jsonDecode(text);
+        if (decoded is List) {
+          return decoded
+              .map((e) => int.tryParse(e.toString()))
+              .whereType<int>()
+              .toSet()
+              .toList();
+        }
+      } catch (_) {}
+    }
+    return text
+        .split(',')
+        .map((e) => int.tryParse(e.trim()))
+        .whereType<int>()
+        .toSet()
+        .toList();
+  }
+
+  List<int> _parseToppingIds(dynamic raw) => _parseIntIds(raw);
+
+  /// [item.topping_ids] from the API are **topping category** ids when the same
+  /// id exists in the [toppingCategories] pull. In that case we attach
+  /// every topping whose [ToppingCategoriesCreatedUpdated.toppingsCategoryId]
+  /// matches. Otherwise the id is treated as a single global **topping** id
+  /// from the [toppings] list (legacy).
+  Future<void> _applyItemToppingIds(
+    int itemId,
+    List<int> itemToppingOrCategoryIds,
+    Map<int, ({String name, int min, int max})> groupsByCategory,
+  ) async {
+    for (final rawId in itemToppingOrCategoryIds) {
+      if (_toppingCategoryLookupById[rawId] != null) {
+        final category = _toppingCategoryLookupById[rawId]!;
+        var minG = category.minSelect ?? 0;
+        var maxG = category.maxSelect ?? 0;
+        if (maxG > 0 && minG > maxG) {
+          minG = maxG;
+        }
+        final categoryName = category.name.trim().isNotEmpty ? category.name.trim() : 'Group $rawId';
+        groupsByCategory[rawId] = (name: categoryName, min: minG, max: maxG);
+
+        for (final top in _toppingLookupById.values) {
+          if (top.toppingsCategoryId != rawId) continue;
+          await _upsertPulledToppingForItem(itemId, top, groupsByCategory);
+        }
+      } else {
+        final top = _toppingLookupById[rawId];
+        if (top == null) continue;
+        await _upsertPulledToppingForItem(itemId, top, groupsByCategory);
+      }
+    }
+  }
+
+  Future<void> _upsertPulledToppingForItem(
+    int itemId,
+    ToppingCategoriesCreatedUpdated top,
+    Map<int, ({String name, int min, int max})> groupsByCategory,
+  ) async {
+    final parsedPrice = double.tryParse((top.price ?? '').toString()) ?? 0.0;
+    final categoryId = top.toppingsCategoryId;
+    final groupId = categoryId == null ? null : (itemId * 100000) + categoryId;
+    await _db.itemDao.upsertTopping(
+      ItemToppingsCompanion.insert(
+        itemId: itemId,
+        name: top.name,
+        price: parsedPrice,
+        maxQty: Value(top.maxSelect ?? 1),
+        maximum: Value(groupId),
+        toppingsCategoryId: Value(categoryId),
+      ),
+    );
+
+    if (categoryId != null) {
+      final category = _toppingCategoryLookupById[categoryId];
+      final categoryName = (category?.name ?? '').trim().isNotEmpty ? category!.name.trim() : 'Group $categoryId';
+      var minG = category?.minSelect ?? 0;
+      var maxG = category?.maxSelect ?? 0;
+      if (maxG > 0 && minG > maxG) {
+        minG = maxG;
+      }
+      groupsByCategory[categoryId] = (name: categoryName, min: minG, max: maxG);
+    }
+  }
+
+  String _variantNameFromOptionIds(List<int> optionIds) {
+    if (optionIds.isEmpty) return '';
+    final parts = <String>[];
+    for (final optionId in optionIds) {
+      final option = _variationOptionLookupById[optionId];
+      if (option == null) continue;
+      final variationName = _variationLookupById[option.variationId]?.name;
+      final optionName = option.option.trim();
+      if (optionName.isEmpty) continue;
+      if (variationName != null && variationName.trim().isNotEmpty) {
+        parts.add('${variationName.trim()}: $optionName');
+      } else {
+        parts.add(optionName);
+      }
+    }
+    return parts.join(' / ');
+  }
+
   Future<void> _persistCategoryModel(
     CategoryModel r,
     String resourceKey, {
@@ -611,6 +731,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
     required bool alsoCategoriesTable,
   }) async {
     for (final c in r.createdUpdated) {
+      _variationLookupById[c.id] = c;
       await _db.pullDataDao.upsertPullCategory(
         PullCategoryRowsCompanion.insert(
           resourceKey: resourceKey,
@@ -634,6 +755,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
     required bool alsoCategoriesTable,
   }) async {
     for (final c in r.createdUpdated) {
+      _variationOptionLookupById[c.id] = c;
       await _db.pullDataDao.upsertPullCategory(
         PullCategoryRowsCompanion.insert(
           resourceKey: resourceKey,
@@ -657,6 +779,11 @@ class PullDataRepositoryImpl implements PullDataRepository {
     required bool alsoCategoriesTable,
   }) async {
     for (final c in r.createdUpdated) {
+      if (resourceKey == 'toppings') {
+        _toppingLookupById[c.id] = c;
+      } else if (resourceKey == 'toppingCategories') {
+        _toppingCategoryLookupById[c.id] = c;
+      }
       await _db.pullDataDao.upsertPullCategory(
         PullCategoryRowsCompanion.insert(
           resourceKey: resourceKey,
@@ -917,7 +1044,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
           price: firstPrice,
           stock: firstStock,
           stockEnabled: Value(stockOn),
-          localImagePath: const Value(null),
+          // Do not set localImagePath here — [Value(null)] was clearing downloaded files on every sync.
           imagePath: Value(e.image),
           categoryName: '',
           categoryOtherName: '',
@@ -929,17 +1056,53 @@ class PullDataRepositoryImpl implements PullDataRepository {
         ),
       );
 
+      // Rebuild per-item toppings and topping groups from pull item.topping_ids.
+      await _db.itemDao.deleteToppingsByItem(e.id);
+      await _db.itemDao.deleteToppingGroupsByItem(e.id);
+      final toppingIds = _parseToppingIds(e.toppingIds);
+      final groupsByCategory = <int, ({String name, int min, int max})>{};
+      await _applyItemToppingIds(e.id, toppingIds, groupsByCategory);
+      for (final entry in groupsByCategory.entries) {
+        final groupId = (e.id * 100000) + entry.key;
+        await _db.itemDao.upsertToppingGroup(
+          ToppingGroupsCompanion(
+            id: Value(groupId),
+            itemId: Value(e.id),
+            name: Value(entry.value.name),
+            min: Value(entry.value.min),
+            max: Value(entry.value.max),
+          ),
+        );
+      }
+
+      // Rebuild variants from both item_variations and itemprice variation_option_ids.
+      await _db.itemDao.deleteVariantsByItem(e.id);
+      final variantsByName = <String, double>{};
+
       for (final v in e.itemVariations) {
         if (v is! Map) continue;
         final vm = Map<String, dynamic>.from(v);
-        final vn = vm['name']?.toString() ?? 'Variant';
+        final vn = (vm['name']?.toString() ?? '').trim();
+        if (vn.isEmpty) continue;
         final rawP = vm['price'];
         final vp = rawP is num ? rawP.toDouble() : (double.tryParse('$rawP') ?? 0.0);
+        variantsByName[vn] = vp;
+      }
+
+      for (final ip in e.itemprice) {
+        final optionIds = _parseIntIds(ip.variationOptionIds);
+        final variantName = _variantNameFromOptionIds(optionIds).trim();
+        if (variantName.isNotEmpty) {
+          variantsByName[variantName] = ip.price;
+        }
+      }
+
+      for (final entry in variantsByName.entries) {
         await _db.itemDao.upsertVariant(
           ItemVariantsCompanion.insert(
             itemId: e.id,
-            name: vn,
-            price: vp,
+            name: entry.key,
+            price: entry.value,
           ),
         );
       }

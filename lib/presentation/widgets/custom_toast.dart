@@ -38,23 +38,37 @@ class CustomSnackBar {
     SnackBarPosition position = SnackBarPosition.top,
     VoidCallback? onVisible,
     BuildContext? context,
+    bool enableEntranceAnimation = true,
   }) {
     final overlayState = AppNavigator.navigatorKey.currentState?.overlay;
     _removeCurrentOverlay();
 
+    final icon = _icons[type] ?? Icons.notifications_active_outlined;
+    final background = _backgroundColors[type] ?? AppColors.primaryColor;
+    void dismiss() {
+      _removeCurrentOverlay();
+      onTap?.call();
+    }
+
     _currentOverlay = OverlayEntry(
-      builder: (context) => _AnimatedCornerToastOverlay(
-        message: message,
-        icon: _icons[type] ?? Icons.notifications_active_outlined,
-        background: _backgroundColors[type] ?? AppColors.primaryColor,
-        duration: duration,
-        width: width,
-        position: position,
-        onTap: () {
-          _removeCurrentOverlay();
-          onTap?.call();
-        },
-      ),
+      builder: (context) => enableEntranceAnimation
+          ? _AnimatedCornerToastOverlay(
+              message: message,
+              icon: icon,
+              background: background,
+              duration: duration,
+              width: width,
+              position: position,
+              onTap: dismiss,
+            )
+          : _StaticCornerToastOverlay(
+              message: message,
+              icon: icon,
+              background: background,
+              width: width,
+              position: position,
+              onTap: dismiss,
+            ),
     );
 
     overlayState?.insert(_currentOverlay!);
@@ -72,6 +86,7 @@ class CustomSnackBar {
     SnackBarPosition position = SnackBarPosition.bottom,
     VoidCallback? onVisible,
     BuildContext? context,
+    bool enableEntranceAnimation = true,
   }) {
     show(
       context: context ?? AppNavigator.navigatorKey.currentState!.context,
@@ -83,6 +98,7 @@ class CustomSnackBar {
       floating: floating,
       position: position,
       onVisible: onVisible,
+      enableEntranceAnimation: enableEntranceAnimation,
     );
   }
 
@@ -155,7 +171,7 @@ class CustomSnackBar {
     );
   }
 
-  /// Animated "Added to cart" confirmation (scale + fade).
+  /// "Added to cart" confirmation (no entrance animation; instant show).
   static void showAddedToCart({BuildContext? context}) {
     showSuccess(
       context: context,
@@ -163,6 +179,7 @@ class CustomSnackBar {
       duration: const Duration(milliseconds: 1800),
       floating: true,
       position: SnackBarPosition.top,
+      enableEntranceAnimation: false,
     );
   }
 
@@ -174,6 +191,113 @@ class CustomSnackBar {
       duration: const Duration(milliseconds: 1800),
       floating: true,
       position: SnackBarPosition.top,
+    );
+  }
+}
+
+/// Same layout as [_AnimatedCornerToastOverlay] but with no entrance animation.
+class _StaticCornerToastOverlay extends StatelessWidget {
+  const _StaticCornerToastOverlay({
+    required this.message,
+    required this.icon,
+    required this.background,
+    required this.position,
+    this.width,
+    this.onTap,
+  });
+
+  final String message;
+  final IconData icon;
+  final Color background;
+  final SnackBarPosition position;
+  final double? width;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isTop = position == SnackBarPosition.top;
+    final toastWidth = width ?? (MediaQuery.sizeOf(context).width < 560 ? 300.0 : 340.0);
+
+    return Positioned(
+      top: isTop ? 18 : null,
+      right: 18,
+      bottom: isTop ? null : 18,
+      child: SafeArea(
+        child: _CornerToastPill(
+          message: message,
+          icon: icon,
+          background: background,
+          width: toastWidth,
+          onTap: onTap,
+        ),
+      ),
+    );
+  }
+}
+
+class _CornerToastPill extends StatelessWidget {
+  const _CornerToastPill({
+    required this.message,
+    required this.icon,
+    required this.background,
+    required this.width,
+    this.onTap,
+  });
+
+  final String message;
+  final IconData icon;
+  final Color background;
+  final double width;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: width,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.18),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: Colors.white, size: 17),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -254,52 +378,12 @@ class _AnimatedCornerToastOverlayState extends State<_AnimatedCornerToastOverlay
                 position: _slide,
                 child: Transform.scale(
                   scale: _scale.value,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: GestureDetector(
-                      onTap: widget.onTap,
-                      child: Container(
-                        width: toastWidth,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                        decoration: BoxDecoration(
-                          color: widget.background,
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.18),
-                              blurRadius: 16,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 28,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(widget.icon, color: Colors.white, size: 17),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                widget.message,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                  child: _CornerToastPill(
+                    message: widget.message,
+                    icon: widget.icon,
+                    background: widget.background,
+                    width: toastWidth,
+                    onTap: widget.onTap,
                   ),
                 ),
               ),

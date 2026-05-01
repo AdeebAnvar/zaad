@@ -157,11 +157,11 @@ class _FilterPanelState extends State<_FilterPanel> {
                   },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.textColor,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
                     side: BorderSide(color: AppColors.divider.withValues(alpha: 0.9)),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: Text('Clear search', style: AppStyles.getMediumTextStyle(fontSize: 14)),
+                  child: Text('Clear search', style: AppStyles.getMediumTextStyle(fontSize: 12)),
                 )
               : Align(
                   alignment: Alignment.centerRight,
@@ -172,11 +172,11 @@ class _FilterPanelState extends State<_FilterPanel> {
                     },
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.textColor,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                       side: BorderSide(color: AppColors.divider.withValues(alpha: 0.9)),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: Text('Clear search', style: AppStyles.getMediumTextStyle(fontSize: 14)),
+                    child: Text('Clear search', style: AppStyles.getMediumTextStyle(fontSize: 12)),
                   ),
                 ),
         );

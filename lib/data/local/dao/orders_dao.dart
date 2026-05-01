@@ -29,6 +29,8 @@ class Orders extends Table {
   TextColumn get deliveryPartner => text().nullable()();
   IntColumn get driverId => integer().nullable().references(Drivers, #id)();
   TextColumn get driverName => text().nullable()();
+  /// Cashier / staff who created the order (from session at save time).
+  IntColumn get userId => integer().nullable().references(Users, #id)();
 }
 
 class OrderLogs extends Table {
@@ -134,6 +136,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     DateTime? startDate,
     DateTime? endDate,
     int? driverId,
+    int? userId,
   }) {
     var query = select(orders);
 
@@ -177,6 +180,10 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
 
     if (driverId != null) {
       query = query..where((o) => o.driverId.equals(driverId));
+    }
+
+    if (userId != null) {
+      query = query..where((o) => o.userId.equals(userId));
     }
 
     return (query..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();

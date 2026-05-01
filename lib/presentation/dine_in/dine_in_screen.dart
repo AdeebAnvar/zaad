@@ -334,8 +334,6 @@ class _DineInScreenState extends State<DineInScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    final isMobile = width < 900;
     return CustomScaffold(
       title: 'Dine In',
       appBarScreen: 'take_away',
@@ -347,35 +345,35 @@ class _DineInScreenState extends State<DineInScreen> {
                 onRefresh: _load,
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(10),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Dine in allocation', style: AppStyles.getSemiBoldTextStyle(fontSize: 24)),
-                      const SizedBox(height: 14),
+                      Text('Dine in allocation', style: AppStyles.getSemiBoldTextStyle(fontSize: 19)),
+                      const SizedBox(height: 8),
                       _legend(),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 8),
                       _floorTabs(),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
                       LayoutBuilder(
                         builder: (_, c) {
-                          final cols = c.maxWidth > 1400
-                              ? 5
-                              : c.maxWidth > 1100
-                                  ? 4
-                                  : c.maxWidth > 800
-                                      ? 3
-                                      : 2;
+                          const spacing = 8.0;
+                          const targetVisibleTables = 12;
+                          final screenHeight = MediaQuery.sizeOf(context).height;
+                          final availableForGrid = (screenHeight - 250).clamp(320.0, 900.0);
+                          final cols = ((c.maxWidth + spacing) / (150 + spacing)).floor().clamp(2, 6);
+                          final rows = (targetVisibleTables / cols).ceil();
+                          final cardWidth = (c.maxWidth - (cols - 1) * spacing) / cols;
+                          final cardHeight = ((availableForGrid - (rows - 1) * spacing) / rows).clamp(128.0, 210.0);
                           return GridView.builder(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: _tables.length,
-                            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                              // crossAxisCount: isMobile ? 2 : cols,
-                              maxCrossAxisExtent: 340,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                              childAspectRatio: 1.5,
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: cols,
+                              crossAxisSpacing: spacing,
+                              mainAxisSpacing: spacing,
+                              childAspectRatio: cardWidth / cardHeight,
                             ),
                             itemBuilder: (_, i) {
                               final t = _tables[i];
@@ -435,7 +433,7 @@ class _DineInScreenState extends State<DineInScreen> {
       );
     }
     return SizedBox(
-      height: 42,
+      height: 36,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: _floors.length,
@@ -448,13 +446,13 @@ class _DineInScreenState extends State<DineInScreen> {
             onSelected: (_) => _changeFloor(i),
             selectedColor: AppColors.primaryColor.withValues(alpha: 0.12),
             labelStyle: AppStyles.getMediumTextStyle(
-              fontSize: 13,
+              fontSize: 12,
               color: selected ? AppColors.primaryColor : AppColors.textColor,
             ),
             side: BorderSide(
               color: selected ? AppColors.primaryColor.withValues(alpha: 0.25) : AppColors.divider,
             ),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             backgroundColor: Colors.white,
           );
         },
@@ -770,9 +768,9 @@ class _TableCard extends StatelessWidget {
 
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         onTap: canAddOrder
             ? () {
                 onAdd();
@@ -781,33 +779,33 @@ class _TableCard extends StatelessWidget {
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(color: _cardAccentFree.withValues(alpha: 0.35), width: 1.5),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(8),
           child: Column(
             children: [
               Row(
                 children: [
                   Flexible(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
                         color: _cardAccentFree.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         code,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: _cardAccentFree),
+                        style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: _cardAccentFree),
                       ),
                     ),
                   ),
@@ -816,8 +814,8 @@ class _TableCard extends StatelessWidget {
                     child: IconButton(
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      icon: Icon(Icons.receipt_long_outlined, size: 22, color: AppColors.primaryColor),
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      icon: Icon(Icons.receipt_long_outlined, size: 17, color: AppColors.primaryColor),
                       onPressed: onViewOrders,
                     ),
                   ),
@@ -826,8 +824,8 @@ class _TableCard extends StatelessWidget {
                     child: IconButton(
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      icon: Icon(canAddOrder ? Icons.add_circle_outline : Icons.block, size: 22),
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      icon: Icon(canAddOrder ? Icons.add_circle_outline : Icons.block, size: 17),
                       color: canAddOrder ? AppColors.primaryColor : AppColors.hintFontColor,
                       onPressed: canAddOrder
                           ? () {
@@ -838,7 +836,7 @@ class _TableCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               if (topCount > 0)
                 _ChairRow(
                   startSeatIndex: 0,
@@ -846,14 +844,14 @@ class _TableCard extends StatelessWidget {
                   occupiedSeats: occupiedSeats,
                   facingDown: true,
                 ),
-              if (topCount > 0) const SizedBox(height: 6),
+              if (topCount > 0) const SizedBox(height: 4),
               Container(
-                height: 44,
+                height: 32,
                 width: tableW,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: showOccupiedOnTable ? AppColors.danger : _cardAccentFree.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                     color: showOccupiedOnTable ? AppColors.danger.withValues(alpha: 0.85) : _cardAccentFree.withValues(alpha: 0.35),
                   ),
@@ -867,13 +865,13 @@ class _TableCard extends StatelessWidget {
                             'Occupied',
                             maxLines: 1,
                             softWrap: false,
-                            style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: Colors.white),
+                            style: AppStyles.getSemiBoldTextStyle(fontSize: 10, color: Colors.white),
                           ),
                         ),
                       )
                     : null,
               ),
-              if (bottomCount > 0) const SizedBox(height: 6),
+              if (bottomCount > 0) const SizedBox(height: 4),
               if (bottomCount > 0)
                 _ChairRow(
                   startSeatIndex: topCount,
@@ -881,11 +879,11 @@ class _TableCard extends StatelessWidget {
                   occupiedSeats: occupiedSeats,
                   facingDown: false,
                 ),
-              const Spacer(),
+              const SizedBox(height: 2),
               if (activeOrders > 0)
                 Text(
                   '$activeOrders active order${activeOrders > 1 ? 's' : ''}',
-                  style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+                  style: AppStyles.getRegularTextStyle(fontSize: 10, color: AppColors.hintFontColor),
                 ),
             ],
           ),
@@ -943,7 +941,7 @@ class _ChairSeat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const size = 32.0;
+    const size = 22.0;
     Widget img = ColorFiltered(
       colorFilter: ColorFilter.mode(tint, BlendMode.srcIn),
       child: Image.asset(
@@ -976,7 +974,7 @@ class _LegendChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(999),
@@ -987,8 +985,8 @@ class _LegendChip extends StatelessWidget {
         children: [
           if (showChairAsset)
             SizedBox(
-              width: 22,
-              height: 22,
+              width: 18,
+              height: 18,
               child: _ChairSeat(
                 tint: chairOrdered ? _chairSeatOrdered : _chairSeatAvailable,
                 facingDown: true,
@@ -1001,7 +999,7 @@ class _LegendChip extends StatelessWidget {
               decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(999)),
             ),
           const SizedBox(width: 8),
-          Text(label, style: AppStyles.getMediumTextStyle(fontSize: 12)),
+          Text(label, style: AppStyles.getMediumTextStyle(fontSize: 11)),
         ],
       ),
     );

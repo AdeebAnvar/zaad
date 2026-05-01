@@ -122,6 +122,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     String? status,
     DateTime? startDate,
     DateTime? endDate,
+    int? userId,
   }) async {
     _selectedPartner = deliveryPartner;
     emit(DeliveryLogLoading());
@@ -137,6 +138,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         status: status,
         startDate: startDate,
         endDate: endDate,
+        userId: userId,
       );
       orders = _filterDeliveryLogList(orders);
       _normalSelection.removeWhere((id) => !orders.any((o) => o.id == id));

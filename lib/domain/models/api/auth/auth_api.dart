@@ -4,17 +4,22 @@ import '../dio_client.dart';
 import '../api_endpoints.dart';
 
 class AuthApi {
-  Future<void> getBaseUrl(String code) async {
-    // final dio = DioClient.getInstance(baseUrl: ApiEndpoints.commonBaseUrl);
+  Future<String?> getBaseUrl(String code) async {
+    // Force this request to use the common host call only (ignore saved baseUrl).
+    final dio = await DioClient.getInstance(overrideBaseUrl: ApiEndpoints.commonBaseUrl);
 
-    // final response = await dio.get(
-    //   ApiEndpoints.getBaseUrl,
-    //   queryParameters: {"code": code},
-    // );
+    final response = await dio.get(
+      ApiEndpoints.commonBaseUrl,
+      queryParameters: {"appid": code},
+    );
+    final data = response.data as Map;
+    if (data.containsKey('message')) {
+      return '${data['message']}';
+    }
+
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setString('baseUrl', ApiEndpoints.commonBaseUrl);
-
-    // response.data['base_url'];
+    await prefs.setString('baseUrl', response.data['url']);
+    return null;
   }
 
   // STEP 2: Fetch company data
@@ -22,5 +27,12 @@ class AuthApi {
     final dio = await DioClient.getInstance();
 
     return await dio.get(ApiEndpoints.getCompanyData);
+  }
+
+  Future<String?> getSavedBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = prefs.getString('baseUrl')?.trim();
+    if (v == null || v.isEmpty) return null;
+    return v;
   }
 }

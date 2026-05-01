@@ -49,10 +49,8 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
   @override
   bool get wantKeepAlive => true;
 
-  Item? _item;
   ItemVariant? _variant;
   List<Map<String, dynamic>>? _toppings; // All toppings from JSON
-  bool _isLoading = true;
   bool _isEditingUnitPrice = false;
   late TextEditingController _unitPriceController;
   late final FocusNode _unitPriceFocusNode;
@@ -95,7 +93,6 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
         oldWidget.cartItem.notes != widget.cartItem.notes) {
       // Only clear cached product when switching to a different catalog item (avoids full-row spinner flash on other updates).
       if (oldWidget.cartItem.itemId != widget.cartItem.itemId) {
-        _item = null;
         _variant = null;
         _toppings = null;
       }
@@ -112,17 +109,10 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
   }
 
   Future<void> _loadItemData() async {
-    final needsFullSpinner = _item == null;
-    if (needsFullSpinner && mounted) {
-      setState(() => _isLoading = true);
-    }
     final itemRepo = locator<ItemRepository>();
 
     final item = await itemRepo.fetchItemByIdFromLocal(widget.cartItem.itemId);
     if (item == null) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
       return;
     }
 
@@ -131,16 +121,16 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
       variant = await itemRepo.fetchVariantById(widget.cartItem.itemVariantId!);
     }
 
+    if (!mounted) return;
+
     // Parse toppings from JSON in notes field
     final cartCubit = context.read<CartCubit>();
     final toppingsData = cartCubit.getToppingsFromCartItem(widget.cartItem);
 
     if (mounted) {
       setState(() {
-        _item = item;
         _variant = variant;
         _toppings = toppingsData;
-        _isLoading = false;
       });
     }
   }
@@ -148,12 +138,6 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    if (_isLoading || _item == null) {
-      return const SizedBox(
-        height: 100,
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
 
     // Always derive unit price from cart data so manual edits are reflected. effective unit = (total + discount) / quantity.
     final double unitPrice = (widget.cartItem.total + widget.cartItem.discount) / widget.cartItem.quantity;
@@ -274,16 +258,16 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Left: item + variant + unit/total
+                      // Left: item + variant (delete is top-right; unit/total row is full width below)
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _item!.name,
+                              widget.cartItem.itemName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: AppStyles.getSemiBoldTextStyle(fontSize: 15),
+                              style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
                             ),
                             if (_variant != null)
                               Text(
@@ -292,22 +276,9 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                                 overflow: TextOverflow.ellipsis,
                                 style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
                               ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                unitWidget,
-                                const SizedBox(width: 12),
-                                Text(
-                                  "Total: ${widget.cartItem.total.toStringAsFixed(2)}",
-                                  style: AppStyles.getBoldTextStyle(fontSize: 14),
-                                ),
-                              ],
-                            ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      // Right: delete
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
@@ -331,6 +302,19 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                       ),
                     ],
                   ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      unitWidget,
+                      Text(
+                        "Total: ${widget.cartItem.total.toStringAsFixed(2)}",
+                        style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 10),
                   if (widget.cartItem.discount > 0 || toppingsTotal > 0) ...[
                     const SizedBox(height: 6),
                     Row(
@@ -354,9 +338,10 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                   Row(
                     children: [
                       IconButton(
+                        tooltip: 'Discount',
                         visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
                         constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-                        icon: const Icon(Icons.percent, size: 18),
+                        icon: const Icon(Icons.percent, size: 15),
                         onPressed: () => showDiscountDialog(context, widget.cartItem),
                       ),
                       IconButton(
@@ -365,15 +350,17 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                         tooltip: 'Line notes',
                         icon: Icon(
                           Icons.sticky_note_2_outlined,
-                          size: 18,
-                          color: _cartItemHasPlainNotes(widget.cartItem) ? AppColors.primaryColor : null,
+                          size: 15,
+                          color: (context.read<CartCubit>().getLineNoteFromCartItem(widget.cartItem)?.trim().isNotEmpty == true)
+                              ? AppColors.primaryColor
+                              : null,
                         ),
                         onPressed: () => _showLineNotesDialog(context, widget.cartItem),
                       ),
                       IconButton(
                         visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
                         constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-                        icon: const Icon(Icons.restaurant_menu, size: 18),
+                        icon: const Icon(Icons.restaurant_menu, size: 15),
                         onPressed: () => _showToppingDialog(context, widget.cartItem),
                       ),
                       const Spacer(),
@@ -537,6 +524,7 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
     if (item == null) return;
 
     final availableToppings = await itemRepo.fetchToppingsByItem(cartItem.itemId);
+    final toppingGroups = await itemRepo.fetchToppingGroups(cartItem.itemId);
 
     // Fetch variant if exists
     ItemVariant? variant;
@@ -549,6 +537,8 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
         );
       }
     }
+
+    if (!mounted) return;
 
     // Parse existing toppings from cart item notes
     final cartCubit = context.read<CartCubit>();
@@ -583,31 +573,20 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
             variant: variant,
             qty: cartItem.quantity,
             toppings: availableToppings,
+            toppingGroups: toppingGroups,
             cartCubit: cartCubit,
             initialSelectedToppings: initialSelectedToppings,
             cartItemId: cartItem.id,
+            style: ToppingsDialogStyle.cartLineEdit,
           ),
         ),
       );
     }
   }
 
-  /// Plain-text line notes (not toppings JSON in `notes`).
-  String _initialLineNotesPlain(CartItem cartItem) {
-    final n = cartItem.notes;
-    if (n == null || n.isEmpty) return '';
-    if (n.trimLeft().startsWith('[')) return '';
-    return n;
-  }
-
-  bool _cartItemHasPlainNotes(CartItem cartItem) {
-    return _initialLineNotesPlain(cartItem).trim().isNotEmpty;
-  }
-
   Future<void> _showLineNotesDialog(BuildContext context, CartItem cartItem) async {
     final cartCubit = context.read<CartCubit>();
-    final hasToppings = cartCubit.getToppingsFromCartItem(cartItem)?.isNotEmpty == true;
-    final controller = TextEditingController(text: _initialLineNotesPlain(cartItem));
+    final controller = TextEditingController(text: cartCubit.getLineNoteFromCartItem(cartItem) ?? '');
     final notesFocusNode = FocusNode();
 
     try {
@@ -663,20 +642,12 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                                 ),
                               ],
                             ),
-                            if (hasToppings) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                'This line has toppings. Clear toppings before saving notes here, or topping data may be overwritten.',
-                                style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.orange.shade900),
-                              ),
-                            ],
                             const SizedBox(height: 16),
                             CustomTextField(
                               controller: controller,
                               focusNode: notesFocusNode,
                               labelText: 'Notes',
                               maxLines: 4,
-                              enabled: !hasToppings,
                             ),
                             const SizedBox(height: 24),
                             Row(
@@ -684,23 +655,21 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                                 Expanded(
                                   child: CustomButton(
                                     text: 'Save',
-                                    onPressed: hasToppings
-                                        ? null
-                                        : () async {
-                                            CartItem? current;
-                                            for (final e in cartCubit.state.items) {
-                                              if (e.id == cartItem.id) {
-                                                current = e;
-                                                break;
-                                              }
-                                            }
-                                            if (current == null) {
-                                              if (context.mounted) Navigator.pop(dialogContext);
-                                              return;
-                                            }
-                                            await cartCubit.updateCartItemLineNotes(current, controller.text);
-                                            if (context.mounted) Navigator.pop(dialogContext);
-                                          },
+                                    onPressed: () async {
+                                      CartItem? current;
+                                      for (final e in cartCubit.state.items) {
+                                        if (e.id == cartItem.id) {
+                                          current = e;
+                                          break;
+                                        }
+                                      }
+                                      if (current == null) {
+                                        if (context.mounted) Navigator.pop(dialogContext);
+                                        return;
+                                      }
+                                      await cartCubit.updateCartItemLineNotes(current, controller.text);
+                                      if (context.mounted) Navigator.pop(dialogContext);
+                                    },
                                   ),
                                 ),
                                 const SizedBox(width: 12),

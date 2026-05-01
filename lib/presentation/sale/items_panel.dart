@@ -31,7 +31,10 @@ class ItemsPanel extends StatelessWidget {
                       mainAxisSpacing: 5,
                     ),
                     itemCount: state.items.length,
-                    itemBuilder: (_, i) => ItemCard(item: state.items[i]),
+                    itemBuilder: (_, i) {
+                      final item = state.items[i];
+                      return ItemCard(key: ValueKey<int>(item.id), item: item);
+                    },
                   );
                 } else {
                   return const Center(child: Text("No items found"));

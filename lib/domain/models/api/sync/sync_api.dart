@@ -14,11 +14,10 @@ class SyncApi {
     );
   }
 
-  Future<Response> pushData(Map<String, dynamic> body) async {
+  Future<Response> pushRecords(Map<String, dynamic> body) async {
     final dio = await DioClient.getInstance();
-
-    return await dio.post(
-      ApiEndpoints.pushData,
+    return dio.post(
+      ApiEndpoints.pushRecords,
       data: body,
     );
   }

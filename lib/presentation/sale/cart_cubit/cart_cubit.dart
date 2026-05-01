@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
@@ -106,6 +108,7 @@ class CartCubit extends Cubit<CartState> {
       total: total,
       cartId: _activeCartId ?? 0, // auto increment in DB
       itemId: item.id,
+      itemName: item.name,
       itemVariantId: selectedVariant?.id,
       itemToppingId: null,
       quantity: quantity,
@@ -123,14 +126,30 @@ class CartCubit extends Cubit<CartState> {
     await _updateKOTIfExists();
   }
 
+  /// Drift and UI already hold the same lines; re-emitting identical data was causing full list/fab flicker.
+  bool _cartLinesEqual(List<CartItem> a, List<CartItem> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   Future<void> _loadCartItems() async {
     if (_activeCartId == null) {
-      emit(CartState([]));
+      if (state.items.isNotEmpty) {
+        emit(CartState([]));
+      }
       return;
     }
 
     final items = await cartRepo.getCartItemsByCartId(_activeCartId!);
-    emit(CartState(items ?? []));
+    final next = items ?? <CartItem>[];
+    if (_cartLinesEqual(state.items, next)) {
+      return;
+    }
+    emit(CartState(next));
   }
 
   Future<void> increaseQty(int index) async {
@@ -329,6 +348,7 @@ class CartCubit extends Cubit<CartState> {
       _currentKOTOrderId = existingKOT.id;
     } else {
       // Create new KOT - new short receipt id per channel
+      final cashierId = await _sessionUserId();
       final order = Order(
         id: 0,
         cartId: _activeCartId!,
@@ -350,6 +370,7 @@ class CartCubit extends Cubit<CartState> {
         status: orderType == 'delivery' ? 'pending' : 'kot',
         orderType: orderType,
         deliveryPartner: deliveryPartner,
+        userId: cashierId,
       );
       final orderId = await orderRepo.createOrder(order);
       _currentKOTOrderId = orderId;
@@ -358,9 +379,7 @@ class CartCubit extends Cubit<CartState> {
     _currentKOTReference = effectiveReference;
 
     // New sale: print full cart. Edit: only lines not yet printed on a KOT this session.
-    final List<CartItem> itemsToPrint = _openedForEdit
-        ? state.items.where((i) => !_kotPrintedCartItemIds.contains(i.id)).toList()
-        : List<CartItem>.from(state.items);
+    final List<CartItem> itemsToPrint = _openedForEdit ? state.items.where((i) => !_kotPrintedCartItemIds.contains(i.id)).toList() : List<CartItem>.from(state.items);
 
     final printFailed = itemsToPrint.isEmpty
         ? <String>[]
@@ -382,6 +401,11 @@ class CartCubit extends Cubit<CartState> {
     _currentKOTOrderId = null;
     emit(CartState([]));
     return printFailed;
+  }
+
+  Future<int?> _sessionUserId() async {
+    final s = await sessionDao.getActiveSession();
+    return s?.userId;
   }
 
   /// Save KOT using the already defined reference (edit only). No reference dialog.
@@ -481,6 +505,8 @@ class CartCubit extends Cubit<CartState> {
     required Map<String, dynamic> discount,
     required Map<String, double> payments,
     String? onlineOrderNumber,
+    bool printInvoice = true,
+    bool printKot = false,
   }) async {
     if (state.items.isEmpty || _activeCartId == null) return [];
 
@@ -508,9 +534,8 @@ class CartCubit extends Cubit<CartState> {
 
     // Create order record
     final invoiceNum = _invoiceNumber ?? await orderRepo.getNextInvoiceNumber(orderType);
-    final refNumber = orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty
-        ? onlineOrderNumber
-        : (_currentKOTReference ?? invoiceNum);
+    final refNumber = orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : (_currentKOTReference ?? invoiceNum);
+    final cashierId = await _sessionUserId();
     final order = Order(
       id: 0,
       cartId: _activeCartId!,
@@ -532,13 +557,31 @@ class CartCubit extends Cubit<CartState> {
       status: orderType == 'delivery' ? 'pending' : 'completed',
       orderType: orderType,
       deliveryPartner: deliveryPartner,
+      userId: cashierId,
     );
 
     // Save order to database
     await orderRepo.createOrder(order);
 
-    // Print final bill to bill printer(s); working printers still print
-    final printFailed = await printService.printFinalBill(order: order, cartItems: state.items);
+    final printFailed = <String>[];
+    final ref = order.referenceNumber?.trim().isNotEmpty == true ? order.referenceNumber! : order.invoiceNumber;
+    if (printKot && state.items.isNotEmpty) {
+      printFailed.addAll(
+        await printService.printKOTPerKitchen(
+          cartItems: state.items,
+          referenceNumber: ref,
+        ),
+      );
+    }
+    if (printInvoice) {
+      printFailed.addAll(
+        await printService.printFinalBill(order: order, cartItems: state.items),
+      );
+      final cashAmt = payments['cash'] ?? 0.0;
+      if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
+        printFailed.addAll(await printService.openCashDrawer());
+      }
+    }
 
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)
     await _clearCartStateOnly();
@@ -589,6 +632,7 @@ class CartCubit extends Cubit<CartState> {
       status: existingOrder.status,
       orderType: existingOrder.orderType,
       deliveryPartner: existingOrder.deliveryPartner,
+      userId: existingOrder.userId,
     );
 
     // Update order in database
@@ -605,6 +649,8 @@ class CartCubit extends Cubit<CartState> {
     required Map<String, dynamic> discount,
     required Map<String, double> payments,
     String? onlineOrderNumber,
+    bool printInvoice = true,
+    bool printKot = false,
   }) async {
     if (state.items.isEmpty || _activeCartId == null || _editingOrderId == null) return [];
 
@@ -635,9 +681,7 @@ class CartCubit extends Cubit<CartState> {
     }
 
     // Update order with new totals and payment details
-    final refNumber = existingOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty
-        ? onlineOrderNumber
-        : existingOrder.referenceNumber;
+    final refNumber = existingOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : existingOrder.referenceNumber;
     final updatedOrder = Order(
       id: existingOrder.id,
       cartId: _activeCartId!,
@@ -659,17 +703,35 @@ class CartCubit extends Cubit<CartState> {
       status: existingOrder.orderType == 'delivery' ? existingOrder.status : 'completed',
       orderType: existingOrder.orderType,
       deliveryPartner: existingOrder.deliveryPartner,
+      userId: existingOrder.userId,
     );
 
     // Update order in database
     await orderRepo.updateOrder(updatedOrder);
 
-    // Print final bill (updated order); working printers still print
-    final printFailed = await printService.printFinalBill(
-      order: updatedOrder,
-      cartItems: state.items,
-      updatedOrder: true,
-    );
+    final printFailed = <String>[];
+    final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
+    if (printKot && state.items.isNotEmpty) {
+      printFailed.addAll(
+        await printService.printKOTPerKitchen(
+          cartItems: state.items,
+          referenceNumber: ref,
+        ),
+      );
+    }
+    if (printInvoice) {
+      printFailed.addAll(
+        await printService.printFinalBill(
+          order: updatedOrder,
+          cartItems: state.items,
+          updatedOrder: true,
+        ),
+      );
+      final cashAmt = payments['cash'] ?? 0.0;
+      if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
+        printFailed.addAll(await printService.openCashDrawer());
+      }
+    }
 
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)
     _editingOrderId = null;
@@ -730,13 +792,40 @@ class CartCubit extends Cubit<CartState> {
     await _loadCartItems();
   }
 
-  /// Free-text line notes (same `notes` column as toppings JSON — avoid editing when toppings are set).
+  /// Free-text line notes stored in [CartItem.notes] alongside toppings: either plain text, a JSON
+  /// array of toppings, or `{"toppings":[...], "lineNote":"..."}` when both are set.
   Future<void> updateCartItemLineNotes(CartItem cartItem, String? text) async {
     final trimmed = text?.trim();
-    final value = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
-    final updated = cartItem.copyWith(notes: Value(value));
+    final line = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+    final existingToppings = getToppingsFromCartItem(cartItem);
+    final newNotes = _serializeCartNotes(
+      toppings: existingToppings,
+      lineNote: line,
+    );
+    final updated = cartItem.copyWith(notes: Value(newNotes));
     await cartRepo.updateCartItem(updated);
     await _loadCartItems();
+  }
+
+  /// User-entered line note, or `null` if the field only holds toppings JSON with no [lineNote].
+  String? getLineNoteFromCartItem(CartItem cartItem) {
+    final n = cartItem.notes;
+    if (n == null || n.isEmpty) return null;
+    final t = n.trimLeft();
+    if (t.startsWith('[')) return null;
+    if (t.startsWith('{')) {
+      try {
+        final d = jsonDecode(n);
+        if (d is Map) {
+          final note = d['lineNote'];
+          if (note is String && note.trim().isNotEmpty) return note.trim();
+        }
+      } catch (_) {
+        return null;
+      }
+      return null;
+    }
+    return n.trim();
   }
 
   Future<void> applyCartDiscount(double value, bool isPercentage) async {
@@ -836,7 +925,7 @@ class CartCubit extends Cubit<CartState> {
                 'qty': e.value,
               })
           .toList();
-      toppingsJson = _encodeToppingsJson(toppingsList);
+      toppingsJson = _serializeCartNotes(toppings: toppingsList, lineNote: null);
 
       validToppings.forEach((topping, toppingQty) {
         toppingsTotal += topping.price * toppingQty;
@@ -859,6 +948,7 @@ class CartCubit extends Cubit<CartState> {
       total: total,
       cartId: _activeCartId ?? 0,
       itemId: item.id,
+      itemName: item.name,
       itemVariantId: variant?.id,
       itemToppingId: firstTopping?.id, // Store first topping's ID for backward compatibility
       quantity: qty,
@@ -888,6 +978,8 @@ class CartCubit extends Cubit<CartState> {
     final item = await itemRepo.fetchItemByIdFromLocal(cartItem.itemId);
     if (item == null) return;
 
+    final previousLine = getLineNoteFromCartItem(cartItem);
+
     ItemVariant? variant;
     if (cartItem.itemVariantId != null) {
       variant = await itemRepo.fetchVariantById(cartItem.itemVariantId!);
@@ -913,7 +1005,10 @@ class CartCubit extends Cubit<CartState> {
                 'qty': e.value,
               })
           .toList();
-      toppingsJson = _encodeToppingsJson(toppingsList);
+      toppingsJson = _serializeCartNotes(
+        toppings: toppingsList,
+        lineNote: previousLine,
+      );
 
       validToppings.forEach((topping, toppingQty) {
         toppingsTotal += topping.price * toppingQty;
@@ -922,8 +1017,7 @@ class CartCubit extends Cubit<CartState> {
         }
       });
     } else {
-      // If all toppings are removed, clear the notes field
-      toppingsJson = null;
+      toppingsJson = (previousLine != null && previousLine.isNotEmpty) ? previousLine : null;
     }
 
     // Calculate new total: (unitPrice + toppingsTotal) * quantity - existing discount
@@ -941,12 +1035,23 @@ class CartCubit extends Cubit<CartState> {
     await _updateKOTIfExists();
   }
 
-  String? _encodeToppingsJson(List<Map<String, dynamic>> toppings) {
-    try {
-      return jsonEncode(toppings);
-    } catch (e) {
-      return null;
+  String? _serializeCartNotes({
+    required List<Map<String, dynamic>>? toppings,
+    String? lineNote,
+  }) {
+    final trimmed = lineNote?.trim();
+    final hasToppings = toppings != null && toppings.isNotEmpty;
+    final hasLine = trimmed != null && trimmed.isNotEmpty;
+    if (hasToppings && hasLine) {
+      return jsonEncode({'toppings': toppings, 'lineNote': trimmed});
     }
+    if (hasToppings) {
+      return jsonEncode(toppings);
+    }
+    if (hasLine) {
+      return trimmed;
+    }
+    return null;
   }
 
   List<Map<String, dynamic>>? _decodeToppingsJson(String? jsonStr) {
@@ -954,9 +1059,15 @@ class CartCubit extends Cubit<CartState> {
     try {
       final decoded = jsonDecode(jsonStr);
       if (decoded is List) {
-        // Filter out toppings with qty <= 0
         final toppingsList = decoded.cast<Map<String, dynamic>>().where((topping) => (topping['qty'] as int? ?? 0) > 0).toList();
         return toppingsList.isEmpty ? null : toppingsList;
+      }
+      if (decoded is Map) {
+        final top = decoded['toppings'];
+        if (top is List) {
+          final toppingsList = top.cast<Map<String, dynamic>>().where((e) => (e['qty'] as int? ?? 0) > 0).toList();
+          return toppingsList.isEmpty ? null : toppingsList;
+        }
       }
       return null;
     } catch (e) {

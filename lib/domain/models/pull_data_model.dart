@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/category_model.dart';
 import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/domain/models/delivery_partner_model.dart';

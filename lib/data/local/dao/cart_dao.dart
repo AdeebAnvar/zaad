@@ -20,6 +20,9 @@ class CartItems extends Table {
 
   IntColumn get itemId => integer().references(Items, #id)();
 
+  /// Snapshot of catalog name at time of sale (KOT, offline display; survives item rename).
+  TextColumn get itemName => text().withDefault(const Constant(''))();
+
   IntColumn get itemVariantId => integer().nullable().references(ItemVariants, #id)();
 
   IntColumn get itemToppingId => integer().nullable().references(ItemToppings, #id)();
