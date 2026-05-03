@@ -56,17 +56,7 @@ class Routes {
   static Map<String, WidgetBuilder> map = {
     login: (_) => const LoginScreen(),
     dashboard: (_) => const DashboardScreen(),
-    autoSyncScreen: (context) {
-      final rawArgs = ModalRoute.of(context)?.settings.arguments;
-      bool manual = false;
-      if (rawArgs is Map) {
-        final v = rawArgs['manual'];
-        if (v is bool) manual = v;
-      } else if (rawArgs is bool) {
-        manual = rawArgs;
-      }
-      return AutoSyncScreen(goToDashboardOnComplete: !manual);
-    },
+    autoSyncScreen: (_) => const AutoSyncScreen(),
     orders: (_) => const OrdersScreen(),
     recentSales: (_) => const RecentSalesScreen(),
     crm: (_) => const CrmScreen(),

@@ -1,0 +1,586 @@
+import 'dart:async';
+import 'dart:isolate';
+import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import 'package:pos/data/models/pos_customer.dart';
+import 'package:pos/domain/models/category_model.dart';
+import 'package:pos/domain/models/delivery_partner_model.dart';
+import 'package:pos/domain/models/driver_model.dart';
+import 'package:pos/domain/models/item_model.dart';
+import 'package:pos/domain/models/kitchen_model.dart';
+import 'package:pos/domain/models/dining_floor_model.dart';
+import 'package:pos/domain/models/dining_table_model.dart';
+
+import '../../data/local/drift_database.dart';
+import '../../core/utils/image_utils.dart';
+import '../../core/utils/network_utils.dart';
+import '../../core/constants/enums.dart';
+
+class SyncService {
+  SyncService._();
+  static final SyncService instance = SyncService._();
+
+  // _repo removed as we fetch customers from payload now
+
+  final StreamController<SyncStatus> _controller = StreamController<SyncStatus>.broadcast();
+
+  Stream<SyncStatus> get stream => _controller.stream;
+
+  SyncStatus currentStatus = const SyncStatus(phase: SyncPhase.idle, message: 'Idle');
+
+  DateTime? lastSyncedAt;
+
+  Future<void> start(AppDatabase db) async {
+    const int totalPhases = 100; // Total progress phases
+    int currentPhase = 0;
+
+    // Check network connection before starting sync (5% of total)
+    _emit(SyncStatus(
+      phase: SyncPhase.categories,
+      message: 'Checking network connection...',
+      current: currentPhase,
+      total: totalPhases,
+    ));
+
+    final hasConnection = await NetworkUtils.hasInternetConnection();
+    if (!hasConnection) {
+      _emit(const SyncStatus(
+        phase: SyncPhase.failed,
+        message: 'No internet connection. Please check your network settings.',
+      ));
+      return;
+    }
+
+    currentPhase = 5; // Network check completed (5%)
+
+    // Fetching data (10% of total)
+    _emit(SyncStatus(
+      phase: SyncPhase.categories,
+      message: 'Fetching data...',
+      current: currentPhase,
+      total: totalPhases,
+    ));
+
+    try {
+      // TODO: replace with real pull/parse from [SyncApi]. Empty lists skip work but keep progress valid.
+      const payload = _SyncRuntimePayload(
+        categories: <CategoryCreatedUpdated>[],
+        kitchens: <KitchensCreatedUpdated>[],
+        deliveryPartners: <DeliveryServiceCreatedUpdated>[],
+        drivers: <DriverCreatedUpdated>[],
+        diningFloors: [],
+        diningTables: [],
+        customers: <PosCustomer>[],
+        items: <ItemCreatedUpdated>[],
+      );
+
+      currentPhase = 15; // Fetching completed (15% total)
+
+      // ---------- CATEGORIES ---------- (5% of total, from 15% to 20%)
+      int categoryIndex = 0;
+      final categoryTotal = payload.categories.length;
+      for (final c in payload.categories) {
+        categoryIndex++;
+        final categoryProgress = (categoryIndex / categoryTotal) * 5; // 5% for all categories
+
+        _emit(SyncStatus(
+          phase: SyncPhase.categories,
+          message: 'Syncing categories ($categoryIndex / $categoryTotal)',
+          current: (15 + categoryProgress).toInt(),
+          total: totalPhases,
+        ));
+
+        final other = c.otherName;
+        await db.categoryDao.insertOrUpdateCategory(
+          CategoriesCompanion.insert(
+            id: Value(c.id),
+            name: c.categoryName,
+            otherName: other == null ? '' : other.toString(),
+            recordUuid: Value(c.uuid),
+            branchId: Value(c.branchId),
+            categorySlug: Value(c.categorySlug),
+            deletedAt: Value(null),
+          ),
+        );
+      }
+
+      currentPhase = 20; // Categories completed (20% total)
+
+      // ---------- KITCHENS ---------- (3% of total, from 20% to 23%)
+      int kitchenIndex = 0;
+      final kitchenTotal = payload.kitchens.length;
+      for (final k in payload.kitchens) {
+        kitchenIndex++;
+        final kitchenProgress = (kitchenIndex / kitchenTotal) * 3;
+
+        _emit(SyncStatus(
+          phase: SyncPhase.categories,
+          message: 'Syncing kitchens ($kitchenIndex / $kitchenTotal)',
+          current: (20 + kitchenProgress).toInt(),
+          total: totalPhases,
+        ));
+
+        await db.itemDao.upsertKitchen(
+          KitchensCompanion.insert(
+            id: Value(k.id),
+            name: k.kitchenName,
+            printerPort: const Value(9100),
+            printerDetails: Value(k.printerDetails),
+            printerType: Value(k.printerType),
+            recordUuid: Value(k.uuid),
+            branchId: Value(k.branchId),
+            deletedAt: const Value(null),
+          ),
+        );
+      }
+
+      currentPhase = 23; // Kitchens completed (23% total)
+
+      // ---------- DELIVERY PARTNERS ---------- (2% of total, from 23% to 25%)
+      for (final dp in payload.deliveryPartners) {
+        await db.deliveryPartnersDao.upsertDeliveryPartner(
+          DeliveryPartnersCompanion.insert(
+            id: Value(dp.id),
+            name: dp.serviceName,
+          ),
+        );
+      }
+      currentPhase = 24;
+
+      for (final DriverCreatedUpdated d in payload.drivers) {
+        await db.driversDao.upsertDriver(
+          DriversCompanion.insert(
+            id: Value(d.id),
+            name: d.driverName,
+          ),
+        );
+      }
+      currentPhase = 25;
+
+      // ---------- DINING FLOORS / TABLES ---------- (5% of total, from 25% to 30%)
+      for (final f in payload.diningFloors) {
+        await db.diningTablesDao.upsertFloor(
+          DiningFloorsCompanion.insert(
+            id: Value(f.id),
+            name: f.name,
+            sortOrder: Value(f.sortOrder),
+          ),
+        );
+      }
+      for (final t in payload.diningTables) {
+        await db.diningTablesDao.upsertTable(
+          DiningTablesCompanion.insert(
+            id: Value(t.id),
+            floorId: t.floorId,
+            code: t.code,
+            chairs: Value(t.chairs),
+            status: Value(t.status),
+          ),
+        );
+      }
+      currentPhase = 30;
+
+      // ---------- CUSTOMERS ---------- (5% of total, from 25% to 30%)
+      _emit(SyncStatus(
+        phase: SyncPhase.items,
+        message: 'Syncing customers...',
+        current: 30,
+        total: totalPhases,
+      ));
+
+      final customers = payload.customers;
+      currentPhase = 32; // Customers fetch progress
+
+      int customerIndex = 0;
+      final customerTotal = customers.length;
+      for (final c in customers) {
+        customerIndex++;
+        final customerProgress = (customerIndex / customerTotal) * 5; // 5% for customers (30-35%)
+
+        _emit(SyncStatus(
+          phase: SyncPhase.items,
+          message: 'Also fetching customers... ($customerIndex / $customerTotal)',
+          current: (30 + customerProgress).toInt(),
+          total: totalPhases,
+        ));
+
+        await db.customersDao.insertOrUpdateCustomer(
+          CustomersCompanion.insert(
+            serverId: c.serverIdStr != null ? Value(c.serverIdStr) : const Value.absent(),
+            name: c.row.customerName,
+            email: Value(c.row.customerEmail.isNotEmpty ? c.row.customerEmail : null),
+            phone: Value(c.row.customerNumber.isNotEmpty ? c.row.customerNumber : null),
+            gender: Value(c.row.customerGender.isNotEmpty ? c.row.customerGender : null),
+            address: Value(c.row.customerAddress.isNotEmpty ? c.row.customerAddress : null),
+            cardNo: Value(c.row.cardNo.isNotEmpty ? c.row.cardNo : null),
+            recordUuid: Value(c.row.uuid.isNotEmpty ? c.row.uuid : null),
+            branchId: Value(c.row.branchId),
+            customerNumber: Value(c.row.customerNumber.isNotEmpty ? c.row.customerNumber : null),
+            createdAt: Value(c.row.createdAt),
+            updatedAt: Value(c.row.updatedAt),
+            isSynced: const Value(true),
+          ),
+        );
+      }
+
+      currentPhase = 35; // Customers completed
+
+      // ---------- ITEMS ---------- (65% of total, from 35% to 100%)
+      int index = 0;
+      final itemsTotal = payload.items.length;
+      for (final i in payload.items) {
+        index++;
+        await Future.delayed(Duration.zero);
+
+        // Calculate progress: 35% + (65% * (index / itemsTotal))
+        final itemProgress = 35 + (65 * (index / itemsTotal));
+
+        _emit(SyncStatus(
+          phase: SyncPhase.items,
+          current: itemProgress.toInt(),
+          total: totalPhases,
+          message: 'Syncing items ($index / $itemsTotal)',
+        ));
+
+        String? localPath;
+        if (i.image.isNotEmpty) {
+          try {
+            localPath = await ImageUtils.downloadImage(
+              i.image,
+              buildSafeImageName(i.id, i.image),
+            );
+          } catch (e) {
+            print(e);
+          }
+        }
+
+        final firstPrice = i.itemprice.isNotEmpty ? i.itemprice.first.price : 0.0;
+        final firstStock = i.itemprice.isNotEmpty ? i.itemprice.first.stock : 0;
+        final kId = _firstIntFromKitchenIdsString(i.kitchenIds);
+        final stockOn = i.stockApplicable.toLowerCase() == 'yes' || i.stockApplicable == '1';
+
+        await db.itemDao.upsertItem(
+          ItemsCompanion.insert(
+            id: Value(i.id),
+            name: i.itemName,
+            otherName: i.itemOtherName,
+            sku: i.itemSlug,
+            price: firstPrice,
+            stock: firstStock,
+            stockEnabled: Value(stockOn),
+            localImagePath: Value(localPath),
+            categoryName: '',
+            categoryOtherName: '',
+            barcode: i.itemSlug,
+            imagePath: Value(i.image),
+            categoryId: i.categoryId,
+            kitchenId: Value(kId),
+            kitchenName: const Value(null),
+            deliveryPartner: i.deliveryService.isNotEmpty ? Value(i.deliveryService) : const Value(null),
+          ),
+        );
+        for (final v in i.itemVariations) {
+          if (v is! Map) continue;
+          final vm = Map<String, dynamic>.from(v);
+          final vn = vm['name']?.toString() ?? 'Variant';
+          final rawP = vm['price'];
+          final vp = rawP is num ? rawP.toDouble() : (double.tryParse('$rawP') ?? 0.0);
+          await db.itemDao.upsertVariant(
+            ItemVariantsCompanion.insert(
+              itemId: i.id,
+              name: vn,
+              price: vp,
+            ),
+          );
+        }
+      }
+
+      lastSyncedAt = DateTime.now();
+      _emit(const SyncStatus(
+        phase: SyncPhase.success,
+        message: 'Sync completed',
+        current: 100,
+        total: 100,
+      ));
+    } catch (e, s) {
+      debugPrint('SYNC FAILED: $e');
+      debugPrintStack(stackTrace: s);
+
+      // Determine error message based on error type
+      String errorMessage = 'Sync failed';
+      if (e.toString().contains('SocketException') || e.toString().contains('network') || e.toString().contains('connection') || e.toString().contains('timeout')) {
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+      } else if (e.toString().contains('Failed host lookup') || e.toString().contains('No address associated with hostname')) {
+        errorMessage = 'Unable to reach server. Please check your internet connection.';
+      } else {
+        errorMessage = 'Sync failed: ${e.toString()}';
+      }
+
+      _emit(SyncStatus(
+        phase: SyncPhase.failed,
+        message: errorMessage,
+      ));
+    }
+  }
+
+  void _emit(SyncStatus status) {
+    currentStatus = status;
+    if (!_controller.isClosed) {
+      _controller.add(status);
+    }
+  }
+
+  void dispose() {
+    _controller.close();
+  }
+
+  String buildSafeImageName(int id, String url) {
+    final uri = Uri.parse(url);
+
+    // Try to extract extension
+    final ext = p.extension(uri.path).isNotEmpty ? p.extension(uri.path) : '.jpg';
+
+    return 'item_$id$ext';
+  }
+
+  /// Upload sales history (orders) to server
+  Future<void> uploadSalesHistory(AppDatabase db) async {
+    try {
+      _emit(SyncStatus(
+        phase: SyncPhase.categories,
+        message: 'Checking network connection...',
+        current: 0,
+        total: 100,
+      ));
+
+      final hasConnection = await NetworkUtils.hasInternetConnection();
+      if (!hasConnection) {
+        _emit(const SyncStatus(
+          phase: SyncPhase.failed,
+          message: 'No internet connection. Please check your network settings.',
+        ));
+        return;
+      }
+
+      _emit(SyncStatus(
+        phase: SyncPhase.categories,
+        message: 'Preparing sales data...',
+        current: 10,
+        total: 100,
+      ));
+
+      // Get all placed and completed orders (exclude kot)
+      final allOrders = await db.ordersDao.getAllOrders();
+      final ordersToUpload = allOrders.where((order) => order.status != 'kot' && (order.status == 'placed' || order.status == 'completed')).toList();
+
+      if (ordersToUpload.isEmpty) {
+        _emit(const SyncStatus(
+          phase: SyncPhase.success,
+          message: 'No sales to upload',
+          current: 100,
+          total: 100,
+        ));
+        return;
+      }
+
+      _emit(SyncStatus(
+        phase: SyncPhase.items,
+        message: 'Uploading ${ordersToUpload.length} orders...',
+        current: 20,
+        total: 100,
+      ));
+
+      // Get unsynced customers to upload along with orders
+      final unsyncedCustomers = await db.customersDao.getUnsyncedCustomers();
+
+      // Upload unsynced customers first
+      if (unsyncedCustomers.isNotEmpty) {
+        _emit(SyncStatus(
+          phase: SyncPhase.items,
+          message: 'Uploading ${unsyncedCustomers.length} new customers...',
+          current: 15,
+          total: 100,
+        ));
+
+        int customerUploaded = 0;
+        for (final customer in unsyncedCustomers) {
+          try {
+            final customerData = {
+              'name': customer.name,
+              'email': customer.email,
+              'phone': customer.phone,
+              'gender': customer.gender,
+              'createdAt': customer.createdAt.toIso8601String(),
+            };
+
+            // Upload customer to server (using isolate for network operations)
+            await Isolate.run(() => _uploadCustomerToServer(customerData));
+
+            // Mark as synced
+            await db.customersDao.markAsSynced(customer.id);
+
+            customerUploaded++;
+            final customerProgress = 15 + ((customerUploaded / unsyncedCustomers.length) * 5).toInt();
+
+            _emit(SyncStatus(
+              phase: SyncPhase.items,
+              message: 'Uploading customers ($customerUploaded / ${unsyncedCustomers.length})',
+              current: customerProgress,
+              total: 100,
+            ));
+          } catch (e) {
+            debugPrint('Failed to upload customer ${customer.name}: $e');
+            // Continue with next customer
+          }
+        }
+      }
+
+      // Upload orders in batches
+      int uploaded = 0;
+      final uploadStartProgress = unsyncedCustomers.isNotEmpty ? 20 : 20;
+      for (final order in ordersToUpload) {
+        try {
+          // Get cart items for this order
+          final cartItems = await db.cartsDao.getItemsByCart(order.cartId);
+
+          // Prepare order data for upload
+          final orderData = {
+            'id': order.id,
+            'cartId': order.cartId,
+            'invoiceNumber': order.invoiceNumber,
+            'referenceNumber': order.referenceNumber,
+            'totalAmount': order.totalAmount,
+            'discountAmount': order.discountAmount,
+            'discountType': order.discountType,
+            'finalAmount': order.finalAmount,
+            'customerName': order.customerName,
+            'customerEmail': order.customerEmail,
+            'customerPhone': order.customerPhone,
+            'customerGender': order.customerGender,
+            'cashAmount': order.cashAmount,
+            'creditAmount': order.creditAmount,
+            'cardAmount': order.cardAmount,
+            'onlineAmount': order.onlineAmount,
+            'status': order.status,
+            'createdAt': order.createdAt.toIso8601String(),
+            'items': cartItems
+                .map((item) => {
+                      'id': item.id,
+                      'itemId': item.itemId,
+                      'itemVariantId': item.itemVariantId,
+                      'itemToppingId': item.itemToppingId,
+                      'quantity': item.quantity,
+                      'total': item.total,
+                      'discount': item.discount,
+                      'discountType': item.discountType,
+                      'notes': item.notes,
+                    })
+                .toList(),
+          };
+
+          // Upload to server (using isolate for network operations)
+          await Isolate.run(() => _uploadOrderToServer(orderData));
+
+          uploaded++;
+          final progress = uploadStartProgress + (((uploaded / ordersToUpload.length) * (100 - uploadStartProgress)).toInt());
+
+          _emit(SyncStatus(
+            phase: SyncPhase.items,
+            message: 'Uploading orders ($uploaded / ${ordersToUpload.length})',
+            current: progress,
+            total: 100,
+          ));
+        } catch (e) {
+          debugPrint('Failed to upload order ${order.invoiceNumber}: $e');
+          // Continue with next order
+        }
+      }
+
+      _emit(const SyncStatus(
+        phase: SyncPhase.success,
+        message: 'Sales history uploaded successfully',
+        current: 100,
+        total: 100,
+      ));
+    } catch (e, s) {
+      debugPrint('UPLOAD SALES FAILED: $e');
+      debugPrintStack(stackTrace: s);
+
+      String errorMessage = 'Upload failed';
+      if (e.toString().contains('SocketException') || e.toString().contains('network') || e.toString().contains('connection') || e.toString().contains('timeout')) {
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+      } else {
+        errorMessage = 'Upload failed: ${e.toString()}';
+      }
+
+      _emit(SyncStatus(
+        phase: SyncPhase.failed,
+        message: errorMessage,
+      ));
+    }
+  }
+
+  // Static function for isolate - Upload order to server
+  static Future<void> _uploadOrderToServer(Map<String, dynamic> orderData) async {
+    // TODO: Implement actual server upload logic
+    // This is a placeholder - replace with actual API call
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    // Example: Use HTTP client to upload
+    // final response = await http.post(
+    //   Uri.parse('$serverUrl/api/orders'),
+    //   body: jsonEncode(orderData),
+    //   headers: {'Content-Type': 'application/json'},
+    // );
+    // if (response.statusCode != 200) {
+    //   throw Exception('Upload failed: ${response.statusCode}');
+    // }
+  }
+
+  // Static function for isolate - Upload customer to server
+  static Future<void> _uploadCustomerToServer(Map<String, dynamic> customerData) async {
+    // TODO: Implement actual server upload logic
+    // This is a placeholder - replace with actual API call
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    // Example: Use HTTP client to upload
+    // final response = await http.post(
+    //   Uri.parse('$serverUrl/api/customers'),
+    //   body: jsonEncode(customerData),
+    //   headers: {'Content-Type': 'application/json'},
+    // );
+    // if (response.statusCode != 200) {
+    //   throw Exception('Upload failed: ${response.statusCode}');
+    // }
+  }
+}
+
+class _SyncRuntimePayload {
+  const _SyncRuntimePayload({
+    required this.categories,
+    required this.kitchens,
+    required this.deliveryPartners,
+    required this.drivers,
+    required this.diningFloors,
+    required this.diningTables,
+    required this.customers,
+    required this.items,
+  });
+
+  final List<CategoryCreatedUpdated> categories;
+  final List<KitchensCreatedUpdated> kitchens;
+  final List<DeliveryServiceCreatedUpdated> deliveryPartners;
+  final List<DriverCreatedUpdated> drivers;
+  final List<DiningFloorModel> diningFloors;
+  final List<DiningTableModel> diningTables;
+  final List<PosCustomer> customers;
+  final List<ItemCreatedUpdated> items;
+}
+
+int? _firstIntFromKitchenIdsString(String kitchenIds) {
+  if (kitchenIds.isEmpty) return null;
+  final p = RegExp(r'\d+').firstMatch(kitchenIds);
+  if (p == null) return null;
+  return int.tryParse(p.group(0)!);
+}
