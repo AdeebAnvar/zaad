@@ -1,0 +1,29 @@
+{
+  "port": 3000,
+  "host": "0.0.0.0",
+
+  "cloud_sync": {
+    "enabled": true,
+
+    "api_base_url": "https://YOUR-TENANT-HOST.example",
+
+    "auth_token_env": "CLOUD_POS_TOKEN",
+
+    "node_cloud_engine_enabled": true,
+
+    "initial_pull_on_startup": true,
+
+    "pull_interval_seconds": 120,
+    "push_interval_seconds": 7,
+    "worker_tick_seconds": 15,
+
+    "app_id": "",
+    "resolve_base_url_from_common": false,
+
+    "common_api_url": "https://suite.zaadplatforms.com/api/getlink",
+
+    "legacy_sync_queue_push": false,
+
+    "max_pull_pages": 500
+  }
+}

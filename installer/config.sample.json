@@ -1,0 +1,18 @@
+{
+  "port": 3000,
+  "host": "0.0.0.0",
+  "required_token": "change-me-long-random-hub-bearer-secret",
+  "disable_auth": false,
+  "db_path": "C:\\POS\\data\\pos.db",
+  "backup_dir": "C:\\POS\\backups",
+  "backup_interval_cron": "*/30 * * * *",
+  "backup_keep_days": 7,
+  "cloud_sync": {
+    "enabled": false,
+    "api_base_url": "https://your-cloud-host.example/",
+    "auth_token_env": "CLOUD_POS_TOKEN",
+    "push_interval_seconds": 7,
+    "max_retries": 50,
+    "batch_size": 25
+  }
+}

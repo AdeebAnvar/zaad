@@ -1,0 +1,23 @@
+{
+  "name": "pos-local-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline-first POS LAN hub — Express, WebSocket, SQLite, sync queue, backups.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "db:init": "node scripts/init-database.js",
+    "test:smoke": "node scripts/smoke-health.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "node-cron": "^4.2.1",
+    "sqlite3": "^5.0.2",
+    "ws": "^8.18.3"
+  }
+}
