@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../core/constants/enums.dart';
 
 class UserModel {
@@ -47,15 +49,7 @@ class UserModel {
       );
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
-    final permsRaw = json['permissions'];
-    final List<String> permissions;
-    if (permsRaw == null) {
-      permissions = const <String>[];
-    } else if (permsRaw is List) {
-      permissions = List<String>.from(permsRaw.map((x) => x.toString()));
-    } else {
-      permissions = const <String>[];
-    }
+    final List<String> permissions = _permissionsFromJson(json['permissions']);
 
     return UserModel(
       id: json["id"],
@@ -75,4 +69,22 @@ class UserModel {
         "mobile_password": mobilePassword,
         "permissions": List<dynamic>.from(permissions.map((x) => x)),
       };
+
+  static List<String> _permissionsFromJson(dynamic raw) {
+    if (raw == null) return const <String>[];
+    if (raw is List) {
+      return List<String>.from(raw.map((x) => x.toString()));
+    }
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final dec = jsonDecode(raw);
+        if (dec is List) {
+          return List<String>.from(dec.map((x) => x.toString()));
+        }
+      } catch (_) {
+        /* fall through */
+      }
+    }
+    return const <String>[];
+  }
 }

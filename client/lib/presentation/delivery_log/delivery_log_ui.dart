@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
@@ -261,7 +263,7 @@ class _NormalDriverAssignBarState extends State<_NormalDriverAssignBar> {
     final ok = await showAppConfirmDialog(
       context,
       title: 'Assign driver',
-      message: 'Assign $driverName to ${widget.selection.length} order(s) and set status to Assigned?',
+      message: 'Assign $driverName to ${widget.selection.length} order(s) and set status to Out for delivery?',
       confirmText: 'Confirm',
     );
     if (ok != true || !context.mounted) return;
@@ -332,6 +334,18 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
   final _usersController = TextEditingController();
   int? _filterUserId;
 
+  /// Cubit-aligned: `all` | `pending` | `out_for_delivery` | `delivered` | `reject`
+
+  Future<void> _applyFiltersInner({String? deliveryStatusBucket}) async {
+    final c = context.read<DeliveryLogCubit>();
+    await c.filterOrders(
+      invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
+      referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
+      userId: _filterUserId,
+      deliveryStatusBucket: deliveryStatusBucket,
+    );
+  }
+
   @override
   void dispose() {
     _invoiceController.dispose();
@@ -341,11 +355,7 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
   }
 
   void _applyFilters() {
-    context.read<DeliveryLogCubit>().filterOrders(
-          invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
-          referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
-          userId: _filterUserId,
-        );
+    unawaited(_applyFiltersInner());
   }
 
   void _clearFilters() {
@@ -355,7 +365,9 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
       _usersController.clear();
       _filterUserId = null;
     });
-    context.read<DeliveryLogCubit>().loadOrders();
+    final c = context.read<DeliveryLogCubit>();
+    c.setDeliveryStatusBucket('all');
+    unawaited(c.loadOrders());
   }
 
   @override
@@ -365,7 +377,7 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
         final m = LogFilterLayout(constraints.maxWidth);
         return LogFilterShell(
           title: 'Filters',
-          subtitle: 'Receipt No, Reference No, and Users',
+          subtitle: 'Receipt, reference, delivery status, and users',
           icon: Icons.local_shipping_outlined,
           body: Wrap(
             spacing: 8,
@@ -385,6 +397,51 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
                   controller: _referenceController,
                   labelText: 'Reference No.',
                   onChanged: (_) => _applyFilters(),
+                ),
+              ),
+              SizedBox(
+                width: m.compactFieldWidth,
+                child: BlocBuilder<DeliveryLogCubit, DeliveryLogState>(
+                  buildWhen: (prev, curr) =>
+                      curr is DeliveryLogLoaded || curr is DeliveryLogLoading || curr is DeliveryLogError || prev.runtimeType != curr.runtimeType,
+                  builder: (context, state) {
+                    final key = context.read<DeliveryLogCubit>().deliveryStatusFilterKey;
+                    const items = <(String label, String value)>[
+                      ('All statuses', 'all'),
+                      ('Pending', 'pending'),
+                      ('Out for delivery', 'out_for_delivery'),
+                      ('Delivered', 'delivered'),
+                      ('Reject', 'reject'),
+                    ];
+                    final valid = items.any((e) => e.$2 == key) ? key : 'all';
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Delivery status',
+                          style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+                        ),
+                        const SizedBox(height: 4),
+                        DropdownButtonFormField<String>(
+                          value: valid,
+                          isExpanded: true,
+                          decoration: CustomFormFieldDecoration.dropdownDecoration(context),
+                          items: items
+                              .map(
+                                (e) => DropdownMenuItem<String>(
+                                  value: e.$2,
+                                  child: Text(e.$1, style: AppStyles.getRegularTextStyle(fontSize: 14)),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) {
+                            if (v == null) return;
+                            unawaited(_applyFiltersInner(deliveryStatusBucket: v));
+                          },
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
               SizedBox(
@@ -701,27 +758,29 @@ class _DeliveryCardState extends State<_DeliveryCard> {
   static const _dbToDisplay = {
     'placed': 'Pending',
     'pending': 'Pending',
-    'dispatched': 'Dispatched',
-    'assigned': 'Assigned',
+    'kot': 'Pending',
+    'out_of_delivery': 'Out for delivery',
+    'dispatched': 'Out for delivery',
+    'assigned': 'Out for delivery',
     'delivered': 'Delivered',
     'completed': 'Delivered',
-    'kot': 'Pending',
-    'cancelled': 'Cancelled',
+    'cancelled': 'Reject',
   };
 
-  // Delivery partner (NOON, KEETA, TALABAT): Pending, Dispatched, Cancelled
+  // Partner (aggregator): Dispatched hides row from log; still mapped for legacy rows / sync.
   static const _partnerStatusOptions = [
     ('Pending', 'pending'),
-    ('Dispatched', 'dispatched'),
-    ('Cancelled', 'cancelled'),
+    ('Out for delivery', 'dispatched'),
+    ('Delivered', 'completed'),
+    ('Reject', 'cancelled'),
   ];
 
-  // NORMAL: Pending, Assigned, Delivered, Cancelled
+  // NORMAL fleet: Delivered persists as completed (bill closed).
   static const _normalStatusOptions = [
     ('Pending', 'pending'),
-    ('Assigned', 'assigned'),
-    ('Delivered', 'delivered'),
-    ('Cancelled', 'cancelled'),
+    ('Out for delivery', 'out_of_delivery'),
+    ('Delivered', 'completed'),
+    ('Reject', 'cancelled'),
   ];
 
   bool _hasDriverAssigned(Order o) => o.driverId != null && (o.driverName?.trim().isNotEmpty ?? false);
@@ -733,7 +792,11 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     if (!hasDriver) {
       return all.where((e) => e.$2 == 'pending' || e.$2 == 'cancelled').toList();
     }
-    if (st == 'assigned' || st == 'delivered' || st == 'completed') {
+    if (st == 'assigned' ||
+        st == 'out_of_delivery' ||
+        st == 'dispatched' ||
+        st == 'delivered' ||
+        st == 'completed') {
       return all.where((e) => e.$2 != 'pending').toList();
     }
     return all;

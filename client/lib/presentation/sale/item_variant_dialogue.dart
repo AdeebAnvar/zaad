@@ -32,7 +32,6 @@ class _ItemVariantDialogState extends State<ItemVariantDialog> {
   /// Single variant selection; none selected by default.
   ItemVariant? selectedVariant;
   int qty = 1;
-
   double get unitPrice => selectedVariant?.price ?? widget.item.price;
   double get totalPrice => unitPrice * qty;
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:drift/drift.dart' show Value;
@@ -6,9 +8,11 @@ import 'package:multi_expansion_card/multi_expansion_card.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/dine_in_sale_navigation.dart';
+import 'package:pos/core/utils/kot_reference_recents.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -22,6 +26,7 @@ import 'package:pos/presentation/sale/desktop/desktop_cart_item_tile.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 
 /// Rebuild the cart [SliverList] only when lines are added/removed/reordered — not on qty/total edits.
@@ -106,11 +111,24 @@ Future<void> showCartStylePaymentDialogForOrder(
         final printFailed = <String>[];
         if (printKot && cartItems.isNotEmpty) {
           printFailed.addAll(
-            await printSvc.printKOTPerKitchen(cartItems: cartItems, referenceNumber: ref),
+            await printSvc.printKOTPerKitchen(
+              cartItems: cartItems,
+              order: updatedOrder,
+              referenceNumber: ref,
+              invoiceNumber: updatedOrder.invoiceNumber,
+              branchId: updatedOrder.branchId,
+              orderedAt: updatedOrder.createdAt,
+            ),
           );
         }
         if (printInvoice) {
-          printFailed.addAll(await printSvc.printFinalBill(order: updatedOrder, cartItems: cartItems));
+          printFailed.addAll(
+            await printSvc.printFinalBill(
+              order: updatedOrder,
+              cartItems: cartItems,
+              asTaxInvoice: printInvoice,
+            ),
+          );
           final cashAmt = payments['cash'] ?? 0.0;
           if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
             printFailed.addAll(await printSvc.openCashDrawer());
@@ -132,6 +150,9 @@ class CartPanel extends StatelessWidget {
     super.key,
     this.scrollController,
     this.closeOnComplete = false,
+    /// When true ([CartPanel] is shown inside [showModalBottomSheet]), successful KOT / Pay closes the sheet via [onCloseCart].
+    /// [closeOnComplete] still controls dine‑in behaviours (e.g. payment dialog **Close** also dismisses sheet).
+    this.isModalBottomSheet = false,
     this.onCloseCart,
     this.openPaymentOnLoad = false,
   });
@@ -139,6 +160,9 @@ class CartPanel extends StatelessWidget {
   /// Optional scroll controller for use in DraggableScrollableSheet (mobile).
   final ScrollController? scrollController;
   final bool closeOnComplete;
+
+  /// True when hosted in a modal bottom sheet (mobile cart FAB).
+  final bool isModalBottomSheet;
   final void Function(bool closed)? onCloseCart;
   final bool openPaymentOnLoad;
   @override
@@ -233,10 +257,12 @@ class CartPanel extends StatelessWidget {
                               context,
                               totalAmount,
                               isEditing: cartCubit.isOpenedForEdit || cartCubit.isEditingPaidOrder,
-                              isDelivery: cartCubit.orderType == 'delivery',
+                              isDelivery: cartCubit.orderType == OrderType.delivery,
                               deliveryPartner: cartCubit.deliveryPartner,
                             );
-                            onCloseCart?.call(true);
+                            if (!isModalBottomSheet) {
+                              onCloseCart?.call(true);
+                            }
                           });
                         }
                       }
@@ -278,7 +304,7 @@ class CartPanel extends StatelessWidget {
                           final cartCubit = context.read<CartCubit>();
                           final isEditingPaidOrder = cartCubit.isEditingPaidOrder;
                           final isOpenedForEdit = cartCubit.isOpenedForEdit;
-                          final isDelivery = cartCubit.orderType == 'delivery';
+                          final isDelivery = cartCubit.orderType == OrderType.delivery;
                           final shouldSaveAsEdit = isOpenedForEdit || isEditingPaidOrder;
 
                           // Delivery: only Save button (no KOT, no Pay) — Save opens payment dialog
@@ -295,7 +321,9 @@ class CartPanel extends StatelessWidget {
                                         isDelivery: isDelivery,
                                         deliveryPartner: cartCubit.deliveryPartner,
                                       );
-                                      onCloseCart?.call(true);
+                                      if (!isModalBottomSheet) {
+                                        onCloseCart?.call(true);
+                                      }
                                     },
                               text: "Save",
                             );
@@ -346,7 +374,7 @@ class CartPanel extends StatelessWidget {
                                     ? null
                                     : () async {
                                         final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
-                                        final skipKotReferenceDialog = hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
+                                        final skipKotReferenceDialog = hasRef && (isOpenedForEdit || cartCubit.orderType == OrderType.dineIn);
                                         if (skipKotReferenceDialog) {
                                           try {
                                             final printFailed = await cartCubit.saveKOTWithExistingReference();
@@ -355,7 +383,9 @@ class CartPanel extends StatelessWidget {
                                               if (printFailed.isNotEmpty) {
                                                 showPrintFailedDialog(context, printFailed);
                                               }
-                                              if (closeOnComplete) {
+                                              if (isModalBottomSheet) {
+                                                onCloseCart?.call(true);
+                                              } else if (closeOnComplete) {
                                                 Navigator.maybePop(context);
                                               }
                                               schedulePopSaleScreenToDineIn(context);
@@ -375,7 +405,9 @@ class CartPanel extends StatelessWidget {
                                     ? () {}
                                     : () async {
                                         await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
-                                        onCloseCart?.call(true);
+                                        if (!isModalBottomSheet) {
+                                          onCloseCart?.call(true);
+                                        }
                                       },
                                 text: "Pay",
                               ),
@@ -482,7 +514,7 @@ class CartPanel extends StatelessWidget {
     final currentReference = cartCubit.currentKOTReference;
     final referenceController = TextEditingController(text: currentReference ?? '');
 
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) {
@@ -534,11 +566,9 @@ class CartPanel extends StatelessWidget {
 
                       const SizedBox(height: 20),
 
-                      /// Input
-                      CustomTextField(
+                      /// Input (recent refs on focus / tap; type to filter)
+                      _KotReferenceAutocompleteField(
                         controller: referenceController,
-                        labelText: 'Reference Number',
-                        // autoFocus: true,
                       ),
 
                       const SizedBox(height: 28),
@@ -566,7 +596,9 @@ class CartPanel extends StatelessWidget {
                                     showPrintFailedDialog(parentContext, printFailed);
                                   }
                                 }
-                                if (closeOnComplete && parentContext.mounted) {
+                                if (isModalBottomSheet) {
+                                  onCloseCart?.call(true);
+                                } else if (closeOnComplete && parentContext.mounted) {
                                   Navigator.of(parentContext).pop();
                                 }
                                 schedulePopSaleScreenToDineIn(parentContext);
@@ -587,7 +619,7 @@ class CartPanel extends StatelessWidget {
           ),
         );
       },
-    );
+    ).whenComplete(referenceController.dispose);
   }
 
   Future<bool> _showPaymentDialog(
@@ -641,8 +673,10 @@ class CartPanel extends StatelessWidget {
               showPrintFailedDialog(context, printFailed);
             }
 
-            if (context.mounted && closeOnComplete) {
-              Navigator.of(context).pop(); // close sheet
+            if (isModalBottomSheet) {
+              onCloseCart?.call(true);
+            } else if (context.mounted && closeOnComplete) {
+              Navigator.of(context).pop(); // close embedded / legacy sheet
             }
             if (context.mounted) {
               schedulePopSaleScreenToDineIn(context);
@@ -1567,6 +1601,82 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _otherController.dispose();
     _onlineOrderNumberController.dispose();
     super.dispose();
+  }
+}
+
+class _KotReferenceAutocompleteField extends StatefulWidget {
+  const _KotReferenceAutocompleteField({
+    required this.controller,
+  });
+
+  final TextEditingController controller;
+
+  @override
+  State<_KotReferenceAutocompleteField> createState() => _KotReferenceAutocompleteFieldState();
+}
+
+class _KotReferenceAutocompleteFieldState extends State<_KotReferenceAutocompleteField> {
+  final FocusNode _focusNode = FocusNode();
+  List<String> _suggestions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (locator.isRegistered<SharedPreferences>()) {
+      _suggestions = KotReferenceRecents.mergePrefsAndDistinctDb(
+        KotReferenceRecents.loadSync(locator<SharedPreferences>()),
+        const [],
+      );
+    }
+    unawaited(_augmentFromDb());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  Future<void> _augmentFromDb() async {
+    try {
+      final db = locator<AppDatabase>();
+      final session = await db.sessionDao.getActiveSession();
+      final branchId = session?.branchId ?? 1;
+      final fromDb = await db.ordersDao.getRecentDistinctReferenceNumbers(limit: 40, branchId: branchId);
+      if (!mounted) return;
+      if (!locator.isRegistered<SharedPreferences>()) return;
+      final merged = KotReferenceRecents.mergePrefsAndDistinctDb(
+        KotReferenceRecents.loadSync(locator<SharedPreferences>()),
+        fromDb,
+      );
+      setState(() => _suggestions = merged);
+    } catch (_) {
+      /* offline / db edge */
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AutoCompleteTextField<String>(
+      items: _suggestions,
+      displayStringFunction: (s) => s,
+      defaultText: '',
+      labelText: 'Reference Number',
+      filterType: FilterType.contains,
+      controller: widget.controller,
+      focusNode: _focusNode,
+      maxHeight: MediaQuery.sizeOf(context).height / 3,
+      onSelected: (s) {
+        widget.controller.value = TextEditingValue(
+          text: s,
+          selection: TextSelection.collapsed(offset: s.length),
+        );
+      },
+      onChanged: (_) {},
+    );
   }
 }
 

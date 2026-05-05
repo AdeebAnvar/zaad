@@ -5,6 +5,7 @@ import 'package:pos/app/navigation.dart';
 import 'package:pos/app/routes.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/user_model.dart';
@@ -16,8 +17,6 @@ import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_ui.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
-import 'package:pos/presentation/widgets/hub_connection_banner.dart';
-
 class CounterHome extends StatefulWidget {
   const CounterHome({super.key, required this.sessionUser});
   final UserModel? sessionUser;
@@ -47,7 +46,10 @@ class _CounterHomeState extends State<CounterHome> {
             ctx,
             MaterialPageRoute(
               builder: (_) => BlocProvider(
-                create: (context) => TakeAwayLogCubit(locator<OrderRepository>()),
+                create: (context) => TakeAwayLogCubit(
+                  locator<OrderRepository>(),
+                  hubOrdersLive: locator<HubOrdersLiveSync>(),
+                ),
                 child: const TakeAwayLogScreen(),
               ),
             ),
@@ -77,6 +79,7 @@ class _CounterHomeState extends State<CounterHome> {
                   locator<OrderRepository>(),
                   locator<DeliveryPartnerRepository>(),
                   locator<DriverRepository>(),
+                  hubOrdersLive: locator<HubOrdersLiveSync>(),
                 ),
                 child: const DeliveryLogScreen(),
               ),
@@ -115,11 +118,15 @@ class _CounterHomeState extends State<CounterHome> {
       barrierColor: Colors.black54,
       builder: (ctx) => _DeliveryServiceDialog(
         partners: partners,
-        onSelectPartner: (partnerName) {
+        onSelectPartner: (partnerName, deliveryServiceId) {
           Navigator.pop(ctx);
           AppNavigator.pushNamed(
             Routes.counter,
-            args: {'orderType': 'delivery', 'deliveryPartner': partnerName},
+            args: {
+              'orderType': 'delivery',
+              'deliveryPartner': partnerName,
+              'deliveryServiceId': deliveryServiceId,
+            },
           );
         },
         onClose: () => Navigator.pop(ctx),
@@ -135,70 +142,60 @@ class _CounterHomeState extends State<CounterHome> {
     return CustomScaffold(
       title: 'Zaad Dine',
       appBarScreen: 'dashboard',
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const HubConnectionBanner(),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                if (tiles.isEmpty) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        'No counter modules are assigned to your account. Contact your administrator.',
-                        textAlign: TextAlign.center,
-                        style:
-                            AppStyles.getRegularTextStyle(fontSize: 15, color: AppColors.hintFontColor),
-                      ),
-                    ),
-                  );
-                }
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          if (tiles.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No counter modules are assigned to your account. Contact your administrator.',
+                  textAlign: TextAlign.center,
+                  style: AppStyles.getRegularTextStyle(fontSize: 15, color: AppColors.hintFontColor),
+                ),
+              ),
+            );
+          }
 
-                final width = constraints.maxWidth;
-                final crossAxisCount = width >= 1200
-                    ? 3
-                    : width >= 760
-                        ? 2
-                        : 1;
-                final maxWidth = width >= 1400 ? 1120.0 : (width >= 760 ? 980.0 : width);
-                final gap = width >= 760 ? 12.0 : 10.0;
-                final horizontalPad = width >= 760 ? 200.0 : 10.0;
-                final verticalPad = width >= 760 ? 29.0 : 12.0;
+          final width = constraints.maxWidth;
+          final crossAxisCount = width >= 1200
+              ? 3
+              : width >= 760
+                  ? 2
+                  : 1;
+          final maxWidth = width >= 1400 ? 1120.0 : (width >= 760 ? 980.0 : width);
+          final gap = width >= 760 ? 12.0 : 10.0;
+          final horizontalPad = width >= 760 ? 200.0 : 10.0;
+          final verticalPad = width >= 760 ? 29.0 : 12.0;
 
-                return Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: maxWidth),
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(horizontalPad, verticalPad, horizontalPad, 12),
-                      child: GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: tiles.length,
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: crossAxisCount,
-                          crossAxisSpacing: gap,
-
-                          mainAxisSpacing: gap, mainAxisExtent: 100,
-                          // childAspectRatio: width >= 980 ? 3.2 : (width >= 760 ? 1.8 : 3.0),
-                        ),
-                        itemBuilder: (context, index) {
-                          final t = tiles[index];
-                          return _DashboardCard(
-                            title: t.title,
-                            icon: t.icon,
-                            onTap: () => t.onTap(context),
-                          );
-                        },
-                      ),
-                    ),
+          return Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(horizontalPad, verticalPad, horizontalPad, 12),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: tiles.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossAxisCount,
+                    crossAxisSpacing: gap,
+                    mainAxisSpacing: gap,
+                    mainAxisExtent: 100,
                   ),
-                );
-              },
+                  itemBuilder: (context, index) {
+                    final t = tiles[index];
+                    return _DashboardCard(
+                      title: t.title,
+                      icon: t.icon,
+                      onTap: () => t.onTap(context),
+                    );
+                  },
+                ),
+              ),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -215,7 +212,7 @@ class _DashboardTile {
 
 class _DeliveryServiceDialog extends StatelessWidget {
   final List<DeliveryPartner> partners;
-  final void Function(String partnerName) onSelectPartner;
+  final void Function(String partnerName, String deliveryServiceId) onSelectPartner;
   final VoidCallback onClose;
 
   const _DeliveryServiceDialog({
@@ -224,7 +221,7 @@ class _DeliveryServiceDialog extends StatelessWidget {
     required this.onClose,
   });
 
-  static Widget _buildOptionRow(String label, int index, void Function(String) onSelect) {
+  static Widget _buildOptionRow(String label, int index, String serviceId, void Function(String, String) onSelect) {
     final isAltRow = index.isOdd;
     return Container(
       color: isAltRow ? Colors.white : const Color(0xFFF5F5F5),
@@ -234,7 +231,7 @@ class _DeliveryServiceDialog extends StatelessWidget {
           color: AppColors.primaryColor,
           borderRadius: BorderRadius.circular(24),
           child: InkWell(
-            onTap: () => onSelect(label),
+            onTap: () => onSelect(label, serviceId),
             borderRadius: BorderRadius.circular(24),
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 32),
@@ -296,16 +293,17 @@ class _DeliveryServiceDialog extends StatelessWidget {
             // Body: delivery partners from sync + NORMAL (own delivery)
             Builder(
               builder: (_) {
-                final options = <String>[
-                  ...partners.map((p) => p.name.trim()).where((e) => e.isNotEmpty),
+                final options = <({String label, String id})>[
+                  for (final p in partners)
+                    if (p.name.trim().isNotEmpty) (label: p.name.trim(), id: p.id.toString()),
                 ];
-                final hasNormal = options.any((e) => e.toUpperCase() == 'NORMAL');
+                final hasNormal = options.any((e) => e.label.toUpperCase() == 'NORMAL');
                 if (!hasNormal) {
-                  options.add('NORMAL'); // Own delivery - always available
+                  options.add((label: 'NORMAL', id: 'NORMAL'));
                 }
                 if (options.length == 1) {
-                  // Only NORMAL
-                  return _buildOptionRow('NORMAL', 0, onSelectPartner);
+                  final o = options.single;
+                  return _buildOptionRow(o.label, 0, o.id, onSelectPartner);
                 }
                 return ListView.separated(
                   shrinkWrap: true,
@@ -313,7 +311,10 @@ class _DeliveryServiceDialog extends StatelessWidget {
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: options.length,
                   separatorBuilder: (_, __) => const SizedBox.shrink(),
-                  itemBuilder: (_, i) => _buildOptionRow(options[i], i, onSelectPartner),
+                  itemBuilder: (_, i) {
+                    final o = options[i];
+                    return _buildOptionRow(o.label, i, o.id, onSelectPartner);
+                  },
                 );
               },
             ),

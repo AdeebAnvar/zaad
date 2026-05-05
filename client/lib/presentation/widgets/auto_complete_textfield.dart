@@ -16,9 +16,9 @@ class AutoCompleteTextField<T extends Object> extends StatelessWidget {
   final List<String> Function(T model)? searchFunction;
   final String defaultText;
   final String? labelText;
-  Widget? prefixIcon;
-  Widget? suffixIcon;
-  bool? showAsUpperLabel;
+  final Widget? prefixIcon;
+  final Widget? suffixIcon;
+  final bool? showAsUpperLabel;
   final void Function(T model) onSelected;
   final void Function(String value)? onChanged;
   final FocusNode? focusNode;
@@ -28,13 +28,13 @@ class AutoCompleteTextField<T extends Object> extends StatelessWidget {
   final FilterType? filterType;
   final TextEditingController? controller;
   // final void Function(FocusNode)? getNode;
-  bool? isLoading = false;
-  AutocompleteOptionsViewBuilder<T>? optionsViewBuilder;
-  AutocompleteListWidget<T>? viewWidget;
-  List<TextInputFormatter>? inputFormatters;
-  List<String>? selectedItems = [];
+  final bool? isLoading;
+  final AutocompleteOptionsViewBuilder<T>? optionsViewBuilder;
+  final AutocompleteListWidget<T>? viewWidget;
+  final List<TextInputFormatter>? inputFormatters;
+  final List<String>? selectedItems;
   final String? Function(String? value)? validator;
-  double? maxHeight;
+  final double? maxHeight;
 
   final void Function(String)? onSubmitted;
   AutoCompleteTextField({
@@ -42,7 +42,7 @@ class AutoCompleteTextField<T extends Object> extends StatelessWidget {
     required this.items,
     required this.displayStringFunction,
     required this.onSelected,
-    this.isLoading,
+    this.isLoading = false,
     this.onChanged,
     this.optionsViewBuilder,
     this.searchFunction,

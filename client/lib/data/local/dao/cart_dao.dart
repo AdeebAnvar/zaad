@@ -9,6 +9,9 @@ class Carts extends Table {
   /// Delivery partner name (Swiggy, Zomato, etc.) when orderType is 'delivery'
   TextColumn get deliveryPartner => text().nullable()();
 
+  /// Matches [Orders.branchId] once the sale is finalized; used for invoice suffix scoping.
+  IntColumn get branchId => integer().withDefault(const Constant(1))();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -48,17 +51,23 @@ class CartItems extends Table {
   ItemToppings,
 ])
 class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
-  CartsDao(AppDatabase db) : super(db);
+  CartsDao(super.db);
 
   /* ───────── CART ───────── */
 
-  Future<int> createCart(String invoiceNumber, {String? orderType, String? deliveryPartner}) {
+  Future<int> createCart(
+    String invoiceNumber, {
+    String? orderType,
+    String? deliveryPartner,
+    int branchId = 1,
+  }) {
     return into(carts).insert(
       CartsCompanion.insert(
         invoiceNumber: invoiceNumber,
         createdAt: DateTime.now(),
         orderType: orderType != null ? Value(orderType) : const Value.absent(),
         deliveryPartner: deliveryPartner != null ? Value(deliveryPartner) : const Value.absent(),
+        branchId: Value(branchId),
       ),
     );
   }
@@ -132,8 +141,11 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
   }
 
   /// Highest numeric suffix for cart invoices starting with [prefix] (pairs with [OrdersDao.maxInvoiceNumericSuffixForPrefix]).
-  Future<int> maxInvoiceNumericSuffixForPrefix(String prefix) async {
-    final rows = await (select(carts)..where((c) => c.invoiceNumber.like('$prefix%'))).get();
+  Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) async {
+    final rows = await (select(carts)
+          ..where((c) => c.invoiceNumber.like('$prefix%'))
+          ..where((c) => c.branchId.equals(branchId)))
+        .get();
     var max = 0;
     for (final c in rows) {
       final inv = c.invoiceNumber;

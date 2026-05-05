@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
-import 'package:pos/app/navigation.dart';
-import 'package:pos/app/routes.dart';
-import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
-import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/repository/settings_repository.dart';
 import 'package:pos/domain/models/settings_model.dart';
@@ -175,40 +171,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 children: [
-                  if (locator<CurrentCounterSession>().user?.type == UserType.admin)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.router_outlined, color: AppColors.primaryColor),
-                        title: Text(
-                          'Deployment & LAN',
-                          style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
-                        ),
-                        subtitle: Text(
-                          'Change cloud/local mode or fallback IP',
-                          style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
-                        ),
-                        onTap: () => AppNavigator.pushNamed(Routes.setup),
-                      ),
-                    ),
-                  if (locator<CurrentCounterSession>().user?.type == UserType.admin)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.qr_code_2_rounded, color: AppColors.primaryColor),
-                        title: Text(
-                          'Show connection QR',
-                          style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
-                        ),
-                        subtitle: Text(
-                          'Other devices scan to join LOCAL POS',
-                          style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
-                        ),
-                        onTap: () => AppNavigator.pushNamed(Routes.setupQrGenerate),
-                      ),
-                    ),
                   if (_settingsModel == null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),

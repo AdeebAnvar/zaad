@@ -8,8 +8,10 @@ class KitchenRepositoryImpl implements KitchenRepository {
   KitchenRepositoryImpl(this.db);
 
   @override
-  Future<List<Kitchen>> getAllLocalKitchens() {
-    return db.itemDao.getAllKitchens();
+  Future<List<Kitchen>> getAllLocalKitchens() async {
+    final session = await db.sessionDao.getActiveSession();
+    final bid = session?.branchId ?? 1;
+    return db.itemDao.getKitchensForBranch(bid);
   }
 
   @override

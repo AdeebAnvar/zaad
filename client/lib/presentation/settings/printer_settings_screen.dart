@@ -12,9 +12,6 @@ class PrinterSettingsScreen extends StatelessWidget {
       title: 'Printer Settings',
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 1000;
-          // final panelWidth = isWide ? 980.0 : constraints.maxWidth;
-
           return SingleChildScrollView(
             // padding: AppPadding.screenAll,
             child: Center(

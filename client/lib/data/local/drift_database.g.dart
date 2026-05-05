@@ -1553,6 +1553,12 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
   late final GeneratedColumn<String> deliveryPartner = GeneratedColumn<String>(
       'delivery_partner', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _allowedOrderChannelsMeta =
+      const VerificationMeta('allowedOrderChannels');
+  @override
+  late final GeneratedColumn<String> allowedOrderChannels =
+      GeneratedColumn<String>('allowed_order_channels', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -1570,7 +1576,8 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         categoryId,
         kitchenId,
         kitchenName,
-        deliveryPartner
+        deliveryPartner,
+        allowedOrderChannels
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1677,6 +1684,12 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
           deliveryPartner.isAcceptableOrUnknown(
               data['delivery_partner']!, _deliveryPartnerMeta));
     }
+    if (data.containsKey('allowed_order_channels')) {
+      context.handle(
+          _allowedOrderChannelsMeta,
+          allowedOrderChannels.isAcceptableOrUnknown(
+              data['allowed_order_channels']!, _allowedOrderChannelsMeta));
+    }
     return context;
   }
 
@@ -1718,6 +1731,9 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
           .read(DriftSqlType.string, data['${effectivePrefix}kitchen_name']),
       deliveryPartner: attachedDatabase.typeMapping.read(
           DriftSqlType.string, data['${effectivePrefix}delivery_partner']),
+      allowedOrderChannels: attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}allowed_order_channels']),
     );
   }
 
@@ -1748,6 +1764,10 @@ class Item extends DataClass implements Insertable<Item> {
 
   /// Delivery partner id/name - items filtered by partner when in delivery mode
   final String? deliveryPartner;
+
+  /// Canonical `take_away.dine_in` style keys from tenant `order_type` (see [parseItemOrderChannelsFromApi]).
+  /// Null/empty = available on all sale modes (legacy).
+  final String? allowedOrderChannels;
   const Item(
       {required this.id,
       required this.name,
@@ -1764,7 +1784,8 @@ class Item extends DataClass implements Insertable<Item> {
       required this.categoryId,
       this.kitchenId,
       this.kitchenName,
-      this.deliveryPartner});
+      this.deliveryPartner,
+      this.allowedOrderChannels});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1793,6 +1814,9 @@ class Item extends DataClass implements Insertable<Item> {
     }
     if (!nullToAbsent || deliveryPartner != null) {
       map['delivery_partner'] = Variable<String>(deliveryPartner);
+    }
+    if (!nullToAbsent || allowedOrderChannels != null) {
+      map['allowed_order_channels'] = Variable<String>(allowedOrderChannels);
     }
     return map;
   }
@@ -1825,6 +1849,9 @@ class Item extends DataClass implements Insertable<Item> {
       deliveryPartner: deliveryPartner == null && nullToAbsent
           ? const Value.absent()
           : Value(deliveryPartner),
+      allowedOrderChannels: allowedOrderChannels == null && nullToAbsent
+          ? const Value.absent()
+          : Value(allowedOrderChannels),
     );
   }
 
@@ -1848,6 +1875,8 @@ class Item extends DataClass implements Insertable<Item> {
       kitchenId: serializer.fromJson<int?>(json['kitchenId']),
       kitchenName: serializer.fromJson<String?>(json['kitchenName']),
       deliveryPartner: serializer.fromJson<String?>(json['deliveryPartner']),
+      allowedOrderChannels:
+          serializer.fromJson<String?>(json['allowedOrderChannels']),
     );
   }
   @override
@@ -1870,6 +1899,7 @@ class Item extends DataClass implements Insertable<Item> {
       'kitchenId': serializer.toJson<int?>(kitchenId),
       'kitchenName': serializer.toJson<String?>(kitchenName),
       'deliveryPartner': serializer.toJson<String?>(deliveryPartner),
+      'allowedOrderChannels': serializer.toJson<String?>(allowedOrderChannels),
     };
   }
 
@@ -1889,7 +1919,8 @@ class Item extends DataClass implements Insertable<Item> {
           int? categoryId,
           Value<int?> kitchenId = const Value.absent(),
           Value<String?> kitchenName = const Value.absent(),
-          Value<String?> deliveryPartner = const Value.absent()}) =>
+          Value<String?> deliveryPartner = const Value.absent(),
+          Value<String?> allowedOrderChannels = const Value.absent()}) =>
       Item(
         id: id ?? this.id,
         name: name ?? this.name,
@@ -1910,6 +1941,9 @@ class Item extends DataClass implements Insertable<Item> {
         deliveryPartner: deliveryPartner.present
             ? deliveryPartner.value
             : this.deliveryPartner,
+        allowedOrderChannels: allowedOrderChannels.present
+            ? allowedOrderChannels.value
+            : this.allowedOrderChannels,
       );
   Item copyWithCompanion(ItemsCompanion data) {
     return Item(
@@ -1941,6 +1975,9 @@ class Item extends DataClass implements Insertable<Item> {
       deliveryPartner: data.deliveryPartner.present
           ? data.deliveryPartner.value
           : this.deliveryPartner,
+      allowedOrderChannels: data.allowedOrderChannels.present
+          ? data.allowedOrderChannels.value
+          : this.allowedOrderChannels,
     );
   }
 
@@ -1962,7 +1999,8 @@ class Item extends DataClass implements Insertable<Item> {
           ..write('categoryId: $categoryId, ')
           ..write('kitchenId: $kitchenId, ')
           ..write('kitchenName: $kitchenName, ')
-          ..write('deliveryPartner: $deliveryPartner')
+          ..write('deliveryPartner: $deliveryPartner, ')
+          ..write('allowedOrderChannels: $allowedOrderChannels')
           ..write(')'))
         .toString();
   }
@@ -1984,7 +2022,8 @@ class Item extends DataClass implements Insertable<Item> {
       categoryId,
       kitchenId,
       kitchenName,
-      deliveryPartner);
+      deliveryPartner,
+      allowedOrderChannels);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2004,7 +2043,8 @@ class Item extends DataClass implements Insertable<Item> {
           other.categoryId == this.categoryId &&
           other.kitchenId == this.kitchenId &&
           other.kitchenName == this.kitchenName &&
-          other.deliveryPartner == this.deliveryPartner);
+          other.deliveryPartner == this.deliveryPartner &&
+          other.allowedOrderChannels == this.allowedOrderChannels);
 }
 
 class ItemsCompanion extends UpdateCompanion<Item> {
@@ -2024,6 +2064,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   final Value<int?> kitchenId;
   final Value<String?> kitchenName;
   final Value<String?> deliveryPartner;
+  final Value<String?> allowedOrderChannels;
   const ItemsCompanion({
     this.id = const Value.absent(),
     this.name = const Value.absent(),
@@ -2041,6 +2082,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.kitchenId = const Value.absent(),
     this.kitchenName = const Value.absent(),
     this.deliveryPartner = const Value.absent(),
+    this.allowedOrderChannels = const Value.absent(),
   });
   ItemsCompanion.insert({
     this.id = const Value.absent(),
@@ -2059,6 +2101,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     this.kitchenId = const Value.absent(),
     this.kitchenName = const Value.absent(),
     this.deliveryPartner = const Value.absent(),
+    this.allowedOrderChannels = const Value.absent(),
   })  : name = Value(name),
         otherName = Value(otherName),
         sku = Value(sku),
@@ -2085,6 +2128,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     Expression<int>? kitchenId,
     Expression<String>? kitchenName,
     Expression<String>? deliveryPartner,
+    Expression<String>? allowedOrderChannels,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -2103,6 +2147,8 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       if (kitchenId != null) 'kitchen_id': kitchenId,
       if (kitchenName != null) 'kitchen_name': kitchenName,
       if (deliveryPartner != null) 'delivery_partner': deliveryPartner,
+      if (allowedOrderChannels != null)
+        'allowed_order_channels': allowedOrderChannels,
     });
   }
 
@@ -2122,7 +2168,8 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       Value<int>? categoryId,
       Value<int?>? kitchenId,
       Value<String?>? kitchenName,
-      Value<String?>? deliveryPartner}) {
+      Value<String?>? deliveryPartner,
+      Value<String?>? allowedOrderChannels}) {
     return ItemsCompanion(
       id: id ?? this.id,
       name: name ?? this.name,
@@ -2140,6 +2187,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
       kitchenId: kitchenId ?? this.kitchenId,
       kitchenName: kitchenName ?? this.kitchenName,
       deliveryPartner: deliveryPartner ?? this.deliveryPartner,
+      allowedOrderChannels: allowedOrderChannels ?? this.allowedOrderChannels,
     );
   }
 
@@ -2194,6 +2242,10 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     if (deliveryPartner.present) {
       map['delivery_partner'] = Variable<String>(deliveryPartner.value);
     }
+    if (allowedOrderChannels.present) {
+      map['allowed_order_channels'] =
+          Variable<String>(allowedOrderChannels.value);
+    }
     return map;
   }
 
@@ -2215,7 +2267,8 @@ class ItemsCompanion extends UpdateCompanion<Item> {
           ..write('categoryId: $categoryId, ')
           ..write('kitchenId: $kitchenId, ')
           ..write('kitchenName: $kitchenName, ')
-          ..write('deliveryPartner: $deliveryPartner')
+          ..write('deliveryPartner: $deliveryPartner, ')
+          ..write('allowedOrderChannels: $allowedOrderChannels')
           ..write(')'))
         .toString();
   }
@@ -3488,9 +3541,17 @@ class $CartsTable extends Carts with TableInfo<$CartsTable, Cart> {
   late final GeneratedColumn<String> deliveryPartner = GeneratedColumn<String>(
       'delivery_partner', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _branchIdMeta =
+      const VerificationMeta('branchId');
+  @override
+  late final GeneratedColumn<int> branchId = GeneratedColumn<int>(
+      'branch_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(1));
   @override
   List<GeneratedColumn> get $columns =>
-      [id, invoiceNumber, createdAt, orderType, deliveryPartner];
+      [id, invoiceNumber, createdAt, orderType, deliveryPartner, branchId];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3528,6 +3589,10 @@ class $CartsTable extends Carts with TableInfo<$CartsTable, Cart> {
           deliveryPartner.isAcceptableOrUnknown(
               data['delivery_partner']!, _deliveryPartnerMeta));
     }
+    if (data.containsKey('branch_id')) {
+      context.handle(_branchIdMeta,
+          branchId.isAcceptableOrUnknown(data['branch_id']!, _branchIdMeta));
+    }
     return context;
   }
 
@@ -3547,6 +3612,8 @@ class $CartsTable extends Carts with TableInfo<$CartsTable, Cart> {
           .read(DriftSqlType.string, data['${effectivePrefix}order_type'])!,
       deliveryPartner: attachedDatabase.typeMapping.read(
           DriftSqlType.string, data['${effectivePrefix}delivery_partner']),
+      branchId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}branch_id'])!,
     );
   }
 
@@ -3566,12 +3633,16 @@ class Cart extends DataClass implements Insertable<Cart> {
 
   /// Delivery partner name (Swiggy, Zomato, etc.) when orderType is 'delivery'
   final String? deliveryPartner;
+
+  /// Matches [Orders.branchId] once the sale is finalized; used for invoice suffix scoping.
+  final int branchId;
   const Cart(
       {required this.id,
       required this.invoiceNumber,
       required this.createdAt,
       required this.orderType,
-      this.deliveryPartner});
+      this.deliveryPartner,
+      required this.branchId});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -3582,6 +3653,7 @@ class Cart extends DataClass implements Insertable<Cart> {
     if (!nullToAbsent || deliveryPartner != null) {
       map['delivery_partner'] = Variable<String>(deliveryPartner);
     }
+    map['branch_id'] = Variable<int>(branchId);
     return map;
   }
 
@@ -3594,6 +3666,7 @@ class Cart extends DataClass implements Insertable<Cart> {
       deliveryPartner: deliveryPartner == null && nullToAbsent
           ? const Value.absent()
           : Value(deliveryPartner),
+      branchId: Value(branchId),
     );
   }
 
@@ -3606,6 +3679,7 @@ class Cart extends DataClass implements Insertable<Cart> {
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       orderType: serializer.fromJson<String>(json['orderType']),
       deliveryPartner: serializer.fromJson<String?>(json['deliveryPartner']),
+      branchId: serializer.fromJson<int>(json['branchId']),
     );
   }
   @override
@@ -3617,6 +3691,7 @@ class Cart extends DataClass implements Insertable<Cart> {
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'orderType': serializer.toJson<String>(orderType),
       'deliveryPartner': serializer.toJson<String?>(deliveryPartner),
+      'branchId': serializer.toJson<int>(branchId),
     };
   }
 
@@ -3625,7 +3700,8 @@ class Cart extends DataClass implements Insertable<Cart> {
           String? invoiceNumber,
           DateTime? createdAt,
           String? orderType,
-          Value<String?> deliveryPartner = const Value.absent()}) =>
+          Value<String?> deliveryPartner = const Value.absent(),
+          int? branchId}) =>
       Cart(
         id: id ?? this.id,
         invoiceNumber: invoiceNumber ?? this.invoiceNumber,
@@ -3634,6 +3710,7 @@ class Cart extends DataClass implements Insertable<Cart> {
         deliveryPartner: deliveryPartner.present
             ? deliveryPartner.value
             : this.deliveryPartner,
+        branchId: branchId ?? this.branchId,
       );
   Cart copyWithCompanion(CartsCompanion data) {
     return Cart(
@@ -3646,6 +3723,7 @@ class Cart extends DataClass implements Insertable<Cart> {
       deliveryPartner: data.deliveryPartner.present
           ? data.deliveryPartner.value
           : this.deliveryPartner,
+      branchId: data.branchId.present ? data.branchId.value : this.branchId,
     );
   }
 
@@ -3656,14 +3734,15 @@ class Cart extends DataClass implements Insertable<Cart> {
           ..write('invoiceNumber: $invoiceNumber, ')
           ..write('createdAt: $createdAt, ')
           ..write('orderType: $orderType, ')
-          ..write('deliveryPartner: $deliveryPartner')
+          ..write('deliveryPartner: $deliveryPartner, ')
+          ..write('branchId: $branchId')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, invoiceNumber, createdAt, orderType, deliveryPartner);
+  int get hashCode => Object.hash(
+      id, invoiceNumber, createdAt, orderType, deliveryPartner, branchId);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3672,7 +3751,8 @@ class Cart extends DataClass implements Insertable<Cart> {
           other.invoiceNumber == this.invoiceNumber &&
           other.createdAt == this.createdAt &&
           other.orderType == this.orderType &&
-          other.deliveryPartner == this.deliveryPartner);
+          other.deliveryPartner == this.deliveryPartner &&
+          other.branchId == this.branchId);
 }
 
 class CartsCompanion extends UpdateCompanion<Cart> {
@@ -3681,12 +3761,14 @@ class CartsCompanion extends UpdateCompanion<Cart> {
   final Value<DateTime> createdAt;
   final Value<String> orderType;
   final Value<String?> deliveryPartner;
+  final Value<int> branchId;
   const CartsCompanion({
     this.id = const Value.absent(),
     this.invoiceNumber = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.orderType = const Value.absent(),
     this.deliveryPartner = const Value.absent(),
+    this.branchId = const Value.absent(),
   });
   CartsCompanion.insert({
     this.id = const Value.absent(),
@@ -3694,6 +3776,7 @@ class CartsCompanion extends UpdateCompanion<Cart> {
     required DateTime createdAt,
     this.orderType = const Value.absent(),
     this.deliveryPartner = const Value.absent(),
+    this.branchId = const Value.absent(),
   })  : invoiceNumber = Value(invoiceNumber),
         createdAt = Value(createdAt);
   static Insertable<Cart> custom({
@@ -3702,6 +3785,7 @@ class CartsCompanion extends UpdateCompanion<Cart> {
     Expression<DateTime>? createdAt,
     Expression<String>? orderType,
     Expression<String>? deliveryPartner,
+    Expression<int>? branchId,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -3709,6 +3793,7 @@ class CartsCompanion extends UpdateCompanion<Cart> {
       if (createdAt != null) 'created_at': createdAt,
       if (orderType != null) 'order_type': orderType,
       if (deliveryPartner != null) 'delivery_partner': deliveryPartner,
+      if (branchId != null) 'branch_id': branchId,
     });
   }
 
@@ -3717,13 +3802,15 @@ class CartsCompanion extends UpdateCompanion<Cart> {
       Value<String>? invoiceNumber,
       Value<DateTime>? createdAt,
       Value<String>? orderType,
-      Value<String?>? deliveryPartner}) {
+      Value<String?>? deliveryPartner,
+      Value<int>? branchId}) {
     return CartsCompanion(
       id: id ?? this.id,
       invoiceNumber: invoiceNumber ?? this.invoiceNumber,
       createdAt: createdAt ?? this.createdAt,
       orderType: orderType ?? this.orderType,
       deliveryPartner: deliveryPartner ?? this.deliveryPartner,
+      branchId: branchId ?? this.branchId,
     );
   }
 
@@ -3745,6 +3832,9 @@ class CartsCompanion extends UpdateCompanion<Cart> {
     if (deliveryPartner.present) {
       map['delivery_partner'] = Variable<String>(deliveryPartner.value);
     }
+    if (branchId.present) {
+      map['branch_id'] = Variable<int>(branchId.value);
+    }
     return map;
   }
 
@@ -3755,7 +3845,8 @@ class CartsCompanion extends UpdateCompanion<Cart> {
           ..write('invoiceNumber: $invoiceNumber, ')
           ..write('createdAt: $createdAt, ')
           ..write('orderType: $orderType, ')
-          ..write('deliveryPartner: $deliveryPartner')
+          ..write('deliveryPartner: $deliveryPartner, ')
+          ..write('branchId: $branchId')
           ..write(')'))
         .toString();
   }
@@ -4651,6 +4742,14 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
       requiredDuringInsert: false,
       defaultConstraints:
           GeneratedColumn.constraintIsAlways('REFERENCES users (id)'));
+  static const VerificationMeta _branchIdMeta =
+      const VerificationMeta('branchId');
+  @override
+  late final GeneratedColumn<int> branchId = GeneratedColumn<int>(
+      'branch_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(1));
   static const VerificationMeta _serverOrderIdMeta =
       const VerificationMeta('serverOrderId');
   @override
@@ -4698,6 +4797,7 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
         driverId,
         driverName,
         userId,
+        branchId,
         serverOrderId,
         hubMetadata,
         hubSyncPending
@@ -4845,6 +4945,10 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
       context.handle(_userIdMeta,
           userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta));
     }
+    if (data.containsKey('branch_id')) {
+      context.handle(_branchIdMeta,
+          branchId.isAcceptableOrUnknown(data['branch_id']!, _branchIdMeta));
+    }
     if (data.containsKey('server_order_id')) {
       context.handle(
           _serverOrderIdMeta,
@@ -4918,6 +5022,8 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           .read(DriftSqlType.string, data['${effectivePrefix}driver_name']),
       userId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}user_id']),
+      branchId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}branch_id'])!,
       serverOrderId: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}server_order_id']),
       hubMetadata: attachedDatabase.typeMapping
@@ -4962,6 +5068,9 @@ class Order extends DataClass implements Insertable<Order> {
   /// Cashier / staff who created the order (from session at save time).
   final int? userId;
 
+  /// Selling branch (active session at save time); filters logs & reports per branch.
+  final int branchId;
+
   /// LAN hub authoritative order UUID (SQLite row id from Node server).
   final String? serverOrderId;
 
@@ -4994,6 +5103,7 @@ class Order extends DataClass implements Insertable<Order> {
       this.driverId,
       this.driverName,
       this.userId,
+      required this.branchId,
       this.serverOrderId,
       this.hubMetadata,
       required this.hubSyncPending});
@@ -5045,6 +5155,7 @@ class Order extends DataClass implements Insertable<Order> {
     if (!nullToAbsent || userId != null) {
       map['user_id'] = Variable<int>(userId);
     }
+    map['branch_id'] = Variable<int>(branchId);
     if (!nullToAbsent || serverOrderId != null) {
       map['server_order_id'] = Variable<String>(serverOrderId);
     }
@@ -5101,6 +5212,7 @@ class Order extends DataClass implements Insertable<Order> {
           : Value(driverName),
       userId:
           userId == null && nullToAbsent ? const Value.absent() : Value(userId),
+      branchId: Value(branchId),
       serverOrderId: serverOrderId == null && nullToAbsent
           ? const Value.absent()
           : Value(serverOrderId),
@@ -5138,6 +5250,7 @@ class Order extends DataClass implements Insertable<Order> {
       driverId: serializer.fromJson<int?>(json['driverId']),
       driverName: serializer.fromJson<String?>(json['driverName']),
       userId: serializer.fromJson<int?>(json['userId']),
+      branchId: serializer.fromJson<int>(json['branchId']),
       serverOrderId: serializer.fromJson<String?>(json['serverOrderId']),
       hubMetadata: serializer.fromJson<String?>(json['hubMetadata']),
       hubSyncPending: serializer.fromJson<bool>(json['hubSyncPending']),
@@ -5170,6 +5283,7 @@ class Order extends DataClass implements Insertable<Order> {
       'driverId': serializer.toJson<int?>(driverId),
       'driverName': serializer.toJson<String?>(driverName),
       'userId': serializer.toJson<int?>(userId),
+      'branchId': serializer.toJson<int>(branchId),
       'serverOrderId': serializer.toJson<String?>(serverOrderId),
       'hubMetadata': serializer.toJson<String?>(hubMetadata),
       'hubSyncPending': serializer.toJson<bool>(hubSyncPending),
@@ -5200,6 +5314,7 @@ class Order extends DataClass implements Insertable<Order> {
           Value<int?> driverId = const Value.absent(),
           Value<String?> driverName = const Value.absent(),
           Value<int?> userId = const Value.absent(),
+          int? branchId,
           Value<String?> serverOrderId = const Value.absent(),
           Value<String?> hubMetadata = const Value.absent(),
           bool? hubSyncPending}) =>
@@ -5236,6 +5351,7 @@ class Order extends DataClass implements Insertable<Order> {
         driverId: driverId.present ? driverId.value : this.driverId,
         driverName: driverName.present ? driverName.value : this.driverName,
         userId: userId.present ? userId.value : this.userId,
+        branchId: branchId ?? this.branchId,
         serverOrderId:
             serverOrderId.present ? serverOrderId.value : this.serverOrderId,
         hubMetadata: hubMetadata.present ? hubMetadata.value : this.hubMetadata,
@@ -5293,6 +5409,7 @@ class Order extends DataClass implements Insertable<Order> {
       driverName:
           data.driverName.present ? data.driverName.value : this.driverName,
       userId: data.userId.present ? data.userId.value : this.userId,
+      branchId: data.branchId.present ? data.branchId.value : this.branchId,
       serverOrderId: data.serverOrderId.present
           ? data.serverOrderId.value
           : this.serverOrderId,
@@ -5330,6 +5447,7 @@ class Order extends DataClass implements Insertable<Order> {
           ..write('driverId: $driverId, ')
           ..write('driverName: $driverName, ')
           ..write('userId: $userId, ')
+          ..write('branchId: $branchId, ')
           ..write('serverOrderId: $serverOrderId, ')
           ..write('hubMetadata: $hubMetadata, ')
           ..write('hubSyncPending: $hubSyncPending')
@@ -5362,6 +5480,7 @@ class Order extends DataClass implements Insertable<Order> {
         driverId,
         driverName,
         userId,
+        branchId,
         serverOrderId,
         hubMetadata,
         hubSyncPending
@@ -5393,6 +5512,7 @@ class Order extends DataClass implements Insertable<Order> {
           other.driverId == this.driverId &&
           other.driverName == this.driverName &&
           other.userId == this.userId &&
+          other.branchId == this.branchId &&
           other.serverOrderId == this.serverOrderId &&
           other.hubMetadata == this.hubMetadata &&
           other.hubSyncPending == this.hubSyncPending);
@@ -5422,6 +5542,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
   final Value<int?> driverId;
   final Value<String?> driverName;
   final Value<int?> userId;
+  final Value<int> branchId;
   final Value<String?> serverOrderId;
   final Value<String?> hubMetadata;
   final Value<bool> hubSyncPending;
@@ -5449,6 +5570,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.driverId = const Value.absent(),
     this.driverName = const Value.absent(),
     this.userId = const Value.absent(),
+    this.branchId = const Value.absent(),
     this.serverOrderId = const Value.absent(),
     this.hubMetadata = const Value.absent(),
     this.hubSyncPending = const Value.absent(),
@@ -5477,6 +5599,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.driverId = const Value.absent(),
     this.driverName = const Value.absent(),
     this.userId = const Value.absent(),
+    this.branchId = const Value.absent(),
     this.serverOrderId = const Value.absent(),
     this.hubMetadata = const Value.absent(),
     this.hubSyncPending = const Value.absent(),
@@ -5509,6 +5632,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     Expression<int>? driverId,
     Expression<String>? driverName,
     Expression<int>? userId,
+    Expression<int>? branchId,
     Expression<String>? serverOrderId,
     Expression<String>? hubMetadata,
     Expression<bool>? hubSyncPending,
@@ -5537,6 +5661,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       if (driverId != null) 'driver_id': driverId,
       if (driverName != null) 'driver_name': driverName,
       if (userId != null) 'user_id': userId,
+      if (branchId != null) 'branch_id': branchId,
       if (serverOrderId != null) 'server_order_id': serverOrderId,
       if (hubMetadata != null) 'hub_metadata': hubMetadata,
       if (hubSyncPending != null) 'hub_sync_pending': hubSyncPending,
@@ -5567,6 +5692,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       Value<int?>? driverId,
       Value<String?>? driverName,
       Value<int?>? userId,
+      Value<int>? branchId,
       Value<String?>? serverOrderId,
       Value<String?>? hubMetadata,
       Value<bool>? hubSyncPending}) {
@@ -5594,6 +5720,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       driverId: driverId ?? this.driverId,
       driverName: driverName ?? this.driverName,
       userId: userId ?? this.userId,
+      branchId: branchId ?? this.branchId,
       serverOrderId: serverOrderId ?? this.serverOrderId,
       hubMetadata: hubMetadata ?? this.hubMetadata,
       hubSyncPending: hubSyncPending ?? this.hubSyncPending,
@@ -5672,6 +5799,9 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     if (userId.present) {
       map['user_id'] = Variable<int>(userId.value);
     }
+    if (branchId.present) {
+      map['branch_id'] = Variable<int>(branchId.value);
+    }
     if (serverOrderId.present) {
       map['server_order_id'] = Variable<String>(serverOrderId.value);
     }
@@ -5710,6 +5840,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
           ..write('driverId: $driverId, ')
           ..write('driverName: $driverName, ')
           ..write('userId: $userId, ')
+          ..write('branchId: $branchId, ')
           ..write('serverOrderId: $serverOrderId, ')
           ..write('hubMetadata: $hubMetadata, ')
           ..write('hubSyncPending: $hubSyncPending')
@@ -13658,6 +13789,1322 @@ class PendingActionsCompanion extends UpdateCompanion<PendingAction> {
   }
 }
 
+class $SyncOutboxTable extends SyncOutbox
+    with TableInfo<$SyncOutboxTable, SyncOutboxData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncOutboxTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _eventTypeMeta =
+      const VerificationMeta('eventType');
+  @override
+  late final GeneratedColumn<String> eventType = GeneratedColumn<String>(
+      'event_type', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _payloadMeta =
+      const VerificationMeta('payload');
+  @override
+  late final GeneratedColumn<String> payload = GeneratedColumn<String>(
+      'payload', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+      'status', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('PENDING'));
+  static const VerificationMeta _retryCountMeta =
+      const VerificationMeta('retryCount');
+  @override
+  late final GeneratedColumn<int> retryCount = GeneratedColumn<int>(
+      'retry_count', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  static const VerificationMeta _nextRetryAfterMeta =
+      const VerificationMeta('nextRetryAfter');
+  @override
+  late final GeneratedColumn<DateTime> nextRetryAfter =
+      GeneratedColumn<DateTime>('next_retry_after', aliasedName, true,
+          type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, eventType, payload, status, retryCount, createdAt, nextRetryAfter];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_outbox';
+  @override
+  VerificationContext validateIntegrity(Insertable<SyncOutboxData> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('event_type')) {
+      context.handle(_eventTypeMeta,
+          eventType.isAcceptableOrUnknown(data['event_type']!, _eventTypeMeta));
+    } else if (isInserting) {
+      context.missing(_eventTypeMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(_payloadMeta,
+          payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta));
+    } else if (isInserting) {
+      context.missing(_payloadMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(_statusMeta,
+          status.isAcceptableOrUnknown(data['status']!, _statusMeta));
+    }
+    if (data.containsKey('retry_count')) {
+      context.handle(
+          _retryCountMeta,
+          retryCount.isAcceptableOrUnknown(
+              data['retry_count']!, _retryCountMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    if (data.containsKey('next_retry_after')) {
+      context.handle(
+          _nextRetryAfterMeta,
+          nextRetryAfter.isAcceptableOrUnknown(
+              data['next_retry_after']!, _nextRetryAfterMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SyncOutboxData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncOutboxData(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      eventType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}event_type'])!,
+      payload: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}payload'])!,
+      status: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}status'])!,
+      retryCount: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}retry_count'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      nextRetryAfter: attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime, data['${effectivePrefix}next_retry_after']),
+    );
+  }
+
+  @override
+  $SyncOutboxTable createAlias(String alias) {
+    return $SyncOutboxTable(attachedDatabase, alias);
+  }
+}
+
+class SyncOutboxData extends DataClass implements Insertable<SyncOutboxData> {
+  /// Same as outbound [PosSyncEnvelope.eventId].
+  final String id;
+  final String eventType;
+  final String payload;
+
+  /// PENDING | SENT | ACKED | FAILED
+  final String status;
+  final int retryCount;
+  final DateTime createdAt;
+  final DateTime? nextRetryAfter;
+  const SyncOutboxData(
+      {required this.id,
+      required this.eventType,
+      required this.payload,
+      required this.status,
+      required this.retryCount,
+      required this.createdAt,
+      this.nextRetryAfter});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['event_type'] = Variable<String>(eventType);
+    map['payload'] = Variable<String>(payload);
+    map['status'] = Variable<String>(status);
+    map['retry_count'] = Variable<int>(retryCount);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    if (!nullToAbsent || nextRetryAfter != null) {
+      map['next_retry_after'] = Variable<DateTime>(nextRetryAfter);
+    }
+    return map;
+  }
+
+  SyncOutboxCompanion toCompanion(bool nullToAbsent) {
+    return SyncOutboxCompanion(
+      id: Value(id),
+      eventType: Value(eventType),
+      payload: Value(payload),
+      status: Value(status),
+      retryCount: Value(retryCount),
+      createdAt: Value(createdAt),
+      nextRetryAfter: nextRetryAfter == null && nullToAbsent
+          ? const Value.absent()
+          : Value(nextRetryAfter),
+    );
+  }
+
+  factory SyncOutboxData.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncOutboxData(
+      id: serializer.fromJson<String>(json['id']),
+      eventType: serializer.fromJson<String>(json['eventType']),
+      payload: serializer.fromJson<String>(json['payload']),
+      status: serializer.fromJson<String>(json['status']),
+      retryCount: serializer.fromJson<int>(json['retryCount']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      nextRetryAfter: serializer.fromJson<DateTime?>(json['nextRetryAfter']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'eventType': serializer.toJson<String>(eventType),
+      'payload': serializer.toJson<String>(payload),
+      'status': serializer.toJson<String>(status),
+      'retryCount': serializer.toJson<int>(retryCount),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'nextRetryAfter': serializer.toJson<DateTime?>(nextRetryAfter),
+    };
+  }
+
+  SyncOutboxData copyWith(
+          {String? id,
+          String? eventType,
+          String? payload,
+          String? status,
+          int? retryCount,
+          DateTime? createdAt,
+          Value<DateTime?> nextRetryAfter = const Value.absent()}) =>
+      SyncOutboxData(
+        id: id ?? this.id,
+        eventType: eventType ?? this.eventType,
+        payload: payload ?? this.payload,
+        status: status ?? this.status,
+        retryCount: retryCount ?? this.retryCount,
+        createdAt: createdAt ?? this.createdAt,
+        nextRetryAfter:
+            nextRetryAfter.present ? nextRetryAfter.value : this.nextRetryAfter,
+      );
+  SyncOutboxData copyWithCompanion(SyncOutboxCompanion data) {
+    return SyncOutboxData(
+      id: data.id.present ? data.id.value : this.id,
+      eventType: data.eventType.present ? data.eventType.value : this.eventType,
+      payload: data.payload.present ? data.payload.value : this.payload,
+      status: data.status.present ? data.status.value : this.status,
+      retryCount:
+          data.retryCount.present ? data.retryCount.value : this.retryCount,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      nextRetryAfter: data.nextRetryAfter.present
+          ? data.nextRetryAfter.value
+          : this.nextRetryAfter,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncOutboxData(')
+          ..write('id: $id, ')
+          ..write('eventType: $eventType, ')
+          ..write('payload: $payload, ')
+          ..write('status: $status, ')
+          ..write('retryCount: $retryCount, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('nextRetryAfter: $nextRetryAfter')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id, eventType, payload, status, retryCount, createdAt, nextRetryAfter);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncOutboxData &&
+          other.id == this.id &&
+          other.eventType == this.eventType &&
+          other.payload == this.payload &&
+          other.status == this.status &&
+          other.retryCount == this.retryCount &&
+          other.createdAt == this.createdAt &&
+          other.nextRetryAfter == this.nextRetryAfter);
+}
+
+class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxData> {
+  final Value<String> id;
+  final Value<String> eventType;
+  final Value<String> payload;
+  final Value<String> status;
+  final Value<int> retryCount;
+  final Value<DateTime> createdAt;
+  final Value<DateTime?> nextRetryAfter;
+  final Value<int> rowid;
+  const SyncOutboxCompanion({
+    this.id = const Value.absent(),
+    this.eventType = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.status = const Value.absent(),
+    this.retryCount = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.nextRetryAfter = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncOutboxCompanion.insert({
+    required String id,
+    required String eventType,
+    required String payload,
+    this.status = const Value.absent(),
+    this.retryCount = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.nextRetryAfter = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        eventType = Value(eventType),
+        payload = Value(payload);
+  static Insertable<SyncOutboxData> custom({
+    Expression<String>? id,
+    Expression<String>? eventType,
+    Expression<String>? payload,
+    Expression<String>? status,
+    Expression<int>? retryCount,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? nextRetryAfter,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (eventType != null) 'event_type': eventType,
+      if (payload != null) 'payload': payload,
+      if (status != null) 'status': status,
+      if (retryCount != null) 'retry_count': retryCount,
+      if (createdAt != null) 'created_at': createdAt,
+      if (nextRetryAfter != null) 'next_retry_after': nextRetryAfter,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncOutboxCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? eventType,
+      Value<String>? payload,
+      Value<String>? status,
+      Value<int>? retryCount,
+      Value<DateTime>? createdAt,
+      Value<DateTime?>? nextRetryAfter,
+      Value<int>? rowid}) {
+    return SyncOutboxCompanion(
+      id: id ?? this.id,
+      eventType: eventType ?? this.eventType,
+      payload: payload ?? this.payload,
+      status: status ?? this.status,
+      retryCount: retryCount ?? this.retryCount,
+      createdAt: createdAt ?? this.createdAt,
+      nextRetryAfter: nextRetryAfter ?? this.nextRetryAfter,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (eventType.present) {
+      map['event_type'] = Variable<String>(eventType.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<String>(payload.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (retryCount.present) {
+      map['retry_count'] = Variable<int>(retryCount.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (nextRetryAfter.present) {
+      map['next_retry_after'] = Variable<DateTime>(nextRetryAfter.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncOutboxCompanion(')
+          ..write('id: $id, ')
+          ..write('eventType: $eventType, ')
+          ..write('payload: $payload, ')
+          ..write('status: $status, ')
+          ..write('retryCount: $retryCount, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('nextRetryAfter: $nextRetryAfter, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SyncInboxTable extends SyncInbox
+    with TableInfo<$SyncInboxTable, SyncInboxData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncInboxTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _eventIdMeta =
+      const VerificationMeta('eventId');
+  @override
+  late final GeneratedColumn<String> eventId = GeneratedColumn<String>(
+      'event_id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'));
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<String> type = GeneratedColumn<String>(
+      'type', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _payloadMeta =
+      const VerificationMeta('payload');
+  @override
+  late final GeneratedColumn<String> payload = GeneratedColumn<String>(
+      'payload', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _rawEnvelopeMeta =
+      const VerificationMeta('rawEnvelope');
+  @override
+  late final GeneratedColumn<String> rawEnvelope = GeneratedColumn<String>(
+      'raw_envelope', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _receivedAtMeta =
+      const VerificationMeta('receivedAt');
+  @override
+  late final GeneratedColumn<DateTime> receivedAt = GeneratedColumn<DateTime>(
+      'received_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  static const VerificationMeta _appliedMeta =
+      const VerificationMeta('applied');
+  @override
+  late final GeneratedColumn<bool> applied = GeneratedColumn<bool>(
+      'applied', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("applied" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, eventId, type, payload, rawEnvelope, receivedAt, applied];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_inbox';
+  @override
+  VerificationContext validateIntegrity(Insertable<SyncInboxData> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('event_id')) {
+      context.handle(_eventIdMeta,
+          eventId.isAcceptableOrUnknown(data['event_id']!, _eventIdMeta));
+    } else if (isInserting) {
+      context.missing(_eventIdMeta);
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+          _typeMeta, type.isAcceptableOrUnknown(data['type']!, _typeMeta));
+    } else if (isInserting) {
+      context.missing(_typeMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(_payloadMeta,
+          payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta));
+    } else if (isInserting) {
+      context.missing(_payloadMeta);
+    }
+    if (data.containsKey('raw_envelope')) {
+      context.handle(
+          _rawEnvelopeMeta,
+          rawEnvelope.isAcceptableOrUnknown(
+              data['raw_envelope']!, _rawEnvelopeMeta));
+    } else if (isInserting) {
+      context.missing(_rawEnvelopeMeta);
+    }
+    if (data.containsKey('received_at')) {
+      context.handle(
+          _receivedAtMeta,
+          receivedAt.isAcceptableOrUnknown(
+              data['received_at']!, _receivedAtMeta));
+    }
+    if (data.containsKey('applied')) {
+      context.handle(_appliedMeta,
+          applied.isAcceptableOrUnknown(data['applied']!, _appliedMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SyncInboxData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncInboxData(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      eventId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}event_id'])!,
+      type: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}type'])!,
+      payload: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}payload'])!,
+      rawEnvelope: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}raw_envelope'])!,
+      receivedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}received_at'])!,
+      applied: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}applied'])!,
+    );
+  }
+
+  @override
+  $SyncInboxTable createAlias(String alias) {
+    return $SyncInboxTable(attachedDatabase, alias);
+  }
+}
+
+class SyncInboxData extends DataClass implements Insertable<SyncInboxData> {
+  final String id;
+  final String eventId;
+  final String type;
+  final String payload;
+  final String rawEnvelope;
+  final DateTime receivedAt;
+  final bool applied;
+  const SyncInboxData(
+      {required this.id,
+      required this.eventId,
+      required this.type,
+      required this.payload,
+      required this.rawEnvelope,
+      required this.receivedAt,
+      required this.applied});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['event_id'] = Variable<String>(eventId);
+    map['type'] = Variable<String>(type);
+    map['payload'] = Variable<String>(payload);
+    map['raw_envelope'] = Variable<String>(rawEnvelope);
+    map['received_at'] = Variable<DateTime>(receivedAt);
+    map['applied'] = Variable<bool>(applied);
+    return map;
+  }
+
+  SyncInboxCompanion toCompanion(bool nullToAbsent) {
+    return SyncInboxCompanion(
+      id: Value(id),
+      eventId: Value(eventId),
+      type: Value(type),
+      payload: Value(payload),
+      rawEnvelope: Value(rawEnvelope),
+      receivedAt: Value(receivedAt),
+      applied: Value(applied),
+    );
+  }
+
+  factory SyncInboxData.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncInboxData(
+      id: serializer.fromJson<String>(json['id']),
+      eventId: serializer.fromJson<String>(json['eventId']),
+      type: serializer.fromJson<String>(json['type']),
+      payload: serializer.fromJson<String>(json['payload']),
+      rawEnvelope: serializer.fromJson<String>(json['rawEnvelope']),
+      receivedAt: serializer.fromJson<DateTime>(json['receivedAt']),
+      applied: serializer.fromJson<bool>(json['applied']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'eventId': serializer.toJson<String>(eventId),
+      'type': serializer.toJson<String>(type),
+      'payload': serializer.toJson<String>(payload),
+      'rawEnvelope': serializer.toJson<String>(rawEnvelope),
+      'receivedAt': serializer.toJson<DateTime>(receivedAt),
+      'applied': serializer.toJson<bool>(applied),
+    };
+  }
+
+  SyncInboxData copyWith(
+          {String? id,
+          String? eventId,
+          String? type,
+          String? payload,
+          String? rawEnvelope,
+          DateTime? receivedAt,
+          bool? applied}) =>
+      SyncInboxData(
+        id: id ?? this.id,
+        eventId: eventId ?? this.eventId,
+        type: type ?? this.type,
+        payload: payload ?? this.payload,
+        rawEnvelope: rawEnvelope ?? this.rawEnvelope,
+        receivedAt: receivedAt ?? this.receivedAt,
+        applied: applied ?? this.applied,
+      );
+  SyncInboxData copyWithCompanion(SyncInboxCompanion data) {
+    return SyncInboxData(
+      id: data.id.present ? data.id.value : this.id,
+      eventId: data.eventId.present ? data.eventId.value : this.eventId,
+      type: data.type.present ? data.type.value : this.type,
+      payload: data.payload.present ? data.payload.value : this.payload,
+      rawEnvelope:
+          data.rawEnvelope.present ? data.rawEnvelope.value : this.rawEnvelope,
+      receivedAt:
+          data.receivedAt.present ? data.receivedAt.value : this.receivedAt,
+      applied: data.applied.present ? data.applied.value : this.applied,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncInboxData(')
+          ..write('id: $id, ')
+          ..write('eventId: $eventId, ')
+          ..write('type: $type, ')
+          ..write('payload: $payload, ')
+          ..write('rawEnvelope: $rawEnvelope, ')
+          ..write('receivedAt: $receivedAt, ')
+          ..write('applied: $applied')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, eventId, type, payload, rawEnvelope, receivedAt, applied);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncInboxData &&
+          other.id == this.id &&
+          other.eventId == this.eventId &&
+          other.type == this.type &&
+          other.payload == this.payload &&
+          other.rawEnvelope == this.rawEnvelope &&
+          other.receivedAt == this.receivedAt &&
+          other.applied == this.applied);
+}
+
+class SyncInboxCompanion extends UpdateCompanion<SyncInboxData> {
+  final Value<String> id;
+  final Value<String> eventId;
+  final Value<String> type;
+  final Value<String> payload;
+  final Value<String> rawEnvelope;
+  final Value<DateTime> receivedAt;
+  final Value<bool> applied;
+  final Value<int> rowid;
+  const SyncInboxCompanion({
+    this.id = const Value.absent(),
+    this.eventId = const Value.absent(),
+    this.type = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.rawEnvelope = const Value.absent(),
+    this.receivedAt = const Value.absent(),
+    this.applied = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncInboxCompanion.insert({
+    required String id,
+    required String eventId,
+    required String type,
+    required String payload,
+    required String rawEnvelope,
+    this.receivedAt = const Value.absent(),
+    this.applied = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        eventId = Value(eventId),
+        type = Value(type),
+        payload = Value(payload),
+        rawEnvelope = Value(rawEnvelope);
+  static Insertable<SyncInboxData> custom({
+    Expression<String>? id,
+    Expression<String>? eventId,
+    Expression<String>? type,
+    Expression<String>? payload,
+    Expression<String>? rawEnvelope,
+    Expression<DateTime>? receivedAt,
+    Expression<bool>? applied,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (eventId != null) 'event_id': eventId,
+      if (type != null) 'type': type,
+      if (payload != null) 'payload': payload,
+      if (rawEnvelope != null) 'raw_envelope': rawEnvelope,
+      if (receivedAt != null) 'received_at': receivedAt,
+      if (applied != null) 'applied': applied,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncInboxCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? eventId,
+      Value<String>? type,
+      Value<String>? payload,
+      Value<String>? rawEnvelope,
+      Value<DateTime>? receivedAt,
+      Value<bool>? applied,
+      Value<int>? rowid}) {
+    return SyncInboxCompanion(
+      id: id ?? this.id,
+      eventId: eventId ?? this.eventId,
+      type: type ?? this.type,
+      payload: payload ?? this.payload,
+      rawEnvelope: rawEnvelope ?? this.rawEnvelope,
+      receivedAt: receivedAt ?? this.receivedAt,
+      applied: applied ?? this.applied,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (eventId.present) {
+      map['event_id'] = Variable<String>(eventId.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<String>(type.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<String>(payload.value);
+    }
+    if (rawEnvelope.present) {
+      map['raw_envelope'] = Variable<String>(rawEnvelope.value);
+    }
+    if (receivedAt.present) {
+      map['received_at'] = Variable<DateTime>(receivedAt.value);
+    }
+    if (applied.present) {
+      map['applied'] = Variable<bool>(applied.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncInboxCompanion(')
+          ..write('id: $id, ')
+          ..write('eventId: $eventId, ')
+          ..write('type: $type, ')
+          ..write('payload: $payload, ')
+          ..write('rawEnvelope: $rawEnvelope, ')
+          ..write('receivedAt: $receivedAt, ')
+          ..write('applied: $applied, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SettleSalesOutboxTable extends SettleSalesOutbox
+    with TableInfo<$SettleSalesOutboxTable, SettleSalesOutboxData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SettleSalesOutboxTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _uuidMeta = const VerificationMeta('uuid');
+  @override
+  late final GeneratedColumn<String> uuid = GeneratedColumn<String>(
+      'uuid', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _branchIdMeta =
+      const VerificationMeta('branchId');
+  @override
+  late final GeneratedColumn<int> branchId = GeneratedColumn<int>(
+      'branch_id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _payloadJsonMeta =
+      const VerificationMeta('payloadJson');
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+      'payload_json', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _syncedMeta = const VerificationMeta('synced');
+  @override
+  late final GeneratedColumn<bool> synced = GeneratedColumn<bool>(
+      'synced', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("synced" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, uuid, branchId, payloadJson, synced, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'settle_sales_outbox';
+  @override
+  VerificationContext validateIntegrity(
+      Insertable<SettleSalesOutboxData> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('uuid')) {
+      context.handle(
+          _uuidMeta, uuid.isAcceptableOrUnknown(data['uuid']!, _uuidMeta));
+    } else if (isInserting) {
+      context.missing(_uuidMeta);
+    }
+    if (data.containsKey('branch_id')) {
+      context.handle(_branchIdMeta,
+          branchId.isAcceptableOrUnknown(data['branch_id']!, _branchIdMeta));
+    } else if (isInserting) {
+      context.missing(_branchIdMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+          _payloadJsonMeta,
+          payloadJson.isAcceptableOrUnknown(
+              data['payload_json']!, _payloadJsonMeta));
+    } else if (isInserting) {
+      context.missing(_payloadJsonMeta);
+    }
+    if (data.containsKey('synced')) {
+      context.handle(_syncedMeta,
+          synced.isAcceptableOrUnknown(data['synced']!, _syncedMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SettleSalesOutboxData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SettleSalesOutboxData(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      uuid: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}uuid'])!,
+      branchId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}branch_id'])!,
+      payloadJson: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}payload_json'])!,
+      synced: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}synced'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+    );
+  }
+
+  @override
+  $SettleSalesOutboxTable createAlias(String alias) {
+    return $SettleSalesOutboxTable(attachedDatabase, alias);
+  }
+}
+
+class SettleSalesOutboxData extends DataClass
+    implements Insertable<SettleSalesOutboxData> {
+  final int id;
+  final String uuid;
+  final int branchId;
+
+  /// Full API object JSON for one settle_sales element.
+  final String payloadJson;
+  final bool synced;
+  final DateTime createdAt;
+  const SettleSalesOutboxData(
+      {required this.id,
+      required this.uuid,
+      required this.branchId,
+      required this.payloadJson,
+      required this.synced,
+      required this.createdAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['uuid'] = Variable<String>(uuid);
+    map['branch_id'] = Variable<int>(branchId);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['synced'] = Variable<bool>(synced);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  SettleSalesOutboxCompanion toCompanion(bool nullToAbsent) {
+    return SettleSalesOutboxCompanion(
+      id: Value(id),
+      uuid: Value(uuid),
+      branchId: Value(branchId),
+      payloadJson: Value(payloadJson),
+      synced: Value(synced),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory SettleSalesOutboxData.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SettleSalesOutboxData(
+      id: serializer.fromJson<int>(json['id']),
+      uuid: serializer.fromJson<String>(json['uuid']),
+      branchId: serializer.fromJson<int>(json['branchId']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      synced: serializer.fromJson<bool>(json['synced']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'uuid': serializer.toJson<String>(uuid),
+      'branchId': serializer.toJson<int>(branchId),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'synced': serializer.toJson<bool>(synced),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  SettleSalesOutboxData copyWith(
+          {int? id,
+          String? uuid,
+          int? branchId,
+          String? payloadJson,
+          bool? synced,
+          DateTime? createdAt}) =>
+      SettleSalesOutboxData(
+        id: id ?? this.id,
+        uuid: uuid ?? this.uuid,
+        branchId: branchId ?? this.branchId,
+        payloadJson: payloadJson ?? this.payloadJson,
+        synced: synced ?? this.synced,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  SettleSalesOutboxData copyWithCompanion(SettleSalesOutboxCompanion data) {
+    return SettleSalesOutboxData(
+      id: data.id.present ? data.id.value : this.id,
+      uuid: data.uuid.present ? data.uuid.value : this.uuid,
+      branchId: data.branchId.present ? data.branchId.value : this.branchId,
+      payloadJson:
+          data.payloadJson.present ? data.payloadJson.value : this.payloadJson,
+      synced: data.synced.present ? data.synced.value : this.synced,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SettleSalesOutboxData(')
+          ..write('id: $id, ')
+          ..write('uuid: $uuid, ')
+          ..write('branchId: $branchId, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('synced: $synced, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, uuid, branchId, payloadJson, synced, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SettleSalesOutboxData &&
+          other.id == this.id &&
+          other.uuid == this.uuid &&
+          other.branchId == this.branchId &&
+          other.payloadJson == this.payloadJson &&
+          other.synced == this.synced &&
+          other.createdAt == this.createdAt);
+}
+
+class SettleSalesOutboxCompanion
+    extends UpdateCompanion<SettleSalesOutboxData> {
+  final Value<int> id;
+  final Value<String> uuid;
+  final Value<int> branchId;
+  final Value<String> payloadJson;
+  final Value<bool> synced;
+  final Value<DateTime> createdAt;
+  const SettleSalesOutboxCompanion({
+    this.id = const Value.absent(),
+    this.uuid = const Value.absent(),
+    this.branchId = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.synced = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  SettleSalesOutboxCompanion.insert({
+    this.id = const Value.absent(),
+    required String uuid,
+    required int branchId,
+    required String payloadJson,
+    this.synced = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  })  : uuid = Value(uuid),
+        branchId = Value(branchId),
+        payloadJson = Value(payloadJson);
+  static Insertable<SettleSalesOutboxData> custom({
+    Expression<int>? id,
+    Expression<String>? uuid,
+    Expression<int>? branchId,
+    Expression<String>? payloadJson,
+    Expression<bool>? synced,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (uuid != null) 'uuid': uuid,
+      if (branchId != null) 'branch_id': branchId,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (synced != null) 'synced': synced,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  SettleSalesOutboxCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? uuid,
+      Value<int>? branchId,
+      Value<String>? payloadJson,
+      Value<bool>? synced,
+      Value<DateTime>? createdAt}) {
+    return SettleSalesOutboxCompanion(
+      id: id ?? this.id,
+      uuid: uuid ?? this.uuid,
+      branchId: branchId ?? this.branchId,
+      payloadJson: payloadJson ?? this.payloadJson,
+      synced: synced ?? this.synced,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (uuid.present) {
+      map['uuid'] = Variable<String>(uuid.value);
+    }
+    if (branchId.present) {
+      map['branch_id'] = Variable<int>(branchId.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (synced.present) {
+      map['synced'] = Variable<bool>(synced.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SettleSalesOutboxCompanion(')
+          ..write('id: $id, ')
+          ..write('uuid: $uuid, ')
+          ..write('branchId: $branchId, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('synced: $synced, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $DayClosingCheckpointTable extends DayClosingCheckpoint
+    with TableInfo<$DayClosingCheckpointTable, DayClosingCheckpointData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DayClosingCheckpointTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _branchIdMeta =
+      const VerificationMeta('branchId');
+  @override
+  late final GeneratedColumn<int> branchId = GeneratedColumn<int>(
+      'branch_id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _lastSettledAtMeta =
+      const VerificationMeta('lastSettledAt');
+  @override
+  late final GeneratedColumn<DateTime> lastSettledAt =
+      GeneratedColumn<DateTime>('last_settled_at', aliasedName, false,
+          type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [branchId, lastSettledAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'day_closing_checkpoint';
+  @override
+  VerificationContext validateIntegrity(
+      Insertable<DayClosingCheckpointData> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('branch_id')) {
+      context.handle(_branchIdMeta,
+          branchId.isAcceptableOrUnknown(data['branch_id']!, _branchIdMeta));
+    }
+    if (data.containsKey('last_settled_at')) {
+      context.handle(
+          _lastSettledAtMeta,
+          lastSettledAt.isAcceptableOrUnknown(
+              data['last_settled_at']!, _lastSettledAtMeta));
+    } else if (isInserting) {
+      context.missing(_lastSettledAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {branchId};
+  @override
+  DayClosingCheckpointData map(Map<String, dynamic> data,
+      {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DayClosingCheckpointData(
+      branchId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}branch_id'])!,
+      lastSettledAt: attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime, data['${effectivePrefix}last_settled_at'])!,
+    );
+  }
+
+  @override
+  $DayClosingCheckpointTable createAlias(String alias) {
+    return $DayClosingCheckpointTable(attachedDatabase, alias);
+  }
+}
+
+class DayClosingCheckpointData extends DataClass
+    implements Insertable<DayClosingCheckpointData> {
+  final int branchId;
+  final DateTime lastSettledAt;
+  const DayClosingCheckpointData(
+      {required this.branchId, required this.lastSettledAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['branch_id'] = Variable<int>(branchId);
+    map['last_settled_at'] = Variable<DateTime>(lastSettledAt);
+    return map;
+  }
+
+  DayClosingCheckpointCompanion toCompanion(bool nullToAbsent) {
+    return DayClosingCheckpointCompanion(
+      branchId: Value(branchId),
+      lastSettledAt: Value(lastSettledAt),
+    );
+  }
+
+  factory DayClosingCheckpointData.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DayClosingCheckpointData(
+      branchId: serializer.fromJson<int>(json['branchId']),
+      lastSettledAt: serializer.fromJson<DateTime>(json['lastSettledAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'branchId': serializer.toJson<int>(branchId),
+      'lastSettledAt': serializer.toJson<DateTime>(lastSettledAt),
+    };
+  }
+
+  DayClosingCheckpointData copyWith({int? branchId, DateTime? lastSettledAt}) =>
+      DayClosingCheckpointData(
+        branchId: branchId ?? this.branchId,
+        lastSettledAt: lastSettledAt ?? this.lastSettledAt,
+      );
+  DayClosingCheckpointData copyWithCompanion(
+      DayClosingCheckpointCompanion data) {
+    return DayClosingCheckpointData(
+      branchId: data.branchId.present ? data.branchId.value : this.branchId,
+      lastSettledAt: data.lastSettledAt.present
+          ? data.lastSettledAt.value
+          : this.lastSettledAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DayClosingCheckpointData(')
+          ..write('branchId: $branchId, ')
+          ..write('lastSettledAt: $lastSettledAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(branchId, lastSettledAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DayClosingCheckpointData &&
+          other.branchId == this.branchId &&
+          other.lastSettledAt == this.lastSettledAt);
+}
+
+class DayClosingCheckpointCompanion
+    extends UpdateCompanion<DayClosingCheckpointData> {
+  final Value<int> branchId;
+  final Value<DateTime> lastSettledAt;
+  const DayClosingCheckpointCompanion({
+    this.branchId = const Value.absent(),
+    this.lastSettledAt = const Value.absent(),
+  });
+  DayClosingCheckpointCompanion.insert({
+    this.branchId = const Value.absent(),
+    required DateTime lastSettledAt,
+  }) : lastSettledAt = Value(lastSettledAt);
+  static Insertable<DayClosingCheckpointData> custom({
+    Expression<int>? branchId,
+    Expression<DateTime>? lastSettledAt,
+  }) {
+    return RawValuesInsertable({
+      if (branchId != null) 'branch_id': branchId,
+      if (lastSettledAt != null) 'last_settled_at': lastSettledAt,
+    });
+  }
+
+  DayClosingCheckpointCompanion copyWith(
+      {Value<int>? branchId, Value<DateTime>? lastSettledAt}) {
+    return DayClosingCheckpointCompanion(
+      branchId: branchId ?? this.branchId,
+      lastSettledAt: lastSettledAt ?? this.lastSettledAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (branchId.present) {
+      map['branch_id'] = Variable<int>(branchId.value);
+    }
+    if (lastSettledAt.present) {
+      map['last_settled_at'] = Variable<DateTime>(lastSettledAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DayClosingCheckpointCompanion(')
+          ..write('branchId: $branchId, ')
+          ..write('lastSettledAt: $lastSettledAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -13692,6 +15139,12 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $SyncPaginationStatesTable syncPaginationStates =
       $SyncPaginationStatesTable(this);
   late final $PendingActionsTable pendingActions = $PendingActionsTable(this);
+  late final $SyncOutboxTable syncOutbox = $SyncOutboxTable(this);
+  late final $SyncInboxTable syncInbox = $SyncInboxTable(this);
+  late final $SettleSalesOutboxTable settleSalesOutbox =
+      $SettleSalesOutboxTable(this);
+  late final $DayClosingCheckpointTable dayClosingCheckpoint =
+      $DayClosingCheckpointTable(this);
   late final UsersDao usersDao = UsersDao(this as AppDatabase);
   late final CategoryDao categoryDao = CategoryDao(this as AppDatabase);
   late final CartsDao cartsDao = CartsDao(this as AppDatabase);
@@ -13709,6 +15162,11 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final PullDataDao pullDataDao = PullDataDao(this as AppDatabase);
   late final PendingActionsDao pendingActionsDao =
       PendingActionsDao(this as AppDatabase);
+  late final SyncQueueDao syncQueueDao = SyncQueueDao(this as AppDatabase);
+  late final SettleSalesOutboxDao settleSalesOutboxDao =
+      SettleSalesOutboxDao(this as AppDatabase);
+  late final DayClosingCheckpointDao dayClosingCheckpointDao =
+      DayClosingCheckpointDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -13739,7 +15197,11 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         pullDeliveryServiceRows,
         pullItemRows,
         syncPaginationStates,
-        pendingActions
+        pendingActions,
+        syncOutbox,
+        syncInbox,
+        settleSalesOutbox,
+        dayClosingCheckpoint
       ];
 }
 
@@ -14582,6 +16044,7 @@ typedef $$ItemsTableCreateCompanionBuilder = ItemsCompanion Function({
   Value<int?> kitchenId,
   Value<String?> kitchenName,
   Value<String?> deliveryPartner,
+  Value<String?> allowedOrderChannels,
 });
 typedef $$ItemsTableUpdateCompanionBuilder = ItemsCompanion Function({
   Value<int> id,
@@ -14600,6 +16063,7 @@ typedef $$ItemsTableUpdateCompanionBuilder = ItemsCompanion Function({
   Value<int?> kitchenId,
   Value<String?> kitchenName,
   Value<String?> deliveryPartner,
+  Value<String?> allowedOrderChannels,
 });
 
 final class $$ItemsTableReferences
@@ -14678,6 +16142,10 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
 
   ColumnFilters<String> get deliveryPartner => $composableBuilder(
       column: $table.deliveryPartner,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get allowedOrderChannels => $composableBuilder(
+      column: $table.allowedOrderChannels,
       builder: (column) => ColumnFilters(column));
 
   Expression<bool> cartItemsRefs(
@@ -14763,6 +16231,10 @@ class $$ItemsTableOrderingComposer
   ColumnOrderings<String> get deliveryPartner => $composableBuilder(
       column: $table.deliveryPartner,
       builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get allowedOrderChannels => $composableBuilder(
+      column: $table.allowedOrderChannels,
+      builder: (column) => ColumnOrderings(column));
 }
 
 class $$ItemsTableAnnotationComposer
@@ -14821,6 +16293,9 @@ class $$ItemsTableAnnotationComposer
 
   GeneratedColumn<String> get deliveryPartner => $composableBuilder(
       column: $table.deliveryPartner, builder: (column) => column);
+
+  GeneratedColumn<String> get allowedOrderChannels => $composableBuilder(
+      column: $table.allowedOrderChannels, builder: (column) => column);
 
   Expression<T> cartItemsRefs<T extends Object>(
       Expression<T> Function($$CartItemsTableAnnotationComposer a) f) {
@@ -14883,6 +16358,7 @@ class $$ItemsTableTableManager extends RootTableManager<
             Value<int?> kitchenId = const Value.absent(),
             Value<String?> kitchenName = const Value.absent(),
             Value<String?> deliveryPartner = const Value.absent(),
+            Value<String?> allowedOrderChannels = const Value.absent(),
           }) =>
               ItemsCompanion(
             id: id,
@@ -14901,6 +16377,7 @@ class $$ItemsTableTableManager extends RootTableManager<
             kitchenId: kitchenId,
             kitchenName: kitchenName,
             deliveryPartner: deliveryPartner,
+            allowedOrderChannels: allowedOrderChannels,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -14919,6 +16396,7 @@ class $$ItemsTableTableManager extends RootTableManager<
             Value<int?> kitchenId = const Value.absent(),
             Value<String?> kitchenName = const Value.absent(),
             Value<String?> deliveryPartner = const Value.absent(),
+            Value<String?> allowedOrderChannels = const Value.absent(),
           }) =>
               ItemsCompanion.insert(
             id: id,
@@ -14937,6 +16415,7 @@ class $$ItemsTableTableManager extends RootTableManager<
             kitchenId: kitchenId,
             kitchenName: kitchenName,
             deliveryPartner: deliveryPartner,
+            allowedOrderChannels: allowedOrderChannels,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>
@@ -15827,6 +17306,7 @@ typedef $$CartsTableCreateCompanionBuilder = CartsCompanion Function({
   required DateTime createdAt,
   Value<String> orderType,
   Value<String?> deliveryPartner,
+  Value<int> branchId,
 });
 typedef $$CartsTableUpdateCompanionBuilder = CartsCompanion Function({
   Value<int> id,
@@ -15834,6 +17314,7 @@ typedef $$CartsTableUpdateCompanionBuilder = CartsCompanion Function({
   Value<DateTime> createdAt,
   Value<String> orderType,
   Value<String?> deliveryPartner,
+  Value<int> branchId,
 });
 
 final class $$CartsTableReferences
@@ -15892,6 +17373,9 @@ class $$CartsTableFilterComposer extends Composer<_$AppDatabase, $CartsTable> {
   ColumnFilters<String> get deliveryPartner => $composableBuilder(
       column: $table.deliveryPartner,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get branchId => $composableBuilder(
+      column: $table.branchId, builder: (column) => ColumnFilters(column));
 
   Expression<bool> cartItemsRefs(
       Expression<bool> Function($$CartItemsTableFilterComposer f) f) {
@@ -15961,6 +17445,9 @@ class $$CartsTableOrderingComposer
   ColumnOrderings<String> get deliveryPartner => $composableBuilder(
       column: $table.deliveryPartner,
       builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get branchId => $composableBuilder(
+      column: $table.branchId, builder: (column) => ColumnOrderings(column));
 }
 
 class $$CartsTableAnnotationComposer
@@ -15986,6 +17473,9 @@ class $$CartsTableAnnotationComposer
 
   GeneratedColumn<String> get deliveryPartner => $composableBuilder(
       column: $table.deliveryPartner, builder: (column) => column);
+
+  GeneratedColumn<int> get branchId =>
+      $composableBuilder(column: $table.branchId, builder: (column) => column);
 
   Expression<T> cartItemsRefs<T extends Object>(
       Expression<T> Function($$CartItemsTableAnnotationComposer a) f) {
@@ -16058,6 +17548,7 @@ class $$CartsTableTableManager extends RootTableManager<
             Value<DateTime> createdAt = const Value.absent(),
             Value<String> orderType = const Value.absent(),
             Value<String?> deliveryPartner = const Value.absent(),
+            Value<int> branchId = const Value.absent(),
           }) =>
               CartsCompanion(
             id: id,
@@ -16065,6 +17556,7 @@ class $$CartsTableTableManager extends RootTableManager<
             createdAt: createdAt,
             orderType: orderType,
             deliveryPartner: deliveryPartner,
+            branchId: branchId,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -16072,6 +17564,7 @@ class $$CartsTableTableManager extends RootTableManager<
             required DateTime createdAt,
             Value<String> orderType = const Value.absent(),
             Value<String?> deliveryPartner = const Value.absent(),
+            Value<int> branchId = const Value.absent(),
           }) =>
               CartsCompanion.insert(
             id: id,
@@ -16079,6 +17572,7 @@ class $$CartsTableTableManager extends RootTableManager<
             createdAt: createdAt,
             orderType: orderType,
             deliveryPartner: deliveryPartner,
+            branchId: branchId,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>
@@ -16946,6 +18440,7 @@ typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
   Value<int?> driverId,
   Value<String?> driverName,
   Value<int?> userId,
+  Value<int> branchId,
   Value<String?> serverOrderId,
   Value<String?> hubMetadata,
   Value<bool> hubSyncPending,
@@ -16974,6 +18469,7 @@ typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<int?> driverId,
   Value<String?> driverName,
   Value<int?> userId,
+  Value<int> branchId,
   Value<String?> serverOrderId,
   Value<String?> hubMetadata,
   Value<bool> hubSyncPending,
@@ -17098,6 +18594,9 @@ class $$OrdersTableFilterComposer
 
   ColumnFilters<String> get driverName => $composableBuilder(
       column: $table.driverName, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get branchId => $composableBuilder(
+      column: $table.branchId, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get serverOrderId => $composableBuilder(
       column: $table.serverOrderId, builder: (column) => ColumnFilters(column));
@@ -17250,6 +18749,9 @@ class $$OrdersTableOrderingComposer
   ColumnOrderings<String> get driverName => $composableBuilder(
       column: $table.driverName, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get branchId => $composableBuilder(
+      column: $table.branchId, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get serverOrderId => $composableBuilder(
       column: $table.serverOrderId,
       builder: (column) => ColumnOrderings(column));
@@ -17391,6 +18893,9 @@ class $$OrdersTableAnnotationComposer
   GeneratedColumn<String> get driverName => $composableBuilder(
       column: $table.driverName, builder: (column) => column);
 
+  GeneratedColumn<int> get branchId =>
+      $composableBuilder(column: $table.branchId, builder: (column) => column);
+
   GeneratedColumn<String> get serverOrderId => $composableBuilder(
       column: $table.serverOrderId, builder: (column) => column);
 
@@ -17507,6 +19012,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<int?> driverId = const Value.absent(),
             Value<String?> driverName = const Value.absent(),
             Value<int?> userId = const Value.absent(),
+            Value<int> branchId = const Value.absent(),
             Value<String?> serverOrderId = const Value.absent(),
             Value<String?> hubMetadata = const Value.absent(),
             Value<bool> hubSyncPending = const Value.absent(),
@@ -17535,6 +19041,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             driverId: driverId,
             driverName: driverName,
             userId: userId,
+            branchId: branchId,
             serverOrderId: serverOrderId,
             hubMetadata: hubMetadata,
             hubSyncPending: hubSyncPending,
@@ -17563,6 +19070,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<int?> driverId = const Value.absent(),
             Value<String?> driverName = const Value.absent(),
             Value<int?> userId = const Value.absent(),
+            Value<int> branchId = const Value.absent(),
             Value<String?> serverOrderId = const Value.absent(),
             Value<String?> hubMetadata = const Value.absent(),
             Value<bool> hubSyncPending = const Value.absent(),
@@ -17591,6 +19099,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             driverId: driverId,
             driverName: driverName,
             userId: userId,
+            branchId: branchId,
             serverOrderId: serverOrderId,
             hubMetadata: hubMetadata,
             hubSyncPending: hubSyncPending,
@@ -21510,6 +23019,725 @@ typedef $$PendingActionsTableProcessedTableManager = ProcessedTableManager<
     ),
     PendingAction,
     PrefetchHooks Function()>;
+typedef $$SyncOutboxTableCreateCompanionBuilder = SyncOutboxCompanion Function({
+  required String id,
+  required String eventType,
+  required String payload,
+  Value<String> status,
+  Value<int> retryCount,
+  Value<DateTime> createdAt,
+  Value<DateTime?> nextRetryAfter,
+  Value<int> rowid,
+});
+typedef $$SyncOutboxTableUpdateCompanionBuilder = SyncOutboxCompanion Function({
+  Value<String> id,
+  Value<String> eventType,
+  Value<String> payload,
+  Value<String> status,
+  Value<int> retryCount,
+  Value<DateTime> createdAt,
+  Value<DateTime?> nextRetryAfter,
+  Value<int> rowid,
+});
+
+class $$SyncOutboxTableFilterComposer
+    extends Composer<_$AppDatabase, $SyncOutboxTable> {
+  $$SyncOutboxTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get eventType => $composableBuilder(
+      column: $table.eventType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get payload => $composableBuilder(
+      column: $table.payload, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get status => $composableBuilder(
+      column: $table.status, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get retryCount => $composableBuilder(
+      column: $table.retryCount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get nextRetryAfter => $composableBuilder(
+      column: $table.nextRetryAfter,
+      builder: (column) => ColumnFilters(column));
+}
+
+class $$SyncOutboxTableOrderingComposer
+    extends Composer<_$AppDatabase, $SyncOutboxTable> {
+  $$SyncOutboxTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get eventType => $composableBuilder(
+      column: $table.eventType, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get payload => $composableBuilder(
+      column: $table.payload, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get status => $composableBuilder(
+      column: $table.status, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get retryCount => $composableBuilder(
+      column: $table.retryCount, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get nextRetryAfter => $composableBuilder(
+      column: $table.nextRetryAfter,
+      builder: (column) => ColumnOrderings(column));
+}
+
+class $$SyncOutboxTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SyncOutboxTable> {
+  $$SyncOutboxTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get eventType =>
+      $composableBuilder(column: $table.eventType, builder: (column) => column);
+
+  GeneratedColumn<String> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get retryCount => $composableBuilder(
+      column: $table.retryCount, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get nextRetryAfter => $composableBuilder(
+      column: $table.nextRetryAfter, builder: (column) => column);
+}
+
+class $$SyncOutboxTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $SyncOutboxTable,
+    SyncOutboxData,
+    $$SyncOutboxTableFilterComposer,
+    $$SyncOutboxTableOrderingComposer,
+    $$SyncOutboxTableAnnotationComposer,
+    $$SyncOutboxTableCreateCompanionBuilder,
+    $$SyncOutboxTableUpdateCompanionBuilder,
+    (
+      SyncOutboxData,
+      BaseReferences<_$AppDatabase, $SyncOutboxTable, SyncOutboxData>
+    ),
+    SyncOutboxData,
+    PrefetchHooks Function()> {
+  $$SyncOutboxTableTableManager(_$AppDatabase db, $SyncOutboxTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncOutboxTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncOutboxTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncOutboxTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> eventType = const Value.absent(),
+            Value<String> payload = const Value.absent(),
+            Value<String> status = const Value.absent(),
+            Value<int> retryCount = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime?> nextRetryAfter = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SyncOutboxCompanion(
+            id: id,
+            eventType: eventType,
+            payload: payload,
+            status: status,
+            retryCount: retryCount,
+            createdAt: createdAt,
+            nextRetryAfter: nextRetryAfter,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String eventType,
+            required String payload,
+            Value<String> status = const Value.absent(),
+            Value<int> retryCount = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime?> nextRetryAfter = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SyncOutboxCompanion.insert(
+            id: id,
+            eventType: eventType,
+            payload: payload,
+            status: status,
+            retryCount: retryCount,
+            createdAt: createdAt,
+            nextRetryAfter: nextRetryAfter,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$SyncOutboxTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $SyncOutboxTable,
+    SyncOutboxData,
+    $$SyncOutboxTableFilterComposer,
+    $$SyncOutboxTableOrderingComposer,
+    $$SyncOutboxTableAnnotationComposer,
+    $$SyncOutboxTableCreateCompanionBuilder,
+    $$SyncOutboxTableUpdateCompanionBuilder,
+    (
+      SyncOutboxData,
+      BaseReferences<_$AppDatabase, $SyncOutboxTable, SyncOutboxData>
+    ),
+    SyncOutboxData,
+    PrefetchHooks Function()>;
+typedef $$SyncInboxTableCreateCompanionBuilder = SyncInboxCompanion Function({
+  required String id,
+  required String eventId,
+  required String type,
+  required String payload,
+  required String rawEnvelope,
+  Value<DateTime> receivedAt,
+  Value<bool> applied,
+  Value<int> rowid,
+});
+typedef $$SyncInboxTableUpdateCompanionBuilder = SyncInboxCompanion Function({
+  Value<String> id,
+  Value<String> eventId,
+  Value<String> type,
+  Value<String> payload,
+  Value<String> rawEnvelope,
+  Value<DateTime> receivedAt,
+  Value<bool> applied,
+  Value<int> rowid,
+});
+
+class $$SyncInboxTableFilterComposer
+    extends Composer<_$AppDatabase, $SyncInboxTable> {
+  $$SyncInboxTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get eventId => $composableBuilder(
+      column: $table.eventId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get type => $composableBuilder(
+      column: $table.type, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get payload => $composableBuilder(
+      column: $table.payload, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get rawEnvelope => $composableBuilder(
+      column: $table.rawEnvelope, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get receivedAt => $composableBuilder(
+      column: $table.receivedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get applied => $composableBuilder(
+      column: $table.applied, builder: (column) => ColumnFilters(column));
+}
+
+class $$SyncInboxTableOrderingComposer
+    extends Composer<_$AppDatabase, $SyncInboxTable> {
+  $$SyncInboxTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get eventId => $composableBuilder(
+      column: $table.eventId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get type => $composableBuilder(
+      column: $table.type, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get payload => $composableBuilder(
+      column: $table.payload, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get rawEnvelope => $composableBuilder(
+      column: $table.rawEnvelope, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get receivedAt => $composableBuilder(
+      column: $table.receivedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get applied => $composableBuilder(
+      column: $table.applied, builder: (column) => ColumnOrderings(column));
+}
+
+class $$SyncInboxTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SyncInboxTable> {
+  $$SyncInboxTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get eventId =>
+      $composableBuilder(column: $table.eventId, builder: (column) => column);
+
+  GeneratedColumn<String> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<String> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+
+  GeneratedColumn<String> get rawEnvelope => $composableBuilder(
+      column: $table.rawEnvelope, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get receivedAt => $composableBuilder(
+      column: $table.receivedAt, builder: (column) => column);
+
+  GeneratedColumn<bool> get applied =>
+      $composableBuilder(column: $table.applied, builder: (column) => column);
+}
+
+class $$SyncInboxTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $SyncInboxTable,
+    SyncInboxData,
+    $$SyncInboxTableFilterComposer,
+    $$SyncInboxTableOrderingComposer,
+    $$SyncInboxTableAnnotationComposer,
+    $$SyncInboxTableCreateCompanionBuilder,
+    $$SyncInboxTableUpdateCompanionBuilder,
+    (
+      SyncInboxData,
+      BaseReferences<_$AppDatabase, $SyncInboxTable, SyncInboxData>
+    ),
+    SyncInboxData,
+    PrefetchHooks Function()> {
+  $$SyncInboxTableTableManager(_$AppDatabase db, $SyncInboxTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncInboxTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncInboxTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncInboxTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> eventId = const Value.absent(),
+            Value<String> type = const Value.absent(),
+            Value<String> payload = const Value.absent(),
+            Value<String> rawEnvelope = const Value.absent(),
+            Value<DateTime> receivedAt = const Value.absent(),
+            Value<bool> applied = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SyncInboxCompanion(
+            id: id,
+            eventId: eventId,
+            type: type,
+            payload: payload,
+            rawEnvelope: rawEnvelope,
+            receivedAt: receivedAt,
+            applied: applied,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String eventId,
+            required String type,
+            required String payload,
+            required String rawEnvelope,
+            Value<DateTime> receivedAt = const Value.absent(),
+            Value<bool> applied = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SyncInboxCompanion.insert(
+            id: id,
+            eventId: eventId,
+            type: type,
+            payload: payload,
+            rawEnvelope: rawEnvelope,
+            receivedAt: receivedAt,
+            applied: applied,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$SyncInboxTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $SyncInboxTable,
+    SyncInboxData,
+    $$SyncInboxTableFilterComposer,
+    $$SyncInboxTableOrderingComposer,
+    $$SyncInboxTableAnnotationComposer,
+    $$SyncInboxTableCreateCompanionBuilder,
+    $$SyncInboxTableUpdateCompanionBuilder,
+    (
+      SyncInboxData,
+      BaseReferences<_$AppDatabase, $SyncInboxTable, SyncInboxData>
+    ),
+    SyncInboxData,
+    PrefetchHooks Function()>;
+typedef $$SettleSalesOutboxTableCreateCompanionBuilder
+    = SettleSalesOutboxCompanion Function({
+  Value<int> id,
+  required String uuid,
+  required int branchId,
+  required String payloadJson,
+  Value<bool> synced,
+  Value<DateTime> createdAt,
+});
+typedef $$SettleSalesOutboxTableUpdateCompanionBuilder
+    = SettleSalesOutboxCompanion Function({
+  Value<int> id,
+  Value<String> uuid,
+  Value<int> branchId,
+  Value<String> payloadJson,
+  Value<bool> synced,
+  Value<DateTime> createdAt,
+});
+
+class $$SettleSalesOutboxTableFilterComposer
+    extends Composer<_$AppDatabase, $SettleSalesOutboxTable> {
+  $$SettleSalesOutboxTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get uuid => $composableBuilder(
+      column: $table.uuid, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get branchId => $composableBuilder(
+      column: $table.branchId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get synced => $composableBuilder(
+      column: $table.synced, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$SettleSalesOutboxTableOrderingComposer
+    extends Composer<_$AppDatabase, $SettleSalesOutboxTable> {
+  $$SettleSalesOutboxTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get uuid => $composableBuilder(
+      column: $table.uuid, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get branchId => $composableBuilder(
+      column: $table.branchId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get synced => $composableBuilder(
+      column: $table.synced, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$SettleSalesOutboxTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SettleSalesOutboxTable> {
+  $$SettleSalesOutboxTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get uuid =>
+      $composableBuilder(column: $table.uuid, builder: (column) => column);
+
+  GeneratedColumn<int> get branchId =>
+      $composableBuilder(column: $table.branchId, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => column);
+
+  GeneratedColumn<bool> get synced =>
+      $composableBuilder(column: $table.synced, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$SettleSalesOutboxTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $SettleSalesOutboxTable,
+    SettleSalesOutboxData,
+    $$SettleSalesOutboxTableFilterComposer,
+    $$SettleSalesOutboxTableOrderingComposer,
+    $$SettleSalesOutboxTableAnnotationComposer,
+    $$SettleSalesOutboxTableCreateCompanionBuilder,
+    $$SettleSalesOutboxTableUpdateCompanionBuilder,
+    (
+      SettleSalesOutboxData,
+      BaseReferences<_$AppDatabase, $SettleSalesOutboxTable,
+          SettleSalesOutboxData>
+    ),
+    SettleSalesOutboxData,
+    PrefetchHooks Function()> {
+  $$SettleSalesOutboxTableTableManager(
+      _$AppDatabase db, $SettleSalesOutboxTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SettleSalesOutboxTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SettleSalesOutboxTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SettleSalesOutboxTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> uuid = const Value.absent(),
+            Value<int> branchId = const Value.absent(),
+            Value<String> payloadJson = const Value.absent(),
+            Value<bool> synced = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              SettleSalesOutboxCompanion(
+            id: id,
+            uuid: uuid,
+            branchId: branchId,
+            payloadJson: payloadJson,
+            synced: synced,
+            createdAt: createdAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String uuid,
+            required int branchId,
+            required String payloadJson,
+            Value<bool> synced = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              SettleSalesOutboxCompanion.insert(
+            id: id,
+            uuid: uuid,
+            branchId: branchId,
+            payloadJson: payloadJson,
+            synced: synced,
+            createdAt: createdAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$SettleSalesOutboxTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $SettleSalesOutboxTable,
+    SettleSalesOutboxData,
+    $$SettleSalesOutboxTableFilterComposer,
+    $$SettleSalesOutboxTableOrderingComposer,
+    $$SettleSalesOutboxTableAnnotationComposer,
+    $$SettleSalesOutboxTableCreateCompanionBuilder,
+    $$SettleSalesOutboxTableUpdateCompanionBuilder,
+    (
+      SettleSalesOutboxData,
+      BaseReferences<_$AppDatabase, $SettleSalesOutboxTable,
+          SettleSalesOutboxData>
+    ),
+    SettleSalesOutboxData,
+    PrefetchHooks Function()>;
+typedef $$DayClosingCheckpointTableCreateCompanionBuilder
+    = DayClosingCheckpointCompanion Function({
+  Value<int> branchId,
+  required DateTime lastSettledAt,
+});
+typedef $$DayClosingCheckpointTableUpdateCompanionBuilder
+    = DayClosingCheckpointCompanion Function({
+  Value<int> branchId,
+  Value<DateTime> lastSettledAt,
+});
+
+class $$DayClosingCheckpointTableFilterComposer
+    extends Composer<_$AppDatabase, $DayClosingCheckpointTable> {
+  $$DayClosingCheckpointTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get branchId => $composableBuilder(
+      column: $table.branchId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get lastSettledAt => $composableBuilder(
+      column: $table.lastSettledAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$DayClosingCheckpointTableOrderingComposer
+    extends Composer<_$AppDatabase, $DayClosingCheckpointTable> {
+  $$DayClosingCheckpointTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get branchId => $composableBuilder(
+      column: $table.branchId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get lastSettledAt => $composableBuilder(
+      column: $table.lastSettledAt,
+      builder: (column) => ColumnOrderings(column));
+}
+
+class $$DayClosingCheckpointTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DayClosingCheckpointTable> {
+  $$DayClosingCheckpointTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get branchId =>
+      $composableBuilder(column: $table.branchId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastSettledAt => $composableBuilder(
+      column: $table.lastSettledAt, builder: (column) => column);
+}
+
+class $$DayClosingCheckpointTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $DayClosingCheckpointTable,
+    DayClosingCheckpointData,
+    $$DayClosingCheckpointTableFilterComposer,
+    $$DayClosingCheckpointTableOrderingComposer,
+    $$DayClosingCheckpointTableAnnotationComposer,
+    $$DayClosingCheckpointTableCreateCompanionBuilder,
+    $$DayClosingCheckpointTableUpdateCompanionBuilder,
+    (
+      DayClosingCheckpointData,
+      BaseReferences<_$AppDatabase, $DayClosingCheckpointTable,
+          DayClosingCheckpointData>
+    ),
+    DayClosingCheckpointData,
+    PrefetchHooks Function()> {
+  $$DayClosingCheckpointTableTableManager(
+      _$AppDatabase db, $DayClosingCheckpointTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DayClosingCheckpointTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DayClosingCheckpointTableOrderingComposer(
+                  $db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DayClosingCheckpointTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> branchId = const Value.absent(),
+            Value<DateTime> lastSettledAt = const Value.absent(),
+          }) =>
+              DayClosingCheckpointCompanion(
+            branchId: branchId,
+            lastSettledAt: lastSettledAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> branchId = const Value.absent(),
+            required DateTime lastSettledAt,
+          }) =>
+              DayClosingCheckpointCompanion.insert(
+            branchId: branchId,
+            lastSettledAt: lastSettledAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$DayClosingCheckpointTableProcessedTableManager
+    = ProcessedTableManager<
+        _$AppDatabase,
+        $DayClosingCheckpointTable,
+        DayClosingCheckpointData,
+        $$DayClosingCheckpointTableFilterComposer,
+        $$DayClosingCheckpointTableOrderingComposer,
+        $$DayClosingCheckpointTableAnnotationComposer,
+        $$DayClosingCheckpointTableCreateCompanionBuilder,
+        $$DayClosingCheckpointTableUpdateCompanionBuilder,
+        (
+          DayClosingCheckpointData,
+          BaseReferences<_$AppDatabase, $DayClosingCheckpointTable,
+              DayClosingCheckpointData>
+        ),
+        DayClosingCheckpointData,
+        PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -21567,6 +23795,14 @@ class $AppDatabaseManager {
       $$SyncPaginationStatesTableTableManager(_db, _db.syncPaginationStates);
   $$PendingActionsTableTableManager get pendingActions =>
       $$PendingActionsTableTableManager(_db, _db.pendingActions);
+  $$SyncOutboxTableTableManager get syncOutbox =>
+      $$SyncOutboxTableTableManager(_db, _db.syncOutbox);
+  $$SyncInboxTableTableManager get syncInbox =>
+      $$SyncInboxTableTableManager(_db, _db.syncInbox);
+  $$SettleSalesOutboxTableTableManager get settleSalesOutbox =>
+      $$SettleSalesOutboxTableTableManager(_db, _db.settleSalesOutbox);
+  $$DayClosingCheckpointTableTableManager get dayClosingCheckpoint =>
+      $$DayClosingCheckpointTableTableManager(_db, _db.dayClosingCheckpoint);
 }
 
 mixin _$UsersDaoMixin on DatabaseAccessor<AppDatabase> {
@@ -21585,6 +23821,7 @@ mixin _$CartsDaoMixin on DatabaseAccessor<AppDatabase> {
 mixin _$ItemDaoMixin on DatabaseAccessor<AppDatabase> {
   $KitchensTable get kitchens => attachedDatabase.kitchens;
   $KitchenPrintersTable get kitchenPrinters => attachedDatabase.kitchenPrinters;
+  $CategoriesTable get categories => attachedDatabase.categories;
   $ItemsTable get items => attachedDatabase.items;
   $ItemVariantsTable get itemVariants => attachedDatabase.itemVariants;
   $ItemToppingsTable get itemToppings => attachedDatabase.itemToppings;
@@ -21636,4 +23873,16 @@ mixin _$PullDataDaoMixin on DatabaseAccessor<AppDatabase> {
 }
 mixin _$PendingActionsDaoMixin on DatabaseAccessor<AppDatabase> {
   $PendingActionsTable get pendingActions => attachedDatabase.pendingActions;
+}
+mixin _$SyncQueueDaoMixin on DatabaseAccessor<AppDatabase> {
+  $SyncOutboxTable get syncOutbox => attachedDatabase.syncOutbox;
+  $SyncInboxTable get syncInbox => attachedDatabase.syncInbox;
+}
+mixin _$SettleSalesOutboxDaoMixin on DatabaseAccessor<AppDatabase> {
+  $SettleSalesOutboxTable get settleSalesOutbox =>
+      attachedDatabase.settleSalesOutbox;
+}
+mixin _$DayClosingCheckpointDaoMixin on DatabaseAccessor<AppDatabase> {
+  $DayClosingCheckpointTable get dayClosingCheckpoint =>
+      attachedDatabase.dayClosingCheckpoint;
 }

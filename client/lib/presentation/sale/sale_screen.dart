@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:pos/app/di.dart';
-import 'package:pos/core/network/hub_lan_catalog_live_sync.dart';
+import 'package:pos/core/constants/enums.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
@@ -15,14 +14,14 @@ const double kTabletWidth = 800;
 
 class SaleScreen extends StatefulWidget {
   const SaleScreen({
-    this.orderType = 'take_away',
+    this.orderType = OrderType.takeAway,
     this.deliveryPartner,
     this.fromDineIn = false,
     this.openPaymentOnLoad = false,
     super.key,
   });
 
-  final String orderType;
+  final OrderType orderType;
   final String? deliveryPartner;
 
   /// Counter was opened from the Dine In floor plan (show back arrow to return there).
@@ -34,8 +33,6 @@ class SaleScreen extends StatefulWidget {
 }
 
 class _SaleScreenState extends State<SaleScreen> {
-  VoidCallback? _catalogLiveListener;
-
   @override
   void initState() {
     super.initState();
@@ -44,35 +41,18 @@ class _SaleScreenState extends State<SaleScreen> {
       if (!mounted) return;
       context.read<ItemsCubit>().fetchItemsAndCategories();
     });
-
-    if (locator.isRegistered<HubLanCatalogLiveSync>()) {
-      final live = locator<HubLanCatalogLiveSync>();
-      _catalogLiveListener = () {
-        if (!mounted) return;
-        context.read<ItemsCubit>().fetchItemsAndCategories();
-      };
-      live.catalogRevision.addListener(_catalogLiveListener!);
-    }
-  }
-
-  @override
-  void dispose() {
-    if (_catalogLiveListener != null && locator.isRegistered<HubLanCatalogLiveSync>()) {
-      locator<HubLanCatalogLiveSync>().catalogRevision.removeListener(_catalogLiveListener!);
-    }
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.orderType == 'delivery' && widget.deliveryPartner != null
+    final title = widget.orderType == OrderType.delivery && widget.deliveryPartner != null
         ? 'Delivery - ${widget.deliveryPartner}'
-        : widget.orderType == 'dine_in'
+        : widget.orderType == OrderType.dineIn
             ? 'Dine In'
             : 'Take Away';
     return CustomScaffold(
       title: title,
-      appBarScreen: widget.orderType == 'delivery' ? 'delivery' : 'take_away',
+      appBarScreen: widget.orderType == OrderType.delivery ? 'delivery' : 'take_away',
       onBack: widget.fromDineIn ? () => Navigator.of(context).pop() : null,
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -98,7 +78,8 @@ class SaleScreenFunction {
       builder: (_) => BlocProvider.value(
         value: cartCubit,
         child: CartPanel(
-          closeOnComplete: cartCubit.orderType == 'dine_in',
+          closeOnComplete: cartCubit.orderType == OrderType.dineIn,
+          isModalBottomSheet: true,
           onCloseCart: (sheetClosed) {
             if (sheetClosed) {
               Navigator.pop(context);

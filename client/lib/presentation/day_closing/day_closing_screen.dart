@@ -1,12 +1,20 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/repository_impl/settle_sale_push_mapper.dart';
+import 'package:pos/presentation/day_closing/day_closing_summary.dart';
+import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
+import 'package:uuid/uuid.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 
@@ -19,7 +27,10 @@ class DayClosingScreen extends StatefulWidget {
 
 class _DayClosingScreenState extends State<DayClosingScreen> {
   bool _loading = true;
-  _DayClosingSummary _summary = _DayClosingSummary.empty();
+  bool _submitting = false;
+  DayClosingSummary _summary = DayClosingSummary.empty();
+
+  CounterAccess get _counterAccess => locator<CurrentCounterSession>().access;
 
   @override
   void initState() {
@@ -28,160 +39,38 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
   }
 
   Future<void> _load() async {
-    final db = locator<AppDatabase>();
-    final session = await db.sessionDao.getActiveSession();
-    final orders = await db.ordersDao.getAllOrders();
-    final branch = session == null ? null : await db.branchesDao.getBranchById(session.branchId);
-    final users = await db.usersDao.getAllUsers();
-    final items = await db.itemDao.getAll();
-
-    final settled = orders.where((o) => o.status.toLowerCase() == 'completed').toList();
-    final cancelled = orders.where((o) => o.status.toLowerCase() == 'cancelled').toList();
-    final unpaid = orders
-        .where((o) {
-          final s = o.status.toLowerCase();
-          return s != 'completed' && s != 'cancelled';
-        })
-        .toList();
-
-    double sum(Iterable<Order> list, double Function(Order o) pick) => list.fold<double>(0, (acc, e) => acc + pick(e));
-
-    final grossTotal = sum(settled, (o) => o.totalAmount);
-    final discount = sum(settled, (o) => o.discountAmount);
-    final netTotal = sum(settled, (o) => o.finalAmount);
-    final cashSale = sum(settled, (o) => o.cashAmount);
-    final cardSale = sum(settled, (o) => o.cardAmount);
-    final creditSale = sum(settled, (o) => o.creditAmount);
-    final onlineSale = sum(settled, (o) => o.onlineAmount);
-
-    final dineInSales = sum(settled.where((o) => (o.orderType ?? '').toLowerCase() == 'dine_in'), (o) => o.finalAmount);
-    final deliverySale = sum(
-      settled.where((o) => (o.orderType ?? '').toLowerCase() == 'delivery'),
-      (o) => o.finalAmount,
-    );
-    final takeAwaySale = sum(
-      settled.where((o) {
-        final t = (o.orderType ?? '').toLowerCase();
-        return t.isEmpty || t == 'take_away';
-      }),
-      (o) => o.finalAmount,
-    );
-    final unpaidAmount = sum(unpaid, (o) => o.finalAmount);
-
-    final openingCash = (branch?.openingCash ?? 0).toDouble();
-    const creditRecovery = 0.0;
-    const deliveryRecovery = 0.0;
-    const purchase = 0.0; // no local purchase ledger table yet
-    const salary = 0.0; // no local salary ledger table yet
-    const otherIncome = 0.0; // no local income ledger table yet
-    final expUnpaidTotal = purchase + salary + unpaidAmount - otherIncome;
-    final cashIn = openingCash + cashSale;
-    final cashOut = purchase + salary + unpaidAmount;
-    final cashDrawer = cashIn - cashOut;
-    final difference = expUnpaidTotal - cashDrawer;
-
-    final typeRows = <_TypeSummaryRow>[
-      _TypeSummaryRow(
-        type: 'DINE-IN',
-        count: settled.where((o) => (o.orderType ?? '').toLowerCase() == 'dine_in').length,
-        discount: sum(settled.where((o) => (o.orderType ?? '').toLowerCase() == 'dine_in'), (o) => o.discountAmount),
-        amount: dineInSales,
-      ),
-      _TypeSummaryRow(
-        type: 'DELIVERY',
-        count: settled.where((o) => (o.orderType ?? '').toLowerCase() == 'delivery').length,
-        discount: sum(settled.where((o) => (o.orderType ?? '').toLowerCase() == 'delivery'), (o) => o.discountAmount),
-        amount: deliverySale,
-      ),
-      _TypeSummaryRow(
-        type: 'TAKEAWAY',
-        count: settled.where((o) {
-          final t = (o.orderType ?? '').toLowerCase();
-          return t.isEmpty || t == 'take_away';
-        }).length,
-        discount: sum(
-          settled.where((o) {
-            final t = (o.orderType ?? '').toLowerCase();
-            return t.isEmpty || t == 'take_away';
-          }),
-          (o) => o.discountAmount,
-        ),
-        amount: takeAwaySale,
-      ),
-    ];
-
-    final collected = cashSale + cardSale + creditSale + onlineSale;
-    final variance = collected - netTotal;
-    final excessAmount = variance > 0 ? variance : 0.0;
-    final shortAmount = variance < 0 ? -variance : 0.0;
-
-    final itemById = {for (final i in items) i.id: i};
-    final categoryMap = <String, _CategoryRow>{};
-    for (final order in settled) {
-      final lines = await db.cartsDao.getItemsByCart(order.cartId);
-      for (final line in lines) {
-        final item = itemById[line.itemId];
-        final category = (item?.categoryName ?? 'UNCATEGORIZED').trim().isEmpty ? 'UNCATEGORIZED' : item!.categoryName.trim().toUpperCase();
-        final existing = categoryMap[category];
-        if (existing == null) {
-          categoryMap[category] = _CategoryRow(category: category, qty: line.quantity, amount: line.total);
-        } else {
-          categoryMap[category] = _CategoryRow(
-            category: existing.category,
-            qty: existing.qty + line.quantity,
-            amount: existing.amount + line.total,
-          );
-        }
+    DayClosingSummary summary = DayClosingSummary.empty();
+    try {
+      final db = locator<AppDatabase>();
+      summary = await computeDayClosingSummary(
+        db,
+        counterAccess: locator<CurrentCounterSession>().access,
+      ).timeout(
+        const Duration(seconds: 90),
+        onTimeout: () => throw TimeoutException('Day closing took too long'),
+      );
+    } on TimeoutException catch (e, st) {
+      debugPrint('DayClosingScreen._load timeout: $e\n$st');
+      summary = DayClosingSummary.empty();
+      if (mounted) {
+        CustomSnackBar.showWarning(
+          message: 'Day closing is taking too long. Try again or reduce old orders.',
+        );
+      }
+    } catch (e, st) {
+      debugPrint('DayClosingScreen._load failed: $e\n$st');
+      summary = DayClosingSummary.empty();
+      if (mounted) {
+        CustomSnackBar.showWarning(message: 'Could not load day closing data.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _summary = summary;
+          _loading = false;
+        });
       }
     }
-    final categoryRows = categoryMap.values.toList()..sort((a, b) => b.amount.compareTo(a.amount));
-
-    final userById = {for (final u in users) u.id: u.name};
-    final cancelledRows = cancelled
-        .map(
-          (o) => _CancelledRow(
-            receiptId: o.invoiceNumber,
-            reason: (o.referenceNumber ?? '').trim().isEmpty ? '—' : o.referenceNumber!.trim(),
-            by: o.userId == null ? '—' : (userById[o.userId!] ?? 'User ${o.userId}'),
-            amount: o.finalAmount,
-          ),
-        )
-        .toList();
-
-    if (!mounted) return;
-    setState(() {
-      _summary = _DayClosingSummary(
-        generatedAt: DateTime.now(),
-        lastClosingAt: settled.isEmpty ? null : settled.first.createdAt,
-        grossTotal: grossTotal,
-        discount: discount,
-        netTotal: netTotal,
-        openingCash: openingCash,
-        cashSale: cashSale,
-        cardSale: cardSale,
-        creditSale: creditSale,
-        onlineSale: onlineSale,
-        creditRecovery: creditRecovery,
-        dineInSales: dineInSales,
-        deliverySale: deliverySale,
-        takeAwaySales: takeAwaySale,
-        deliveryRecovery: deliveryRecovery,
-        purchase: purchase,
-        salary: salary,
-        otherIncome: otherIncome,
-        cashIn: cashIn,
-        cashOut: cashOut,
-        cashDrawer: cashDrawer,
-        unpaidAmount: unpaidAmount,
-        difference: difference,
-        excessAmount: excessAmount,
-        shortAmount: shortAmount,
-        typeRows: typeRows,
-        categoryRows: categoryRows,
-        cancelledRows: cancelledRows,
-      );
-      _loading = false;
-    });
   }
 
   Future<void> _onPrint() async {
@@ -189,9 +78,12 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       final printService = locator<PrintService>();
       final rows = <({String label, double amount})>[
         (label: 'Opening Cash', amount: _summary.openingCash),
+        (label: 'Gross Sales', amount: _summary.grossTotal),
+        (label: 'Discounts', amount: _summary.discount),
         (label: 'Cash Sale', amount: _summary.cashSale),
         (label: 'Card Sale', amount: _summary.cardSale),
         (label: 'Credit Sale', amount: _summary.creditSale),
+        (label: 'Online Sale', amount: _summary.onlineSale),
         (label: 'Delivery Sale', amount: _summary.deliverySale),
         (label: 'Net Sales', amount: _summary.netTotal),
         (label: 'Cash In', amount: _summary.cashIn),
@@ -215,14 +107,77 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
     }
   }
 
-  void _onSubmit() {
+  Future<bool> _confirmSubmitDayClosing() async {
+    final result = await showAppConfirmDialog(
+      context,
+      title: 'Close day?',
+      message: 'Are you sure you want to close the day?',
+      cancelText: 'Cancel',
+      confirmText: 'Yes, close day',
+    );
+    return result == true;
+  }
+
+  Future<void> _onSubmit() async {
+    if (_submitting) return;
     if (_summary.unpaidAmount > 0.009) {
       CustomSnackBar.showWarning(
         message: 'Cannot settle day closing. Unpaid amount: ${RuntimeAppSettings.money(_summary.unpaidAmount)}',
       );
       return;
     }
-    CustomSnackBar.showSuccess(message: 'Day closing submitted');
+    final ok = await _confirmSubmitDayClosing();
+    if (!mounted || !ok) return;
+    setState(() => _submitting = true);
+    try {
+      final db = locator<AppDatabase>();
+      final summary = await computeDayClosingSummary(
+        db,
+        counterAccess: locator<CurrentCounterSession>().access,
+      );
+      if (!mounted) return;
+      if (summary.unpaidAmount > 0.009) {
+        CustomSnackBar.showWarning(
+          message: 'Cannot settle day closing. Unpaid amount: ${RuntimeAppSettings.money(summary.unpaidAmount)}',
+        );
+        return;
+      }
+
+      final session = await db.sessionDao.getActiveSession();
+      final branchId = session?.branchId ?? 1;
+      final userId = session?.userId ?? 1;
+      final uuid = const Uuid().v4();
+      final at = DateTime.now();
+      final payload = SettleSalePushMapper.buildSettleSalePayload(
+        summary,
+        uuid: uuid,
+        branchId: branchId,
+        userId: userId,
+        at: at,
+      );
+
+      await db.settleSalesOutboxDao.insertPending(
+        SettleSalesOutboxCompanion.insert(
+          uuid: uuid,
+          branchId: branchId,
+          payloadJson: jsonEncode(payload),
+        ),
+      );
+      final settledAt = DateTime.now();
+      await db.dayClosingCheckpointDao.upsertLastSettledAt(branchId, settledAt);
+      await db.branchesDao.updateOpeningCash(
+        branchId: branchId,
+        openingCashValue: 0,
+      );
+      if (!mounted) return;
+      CustomSnackBar.showSuccess(message: 'Day closed successfully.');
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      showErrorDialog(context, e);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   @override
@@ -254,9 +209,17 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                         headers: const [' ', 'AMOUNT'],
                         rows: [
                           _row('OPENING CASH', RuntimeAppSettings.money(_summary.openingCash)),
+                          _row('GROSS SALES (before discount)', RuntimeAppSettings.money(_summary.grossTotal)),
+                          _row(
+                            'DISCOUNTS',
+                            RuntimeAppSettings.money(_summary.discount),
+                            color: Colors.deepOrange.shade800,
+                          ),
+                          _row('NET SALES (completed)', RuntimeAppSettings.money(_summary.netTotal)),
                           _row('CASH SALE', RuntimeAppSettings.money(_summary.cashSale)),
                           _row('CARD SALE', RuntimeAppSettings.money(_summary.cardSale)),
                           _row('CREDIT SALE', RuntimeAppSettings.money(_summary.creditSale)),
+                          _row('ONLINE SALE', RuntimeAppSettings.money(_summary.onlineSale)),
                           _row('DELIVERY SALE', RuntimeAppSettings.money(_summary.deliverySale)),
                         ],
                       ),
@@ -281,7 +244,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                         headers: const ['CATEGORY / UNPAID', 'AMOUNT'],
                         rows: [
                           _row('PURCHASE', RuntimeAppSettings.money(_summary.purchase)),
-                          _row('UNPAID BILLS', RuntimeAppSettings.money(_summary.unpaidAmount)),
+                          ..._unpaidBillRows(),
                           _row('SALARY', RuntimeAppSettings.money(_summary.salary)),
                           _row('OTHER INCOME (+)', RuntimeAppSettings.money(_summary.otherIncome), color: Colors.green.shade700),
                           _row(
@@ -290,13 +253,32 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                             emphasize: true,
                           ),
                           _row(
-                            'DIFFERENCE (TOTAL – CASH DRAWER)',
-                            RuntimeAppSettings.money(_summary.difference),
+                            'DIFFERENCE (SECTION 3 TOTAL − MODELED DRAWER)',
+                            RuntimeAppSettings.money(_summary.difference.abs()),
                             color: Colors.cyan.shade700,
                             emphasize: true,
                           ),
                         ],
                       ),
+                      if (_summary.openBills.isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        _sectionCard(
+                          title: '3b. Open bills (settle these first)',
+                          headers: const ['INVOICE', 'STATUS', 'TYPE', 'AMOUNT'],
+                          rows: _summary.openBills
+                              .map(
+                                (r) => [
+                                  r.invoiceNumber,
+                                  r.status,
+                                  _displayOrderTypeForClosing(r.orderType),
+                                  RuntimeAppSettings.money(r.finalAmount),
+                                ],
+                              )
+                              .toList(),
+                          footerLabel: (_summary.unpaidAmount - _summary.unsettledFromAccessibleLogs).abs() <= 0.009 ? 'UNPAID TOTAL' : 'UNPAID TOTAL (YOUR LOGS)',
+                          footerValue: RuntimeAppSettings.money(_summary.unsettledFromAccessibleLogs),
+                        ),
+                      ],
                       const SizedBox(height: 14),
                       _sectionCard(
                         title: '4. Cash Reconciliation',
@@ -310,8 +292,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                           _row('CASH OUT (EXP + SAL + UNPAID)', RuntimeAppSettings.money(_summary.cashOut), emphasize: true),
                         ],
                         footerLabel: 'TOTAL CASH DRAWER',
-                        footerValue:
-                            '${RuntimeAppSettings.money(_summary.cashDrawer)} ${_summary.difference > 0.009 ? '(SHORT YET)' : _summary.difference < -0.009 ? '(EXCESS)' : ''}',
+                        footerValue: '${RuntimeAppSettings.money(_summary.cashDrawer)} ${_cashDrawerVarianceHint(_summary.difference)}',
                       ),
                       const SizedBox(height: 14),
                       _sectionCard(
@@ -335,9 +316,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                             ? [
                                 [' ', 'NO CANCELLED BILLS RECORDED.', ' ', ' ']
                               ]
-                            : _summary.cancelledRows
-                                .map((r) => [r.receiptId, r.reason, r.by, RuntimeAppSettings.money(r.amount)])
-                                .toList(),
+                            : _summary.cancelledRows.map((r) => [r.receiptId, r.reason, r.by, RuntimeAppSettings.money(r.amount)]).toList(),
                         footerLabel: 'TOTAL CANCELLED (${_summary.cancelledRows.length})',
                         footerValue: RuntimeAppSettings.money(_summary.cancelledRows.fold<double>(0, (s, e) => s + e.amount)),
                       ),
@@ -362,13 +341,14 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                             CustomButton(
                               width: 92,
                               text: 'Print',
-                              onPressed: () => _onPrint(),
+                              onPressed: _submitting ? null : () => _onPrint(),
                             ),
                             const SizedBox(width: 10),
                             CustomButton(
                               width: 96,
                               text: 'Submit',
-                              onPressed: _onSubmit,
+                              isLoading: _submitting,
+                              onPressed: () => unawaited(_onSubmit()),
                             ),
                           ],
                         ),
@@ -379,6 +359,41 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
               ),
             ),
     );
+  }
+
+  /// One “UNPAID BILLS” row for admins (or when branch-wide matches visible); otherwise splits by log permission.
+  List<List<String>> _unpaidBillRows() {
+    final gap = (_summary.unpaidAmount - _summary.unsettledFromAccessibleLogs).abs();
+    final split = !_counterAccess.isAdmin && gap > 0.009;
+    if (!split) {
+      return [_row('UNPAID BILLS', RuntimeAppSettings.money(_summary.unpaidAmount))];
+    }
+    return [
+      _row(
+        'UNPAID BILLS (logs you can open)',
+        RuntimeAppSettings.money(_summary.unsettledFromAccessibleLogs),
+      ),
+      _row(
+        'UNPAID (channels without log permission)',
+        RuntimeAppSettings.money(_summary.unpaidAmount - _summary.unsettledFromAccessibleLogs),
+        color: Colors.deepOrange.shade800,
+      ),
+    ];
+  }
+
+  /// Plain label for modeled drawer vs Section 3 expense/unpaid TOTAL (see hint below that card).
+  String _cashDrawerVarianceHint(double difference) {
+    if (difference > 0.009) return '(SHORT vs Section 3 expense total)';
+    if (difference < -0.009) return '(EXCESS vs Section 3 expense total)';
+    return '';
+  }
+
+  String _displayOrderTypeForClosing(String? t) {
+    final s = (t ?? '').trim().toLowerCase();
+    if (s.isEmpty || s == 'take_away') return 'Take away';
+    if (s == 'dine_in') return 'Dine-in';
+    if (s == 'delivery') return 'Delivery';
+    return (t ?? '').trim();
   }
 
   List<String> _row(String label, String value, {Color? color, bool emphasize = false}) {
@@ -522,137 +537,4 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       ),
     );
   }
-}
-
-class _TypeSummaryRow {
-  final String type;
-  final int count;
-  final double discount;
-  final double amount;
-
-  const _TypeSummaryRow({
-    required this.type,
-    required this.count,
-    required this.discount,
-    required this.amount,
-  });
-}
-
-class _CategoryRow {
-  final String category;
-  final int qty;
-  final double amount;
-
-  const _CategoryRow({
-    required this.category,
-    required this.qty,
-    required this.amount,
-  });
-}
-
-class _CancelledRow {
-  final String receiptId;
-  final String reason;
-  final String by;
-  final double amount;
-
-  const _CancelledRow({
-    required this.receiptId,
-    required this.reason,
-    required this.by,
-    required this.amount,
-  });
-}
-
-class _DayClosingSummary {
-  final DateTime generatedAt;
-  final DateTime? lastClosingAt;
-  final double grossTotal;
-  final double discount;
-  final double netTotal;
-  final double openingCash;
-  final double cashSale;
-  final double cardSale;
-  final double creditSale;
-  final double onlineSale;
-  final double creditRecovery;
-  final double dineInSales;
-  final double deliverySale;
-  final double takeAwaySales;
-  final double deliveryRecovery;
-  final double purchase;
-  final double salary;
-  final double otherIncome;
-  final double cashIn;
-  final double cashOut;
-  final double cashDrawer;
-  final double unpaidAmount;
-  final double difference;
-  final double excessAmount;
-  final double shortAmount;
-  final List<_TypeSummaryRow> typeRows;
-  final List<_CategoryRow> categoryRows;
-  final List<_CancelledRow> cancelledRows;
-
-  const _DayClosingSummary({
-    required this.generatedAt,
-    required this.lastClosingAt,
-    required this.grossTotal,
-    required this.discount,
-    required this.netTotal,
-    required this.openingCash,
-    required this.cashSale,
-    required this.cardSale,
-    required this.creditSale,
-    required this.onlineSale,
-    required this.creditRecovery,
-    required this.dineInSales,
-    required this.deliverySale,
-    required this.takeAwaySales,
-    required this.deliveryRecovery,
-    required this.purchase,
-    required this.salary,
-    required this.otherIncome,
-    required this.cashIn,
-    required this.cashOut,
-    required this.cashDrawer,
-    required this.unpaidAmount,
-    required this.difference,
-    required this.excessAmount,
-    required this.shortAmount,
-    required this.typeRows,
-    required this.categoryRows,
-    required this.cancelledRows,
-  });
-
-  factory _DayClosingSummary.empty() => _DayClosingSummary(
-        generatedAt: DateTime.now(),
-        lastClosingAt: null,
-        grossTotal: 0,
-        discount: 0,
-        netTotal: 0,
-        openingCash: 0,
-        cashSale: 0,
-        cardSale: 0,
-        creditSale: 0,
-        onlineSale: 0,
-        creditRecovery: 0,
-        dineInSales: 0,
-        deliverySale: 0,
-        takeAwaySales: 0,
-        deliveryRecovery: 0,
-        purchase: 0,
-        salary: 0,
-        otherIncome: 0,
-        cashIn: 0,
-        cashOut: 0,
-        cashDrawer: 0,
-        unpaidAmount: 0,
-        difference: 0,
-        excessAmount: 0,
-        shortAmount: 0,
-        typeRows: const [],
-        categoryRows: const [],
-        cancelledRows: const [],
-      );
 }

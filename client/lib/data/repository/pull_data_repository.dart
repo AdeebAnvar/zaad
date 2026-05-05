@@ -1,4 +1,5 @@
-import 'package:pos/core/network/pos_api_service.dart';
+import 'package:pos/domain/models/category_model.dart';
+import 'package:pos/domain/models/item_model.dart';
 import 'package:pos/domain/models/pull_data_model.dart';
 
 class PullSyncProgress {
@@ -13,25 +14,26 @@ class PullSyncProgress {
   });
 }
 
-/// Result of copying master data from the LAN Node hub (cloud mirror) into Drift.
-class HubCatalogHydrateResult {
-  const HubCatalogHydrateResult({
-    required this.ok,
-    required this.message,
-    this.resourcesTouched = 0,
-  });
-
-  final bool ok;
-  final String message;
-  final int resourcesTouched;
-}
-
 abstract class PullDataRepository {
   Stream<PullSyncProgress> get progressStream;
-  Future<PullData> pullAndPersist();
 
-  /// LOCAL POS: fill categories, items, customers, etc. from the hub SQLite mirror
-  /// (`GET /sync/mirror/...`). Requires the main machine hub to have completed at least
-  /// one cloud pull so [cloud_mirror_entities] is populated.
-  Future<HubCatalogHydrateResult> hydrateCatalogFromLanHub(PosApiService hubApi);
+  /// When [deferLanHubMirrorUntilAfterCloudSync] is true, skips LAN WebSocket catalog + company snapshot
+  /// broadcast during pull so cloud push can run first — call [runDeferredLanHubMirrorBestEffort] afterward.
+  Future<PullData> pullAndPersist({bool deferLanHubMirrorUntilAfterCloudSync = false});
+
+  /// Mirrors catalog + COMPANY_SNAPSHOT to the Node hub after tenant pull/push (no-op if nothing pending).
+  Future<void> runDeferredLanHubMirrorBestEffort();
+
+  /// True after [pullAndPersist(deferLanHubMirrorUntilAfterCloudSync: true)] completes until
+  /// [runDeferredLanHubMirrorBestEffort] begins (used to avoid duplicate LAN traffic during push).
+  bool get pendingDeferredLanHubMirror;
+
+  /// SUB / LAN: apply MAIN-broadcast ITEM_UPSERT (+ optional decoded local image).
+  Future<void> upsertLanHubItemSnapshot(ItemCreatedUpdated item, {String? localImagePath});
+
+  /// SUB / LAN: apply MAIN-broadcast CATEGORY_UPSERT.
+  Future<void> upsertLanHubCategory(CategoryCreatedUpdated category);
+
+  /// SUB / LAN: apply one mirrored [pull_records] JSON body from MAIN (no tenant HTTP).
+  Future<void> applyMirroredPullPage(dynamic responseBody);
 }

@@ -268,9 +268,7 @@ class DateTimeUtils {
 
     // Add the days to the total
     totalDays += days;
-    final dateTime = DateTime.now().difference(DateTime(DateTime.now().year - years, DateTime.now().month - months, DateTime.now().day - days)).inDays;
-    // print(dateTime.year.toString()+"-"+dateTime.month.toString()+"-"+dateTime.day.toString()+"----");
-    return dateTime;
+    return totalDays;
   }
 // static int yearsMonthsToDays(String yr, String mon) {
 //

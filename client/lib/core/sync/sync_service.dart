@@ -13,6 +13,7 @@ import 'package:pos/domain/models/dining_floor_model.dart';
 import 'package:pos/domain/models/dining_table_model.dart';
 
 import '../../data/local/drift_database.dart';
+import '../../core/utils/item_order_channels.dart';
 import '../../core/utils/image_utils.dart';
 import '../../core/utils/network_utils.dart';
 import '../../core/constants/enums.dart';
@@ -260,6 +261,9 @@ class SyncService {
         final kId = _firstIntFromKitchenIdsString(i.kitchenIds);
         final stockOn = i.stockApplicable.toLowerCase() == 'yes' || i.stockApplicable == '1';
 
+        final channelSrc = i.orderTypeRaw.isNotEmpty ? i.orderTypeRaw : i.orderType.value;
+        final channelStore = canonicalChannelsStorageFromApi(channelSrc);
+
         await db.itemDao.upsertItem(
           ItemsCompanion.insert(
             id: Value(i.id),
@@ -278,6 +282,7 @@ class SyncService {
             kitchenId: Value(kId),
             kitchenName: const Value(null),
             deliveryPartner: i.deliveryService.isNotEmpty ? Value(i.deliveryService) : const Value(null),
+            allowedOrderChannels: Value(channelStore),
           ),
         );
         for (final v in i.itemVariations) {
@@ -370,8 +375,10 @@ class SyncService {
         total: 100,
       ));
 
-      // Get all placed and completed orders (exclude kot)
-      final allOrders = await db.ordersDao.getAllOrders();
+      // Get placed / completed orders for active branch only (exclude kot).
+      final sessionForUpload = await db.sessionDao.getActiveSession();
+      final uploadBranchId = sessionForUpload?.branchId ?? 1;
+      final allOrders = await db.ordersDao.getAllOrders(branchId: uploadBranchId);
       final ordersToUpload = allOrders.where((order) => order.status != 'kot' && (order.status == 'placed' || order.status == 'completed')).toList();
 
       if (ordersToUpload.isEmpty) {

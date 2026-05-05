@@ -1,8 +1,9 @@
 import 'dart:convert';
 
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/features/orders/data/order_push_status.dart';
 
-/// Builds `{ items, payments, metadata, … }` for `POST /orders` (Node assigns invoice).
+/// Builds order JSON snapshots (line items + Flutter customer/payment block) for local logs / APIs.
 class HubOrdersPayloadBuilder {
   static Map<String, dynamic> buildJson({
     required Order draft,
@@ -41,7 +42,7 @@ class HubOrdersPayloadBuilder {
     addPay('online', draft.onlineAmount);
 
     return <String, dynamic>{
-      'status': draft.status,
+      'status': OrderPushStatus.toRemote(orderType: draft.orderType, localStatus: draft.status),
       'totalCents': (draft.finalAmount * 100).round(),
       'items': items,
       'payments': payments,
@@ -63,7 +64,7 @@ class HubOrdersPayloadBuilder {
     required List<CartItem> cartItems,
   }) {
     return <String, dynamic>{
-      'status': draft.status,
+      'status': OrderPushStatus.toRemote(orderType: draft.orderType, localStatus: draft.status),
       'totalCents': (draft.finalAmount * 100).round(),
       'metadata': <String, dynamic>{
         'flutter': flutterBlockFromDraft(draft),
@@ -93,6 +94,9 @@ class HubOrdersPayloadBuilder {
         'user_id': draft.userId,
         'order_type': draft.orderType,
       };
+
+  static List<Map<String, dynamic>> cartLinesToJson(List<CartItem> cartItems) =>
+      cartItems.map(_lineToJson).toList();
 
   static Map<String, dynamic> _lineToJson(CartItem c) {
     return {

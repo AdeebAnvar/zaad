@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/app_startup.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -13,6 +14,10 @@ void main() async {
   await ZaadDI.initialize();
 
   final db = locator<AppDatabase>();
+  // Require sign-in on every cold start (process died). Background resume does not re-run [main].
+  await db.sessionDao.clearSession();
+  locator<CurrentCounterSession>().clear();
+
   final startup = AppStartup(db);
 
   // Auto-clear incompatible local cache (e.g. old DB) after app updates.

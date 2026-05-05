@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/constants/enums.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
@@ -8,9 +9,6 @@ import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/sync/auto_sync_screen.dart';
 import 'package:pos/presentation/dashboard/dashboard_screen.dart';
 import 'package:pos/presentation/login/login_screen.dart';
-import 'package:pos/presentation/setup/setup_screen.dart';
-import 'package:pos/presentation/setup/qr_generate_screen.dart';
-import 'package:pos/presentation/setup/qr_scan_screen.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/presentation/orders/orders_cubit.dart';
@@ -31,6 +29,7 @@ import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/presentation/dine_in/dine_in_screen.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_log_ui.dart';
+import 'package:pos/presentation/settings/lan_hub_settings_screen.dart';
 import 'package:pos/presentation/settings/settings_screen.dart';
 import 'package:pos/presentation/settings/printer_settings_screen.dart';
 import 'package:pos/presentation/credit_sales/credit_sales_screen.dart';
@@ -40,9 +39,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 class Routes {
   static const login = "/login";
-  static const setup = "/setup";
-  static const setupQrGenerate = "/setup/qr_generate";
-  static const setupQrScan = "/setup/qr_scan";
   static const dashboard = "/dashboard";
   static const autoSyncScreen = "/auto_sync_screen";
   static const orders = "/orders";
@@ -60,12 +56,10 @@ class Routes {
   static const printerSettings = "/printer_settings";
   static const creditSales = "/credit_sales";
   static const dayClosing = "/day_closing";
+  static const lanHubSettings = "/lan_hub_settings";
 
   static Map<String, WidgetBuilder> map = {
     login: (_) => const LoginScreen(),
-    setup: (_) => const SetupScreen(),
-    setupQrGenerate: (_) => const QrGenerateScreen(),
-    setupQrScan: (_) => const QrScanScreen(),
     dashboard: (_) => const DashboardScreen(),
     autoSyncScreen: (_) => const AutoSyncScreen(),
     orders: (_) => BlocProvider(
@@ -82,11 +76,13 @@ class Routes {
     printerSettings: (_) => const PrinterSettingsScreen(),
     creditSales: (_) => const CreditSalesScreen(),
     dayClosing: (_) => const DayClosingScreen(),
+    lanHubSettings: (_) => const LanHubSettingsScreen(),
     counter: (context) {
       final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       final orderId = args?['orderId'] as int?;
-      final orderType = args?['orderType'] as String? ?? 'take_away';
+      final orderType = parseOrderTypeFromRouteArg(args?['orderType']);
       final deliveryPartner = args?['deliveryPartner'] as String?;
+      final deliveryServiceId = args?['deliveryServiceId'] as String?;
       final referenceNumber = args?['referenceNumber'] as String?;
       final fromDineIn = args?['fromDineIn'] as bool? ?? false;
       final openPaymentOnLoad = args?['openPaymentOnLoad'] as bool? ?? false;
@@ -116,7 +112,10 @@ class Routes {
         child: BlocProvider<ItemsCubit>(
           create: (context) => ItemsCubit(
             ItemRepositoryImpl(locator<AppDatabase>()),
+            locator<DeliveryPartnerRepository>(),
             deliveryPartner: deliveryPartner,
+            deliveryServiceId: deliveryServiceId,
+            saleOrderType: orderType,
           ),
           child: SaleScreen(
             orderType: orderType,

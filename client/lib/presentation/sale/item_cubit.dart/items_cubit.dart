@@ -1,14 +1,31 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/constants/enums.dart';
+import 'package:pos/core/utils/item_order_channels.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 part 'items_state.dart';
 
 class ItemsCubit extends Cubit<ItemState> {
-  ItemsCubit(this._repo, {this.deliveryPartner}) : super(ItemsInitialState());
+  ItemsCubit(
+    this._repo,
+    this._deliveryPartnerRepo, {
+    this.deliveryPartner,
+    this.deliveryServiceId,
+    required this.saleOrderType,
+  }) : super(ItemsInitialState());
 
   final ItemRepository _repo;
-  /// When set (delivery mode), filter items by this delivery partner
+  final DeliveryPartnerRepository _deliveryPartnerRepo;
+
+  /// Shown on counter / persisted on carts & orders (name or `NORMAL`).
   final String? deliveryPartner;
+
+  /// API stores `delivery_service` on items as **service id** (string); filter uses this first.
+  final String? deliveryServiceId;
+
+  /// Current counter mode (take away / dine in / delivery) from [SaleScreen].
+  final OrderType saleOrderType;
 
   List<Item> _allItems = [];
   List<Category> _allCategories = [];
@@ -18,11 +35,15 @@ class ItemsCubit extends Cubit<ItemState> {
   int get selectedCategoryId => _selectedCategoryId;
   String _searchQuery = "";
 
+  /// Canonical token for `[Item.deliveryPartner]` comparison (often numeric id string).
+  String? _deliveryFilterToken;
+
   Future<void> fetchItemsAndCategories() async {
     _allItems = await _repo.fetchItemsFromLocal();
     _allCategories = await _repo.fetchCategoriesFromLocal();
     final allVariants = await _repo.fetchAllVariants();
     _variantItemIds = allVariants.map((v) => v.itemId).toSet();
+    await _resolveDeliveryFilterToken();
     _applyFilters();
   }
 
@@ -39,15 +60,60 @@ class ItemsCubit extends Cubit<ItemState> {
     _applyFilters();
   }
 
+  Future<void> _resolveDeliveryFilterToken() async {
+    _deliveryFilterToken = null;
+    if (saleOrderType != OrderType.delivery) return;
+
+    final sid = deliveryServiceId?.trim();
+    if (sid != null && sid.isNotEmpty) {
+      _deliveryFilterToken = sid;
+      return;
+    }
+
+    final lbl = deliveryPartner?.trim();
+    if (lbl == null || lbl.isEmpty) return;
+
+    if (lbl.toUpperCase() == 'NORMAL') {
+      _deliveryFilterToken = 'NORMAL';
+      return;
+    }
+    if (int.tryParse(lbl) != null) {
+      _deliveryFilterToken = lbl;
+      return;
+    }
+
+    final partners = await _deliveryPartnerRepo.getAll();
+    for (final p in partners) {
+      if (p.name.trim().toLowerCase() == lbl.toLowerCase()) {
+        _deliveryFilterToken = p.id.toString();
+        return;
+      }
+    }
+
+    _deliveryFilterToken = lbl;
+  }
+
+  bool _itemMatchesDeliveryService(Item i, String token) {
+    final raw = i.deliveryPartner?.trim() ?? '';
+    if (raw.isEmpty) return true;
+
+    final t = token.trim();
+    if (raw == t || raw.toLowerCase() == t.toLowerCase()) return true;
+
+    final ri = int.tryParse(raw);
+    final ti = int.tryParse(t);
+    return ri != null && ti != null && ri == ti;
+  }
+
   void _applyFilters() {
     List<Item> filtered = _allItems;
 
-    if (deliveryPartner != null && deliveryPartner!.isNotEmpty) {
-      filtered = filtered.where((i) {
-        final dp = i.deliveryPartner;
-        return dp == null || dp.isEmpty || dp == deliveryPartner;
-      }).toList();
+    final token = _deliveryFilterToken;
+    if (saleOrderType == OrderType.delivery && token != null && token.isNotEmpty) {
+      filtered = filtered.where((i) => _itemMatchesDeliveryService(i, token)).toList();
     }
+
+    filtered = filtered.where((i) => i.supportsCurrentSale(saleOrderType)).toList();
 
     if (_selectedCategoryId != -1) {
       filtered = filtered.where((i) => i.categoryId == _selectedCategoryId).toList();

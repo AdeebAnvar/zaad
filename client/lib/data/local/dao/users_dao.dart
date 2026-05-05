@@ -53,6 +53,13 @@ class UsersDao extends DatabaseAccessor<AppDatabase> with _$UsersDaoMixin {
     return data.map(_toModel).toList();
   }
 
+  /// Staff rows whose [Users.branchId] matches [branchId] (e.g. active session branch).
+  Future<List<UserModel>> getUsersForBranch(int branchId) async {
+    final data =
+        await (select(users)..where((u) => u.branchId.equals(branchId))).get();
+    return data.map(_toModel).toList();
+  }
+
   /// =========================
   /// LOGIN (LOCAL AUTH)
   /// =========================

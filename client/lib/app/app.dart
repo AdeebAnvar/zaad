@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pos/app/navigation.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/enums.dart';
-import 'package:pos/presentation/widgets/hub_connection_banner.dart';
 import 'routes.dart';
 
 class ZaadPOSApp extends StatelessWidget {
@@ -14,7 +14,7 @@ class ZaadPOSApp extends StatelessWidget {
 
   final UserType? userType;
 
-  /// When non-null (e.g. first-run setup or unreachable LAN hub), used instead of login for logged-out users.
+  /// When non-null, used instead of login for logged-out users (e.g. pending route from DI).
   final String? initialRouteOverride;
   @override
   Widget build(BuildContext context) {
@@ -28,23 +28,38 @@ class ZaadPOSApp extends StatelessWidget {
       initialRoute: _resolveHome(),
       routes: Routes.map,
       builder: (context, child) {
-        final body = GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTap: () {
-            final focus = FocusManager.instance.primaryFocus;
-            if (focus != null && !focus.hasPrimaryFocus) {
-              focus.unfocus();
-            }
+        var subtree = child ?? const SizedBox.shrink();
+        // Dismiss IME on scroll (browse lists/items with keyboard open).
+        subtree = NotificationListener<UserScrollNotification>(
+          onNotification: (_) {
+            FocusManager.instance.primaryFocus?.unfocus();
+            return false;
           },
-          child: child ?? const SizedBox.shrink(),
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            // Earlier bug: unfocus ran only when `!hasPrimaryFocus`, so tap-outside did nothing while typing.
+            onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+            child: subtree,
+          ),
         );
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const HubConnectionBanner(),
-            Expanded(child: body),
-          ],
+        // Desktop / hardware keyboard.
+        subtree = Shortcuts(
+          shortcuts: const <ShortcutActivator, Intent>{
+            SingleActivator(LogicalKeyboardKey.escape): _DismissKeyboardIntent(),
+          },
+          child: Actions(
+            actions: <Type, Action<Intent>>{
+              _DismissKeyboardIntent: CallbackAction<_DismissKeyboardIntent>(
+                onInvoke: (_) {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  return null;
+                },
+              ),
+            },
+            child: subtree,
+          ),
         );
+        return subtree;
       },
       theme: ThemeData(
         fontFamily: 'Poppins',
@@ -73,4 +88,8 @@ class ZaadPOSApp extends StatelessWidget {
 
     return Routes.login;
   }
+}
+
+class _DismissKeyboardIntent extends Intent {
+  const _DismissKeyboardIntent();
 }

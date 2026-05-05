@@ -23,7 +23,6 @@ class UserRepositoryImpl implements UserRepository {
   @override
   Future<UserModel?> findLocalUser(String username, String password) async {
     final md5Password = HashHelper.toMd5(password);
-    print('sdfds $md5Password');
     final match = await db.usersDao.findUser(username, md5Password);
 
     if (match == null) return null;

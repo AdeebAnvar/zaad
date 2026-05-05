@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/navigation.dart';
 import 'package:pos/app/routes.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/constants/styles.dart';
@@ -111,6 +112,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
     final iconSize = compact ? 20.0 : 22.0;
     final leftWidth = widget.onBack != null ? (compact ? 136.0 : 168.0) : (compact ? 84.0 : 95.0);
     final expiryBadge = _buildExpiryBadge();
+    final hubCashierNoCloud = locator<LocalHubSettings>().blocksTenantCloudRest;
 
     return AppBar(
       backgroundColor: Colors.white,
@@ -163,7 +165,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
           expiryBadge,
           const SizedBox(width: 8),
         ],
-        if (showSyncText) ...[
+        if (showSyncText && !hubCashierNoCloud) ...[
           Text(
             _lastSyncLabel(),
             style: AppStyles.getRegularTextStyle(
@@ -176,14 +178,19 @@ class _CustomAppBarState extends State<CustomAppBar> {
         const SizedBox(width: 6),
         Text(
           'Sync',
-          style: AppStyles.getSemiBoldTextStyle(fontSize: 13),
+          style: AppStyles.getSemiBoldTextStyle(
+            fontSize: 13,
+            color: hubCashierNoCloud ? AppColors.hintFontColor : null,
+          ),
         ),
         const SizedBox(width: 6),
         IconButton(
-          tooltip: 'Sync now',
-          onPressed: _runManualSync,
+          tooltip: hubCashierNoCloud
+              ? 'Cloud sync runs on Primary POS only. This device is updated via the LAN hub.'
+              : 'Sync now',
+          onPressed: hubCashierNoCloud ? null : _runManualSync,
           icon: const Icon(Icons.sync),
-          color: AppColors.primaryColor,
+          color: hubCashierNoCloud ? AppColors.hintFontColor : AppColors.primaryColor,
           visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
         ),
         SizedBox(width: compact ? 4 : 8),

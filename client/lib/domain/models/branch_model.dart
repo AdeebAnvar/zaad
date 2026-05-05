@@ -11,6 +11,7 @@ class BranchModel {
   final String prefixInv;
   final String invoiceHeader;
   final String image;
+
   /// Cached path after download (empty when loaded from API only).
   final String localImage;
   final DateTime installationDate;
@@ -85,7 +86,7 @@ class BranchModel {
         trnNumber: json["trn_number"],
         prefixInv: json["prefix_inv"],
         invoiceHeader: json["invoice_header"],
-        image: json["image"],
+        image: json["image"] ?? "",
         localImage: '',
         installationDate: DateTime.parse(json["installation_date"]),
         expiryDate: DateTime.parse(json["expiry_date"]),

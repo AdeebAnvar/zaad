@@ -109,9 +109,17 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
 
   static String _displayStatus(String status) {
     final s = status.trim().toLowerCase();
-    if (s == 'assigned' || s == 'dispatched') return 'Out for delivery';
+    // Driver log lists orders with a driver; treat pre-dispatch-ish rows as Out for delivery in the picker.
+    if (s == 'pending' ||
+        s == 'placed' ||
+        s == 'kot' ||
+        s == 'assigned' ||
+        s == 'dispatched' ||
+        s == 'out_of_delivery') {
+      return 'Out for delivery';
+    }
     if (s == 'delivered' || s == 'completed') return 'Delivered';
-    if (s == 'cancelled') return 'Cancelled';
+    if (s == 'cancelled') return 'Reject';
     return 'Out for delivery';
   }
 
@@ -207,7 +215,8 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
 
   Future<void> _updateStatus(Order order, String dbStatus) async {
     final display = _displayStatus(dbStatus);
-    final removing = dbStatus == 'delivered' || dbStatus == 'cancelled';
+    final removing =
+        dbStatus == 'delivered' || dbStatus == 'completed' || dbStatus == 'cancelled';
     final ok = await _confirm(
       title: 'Confirm status change',
       message: removing ? 'Mark order ${order.invoiceNumber} as $display? It will be removed from Driver Log.' : 'Mark order ${order.invoiceNumber} as $display?',
@@ -400,7 +409,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          'Assigned orders are shown as Out for delivery. Delivered and Cancelled orders are removed after confirmation.',
+          'Active orders show as Pending or Out for delivery. Delivered and Reject (cancelled) are removed after confirmation.',
           style: AppStyles.getRegularTextStyle(fontSize: 13, color: AppColors.hintFontColor),
         ),
       ],
@@ -645,7 +654,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Text(
-                'Assign driver in Delivery Log. Delivered/Cancelled orders are hidden from this list.',
+                'Assign driver in Delivery Log. Delivered and Reject orders are hidden from this list.',
                 textAlign: TextAlign.center,
                 style: AppStyles.getRegularTextStyle(fontSize: 13, color: AppColors.hintFontColor),
               ),
@@ -973,9 +982,9 @@ class _StatusDropdown extends StatelessWidget {
   final Future<void> Function(String dbStatus) onChanged;
 
   static const List<(String, String)> _options = [
-    ('Out for delivery', 'assigned'),
-    ('Delivered', 'delivered'),
-    ('Cancelled', 'cancelled'),
+    ('Out for delivery', 'out_of_delivery'),
+    ('Delivered', 'completed'),
+    ('Reject', 'cancelled'),
   ];
 
   @override

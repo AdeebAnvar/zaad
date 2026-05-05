@@ -156,8 +156,13 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         if (!byId.containsKey(id)) return 'Invalid line selection';
       }
 
-      final newInvoice = await orderRepo.getNextInvoiceNumber('dine_in');
-      final newCartId = await cartRepo.createCart(newInvoice, orderType: 'dine_in');
+      final reserved = await orderRepo.createCartWithReservedInvoice(
+        orderType: 'dine_in',
+        deliveryPartner: null,
+        branchId: source.branchId,
+      );
+      final newInvoice = reserved.invoice;
+      final newCartId = reserved.cartId;
       await cartRepo.reassignCartItemsToCart(cartItemIdsToMove, newCartId);
 
       final moved = await cartRepo.getCartItemsByCartId(newCartId) ?? [];
@@ -187,6 +192,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         driverId: null,
         driverName: null,
         userId: source.userId,
+        branchId: source.branchId,
         hubSyncPending: false,
       );
       await orderRepo.createOrder(newOrder);

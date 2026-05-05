@@ -32,6 +32,9 @@ class Orders extends Table {
   /// Cashier / staff who created the order (from session at save time).
   IntColumn get userId => integer().nullable().references(Users, #id)();
 
+  /// Selling branch (active session at save time); filters logs & reports per branch.
+  IntColumn get branchId => integer().withDefault(const Constant(1))();
+
   /// LAN hub authoritative order UUID (SQLite row id from Node server).
   TextColumn get serverOrderId => text().nullable()();
 
@@ -57,7 +60,7 @@ class OrderLogs extends Table {
   CartItems,
 ])
 class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
-  OrdersDao(AppDatabase db) : super(db);
+  OrdersDao(super.db);
 
   /* ───────── ORDERS ───────── */
 
@@ -65,8 +68,12 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     return into(orders).insert(order);
   }
 
-  Future<List<Order>> getAllOrders() {
-    return (select(orders)..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();
+  Future<List<Order>> getAllOrders({int? branchId}) {
+    var q = select(orders);
+    if (branchId != null) {
+      q = q..where((o) => o.branchId.equals(branchId));
+    }
+    return (q..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();
   }
 
   Future<Order?> getOrderById(int orderId) {
@@ -77,12 +84,14 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     return (select(orders)..where((o) => o.serverOrderId.equals(serverId))).getSingleOrNull();
   }
 
-  Future<List<Order>> getOrdersByDateRange(DateTime start, DateTime end) {
-    return (select(orders)
-          ..where((o) => o.createdAt.isBiggerOrEqualValue(start))
-          ..where((o) => o.createdAt.isSmallerOrEqualValue(end))
-          ..orderBy([(o) => OrderingTerm.desc(o.createdAt)]))
-        .get();
+  Future<List<Order>> getOrdersByDateRange(DateTime start, DateTime end, {int? branchId}) {
+    var q = select(orders)
+      ..where((o) => o.createdAt.isBiggerOrEqualValue(start))
+      ..where((o) => o.createdAt.isSmallerOrEqualValue(end));
+    if (branchId != null) {
+      q = q..where((o) => o.branchId.equals(branchId));
+    }
+    return (q..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();
   }
 
   Future<void> updateOrderStatus(int orderId, String status) {
@@ -94,14 +103,54 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     return (delete(orders)..where((o) => o.id.equals(orderId))).go();
   }
 
-  Future<Order?> getKOTByReference(String referenceNumber) async {
+  Future<Order?> getKOTByReference(String referenceNumber, {required int branchId}) async {
     final query = select(orders)
       ..where((o) => o.referenceNumber.equals(referenceNumber))
+      ..where((o) => o.branchId.equals(branchId))
       ..where((o) => o.status.equals('kot'))
       ..orderBy([(o) => OrderingTerm.desc(o.id)])
       ..limit(1);
     final list = await query.get();
     return list.isEmpty ? null : list.first;
+  }
+
+  /// Non-empty distinct `referenceNumber` values from recent orders (KOT autocomplete).
+  Future<List<String>> getRecentDistinctReferenceNumbers({
+    int limit = 40,
+    required int branchId,
+  }) async {
+    final rows = await (select(orders)
+          ..where((o) => o.referenceNumber.isNotNull())
+          ..where((o) => o.branchId.equals(branchId))
+          ..orderBy([(o) => OrderingTerm.desc(o.createdAt)])
+          ..limit(400))
+        .get();
+
+    final seen = <String>{};
+    final out = <String>[];
+    for (final r in rows) {
+      final s = (r.referenceNumber ?? '').trim();
+      if (s.isEmpty) continue;
+      if (seen.add(s.toLowerCase())) out.add(s);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  /// Distinct non-null [Orders.userId] for [branchId] — aligns user filters with branch-scoped orders.
+  Future<List<int>> getDistinctCashierUserIdsForBranch(int branchId) async {
+    final rows = await (select(orders)
+          ..where((o) => o.branchId.equals(branchId))
+          ..where((o) => o.userId.isNotNull()))
+        .get();
+    final ids = <int>{};
+    for (final r in rows) {
+      final u = r.userId;
+      if (u != null) ids.add(u);
+    }
+    final list = ids.toList();
+    list.sort();
+    return list;
   }
 
   Future<void> updateOrder(OrdersCompanion order) {
@@ -131,19 +180,86 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     );
   }
 
+  /// Unsynced log whose JSON payload includes `order_id` (push_records snapshot).
+  Future<OrderLog?> findUnsyncedLogByLocalOrderId(int localOrderId) async {
+    final logs = await getUnsyncedOrderLogs();
+    for (final log in logs) {
+      try {
+        final decoded = jsonDecode(log.orderJson);
+        if (decoded is Map && decoded['order_id'] == localOrderId) {
+          return log;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<void> updateOrderLogPayload(int logId, String orderJson) {
+    return (update(orderLogs)..where((t) => t.id.equals(logId))).write(
+      OrderLogsCompanion(orderJson: Value(orderJson)),
+    );
+  }
+
+  Future<void> deleteOrderLogById(int logId) {
+    return (delete(orderLogs)..where((t) => t.id.equals(logId))).go();
+  }
+
+  Future<OrderLog?> findLatestOrderLogByLocalOrderId(int localOrderId) async {
+    final logs =
+        await (select(orderLogs)..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).get();
+    for (final log in logs) {
+      try {
+        final decoded = jsonDecode(log.orderJson);
+        if (decoded is Map && decoded['order_id'] == localOrderId) {
+          return log;
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return null;
+  }
+
+  Future<void> setOrderLogsSyncedState(List<int> ids, {required bool synced}) async {
+    if (ids.isEmpty) return;
+    await (update(orderLogs)..where((t) => t.id.isIn(ids))).write(
+      OrderLogsCompanion(synced: Value(synced)),
+    );
+  }
+
+  Future<void> deleteOrderLogsForLocalOrderId(int localOrderId) async {
+    final logs = await select(orderLogs).get();
+    final toDelete = <int>[];
+    for (final log in logs) {
+      try {
+        final decoded = jsonDecode(log.orderJson);
+        if (decoded is Map && decoded['order_id'] == localOrderId) {
+          toDelete.add(log.id);
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    if (toDelete.isEmpty) return;
+    await (delete(orderLogs)..where((t) => t.id.isIn(toDelete))).go();
+  }
+
   /// Normal delivery orders that have a driver assigned (for driver log).
-  Future<List<Order>> getDeliveryOrdersWithDriver() {
-    return (select(orders)
-          ..where((o) => o.orderType.equals('delivery'))
-          ..where((o) => o.driverId.isNotNull())
-          ..orderBy([(o) => OrderingTerm.desc(o.createdAt)]))
-        .get();
+  Future<List<Order>> getDeliveryOrdersWithDriver({int? branchId}) {
+    var q = select(orders)
+      ..where((o) => o.orderType.equals('delivery'))
+      ..where((o) => o.driverId.isNotNull());
+    if (branchId != null) {
+      q = q..where((o) => o.branchId.equals(branchId));
+    }
+    return (q..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();
   }
 
   Future<List<Order>> filterOrders({
     String? invoiceNumber,
     String? referenceNumber,
     String? status,
+    List<String>? statusAnyOf,
     String? orderType,
     String? deliveryPartner,
     String? customerPhone,
@@ -151,8 +267,13 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? branchId,
   }) {
     var query = select(orders);
+
+    if (branchId != null) {
+      query = query..where((o) => o.branchId.equals(branchId));
+    }
 
     if (invoiceNumber != null && invoiceNumber.isNotEmpty) {
       query = query..where((o) => o.invoiceNumber.like('%$invoiceNumber%'));
@@ -162,7 +283,9 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       query = query..where((o) => o.referenceNumber.like('%$referenceNumber%'));
     }
 
-    if (status != null && status.isNotEmpty) {
+    if (statusAnyOf != null && statusAnyOf.isNotEmpty) {
+      query = query..where((o) => o.status.isIn(statusAnyOf));
+    } else if (status != null && status.isNotEmpty) {
       query = query..where((o) => o.status.equals(status));
     }
 
@@ -204,8 +327,11 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   }
 
   /// Highest numeric suffix for invoices starting with [prefix] (e.g. `TA` → `TA01` → 1).
-  Future<int> maxInvoiceNumericSuffixForPrefix(String prefix) async {
-    final rows = await (select(orders)..where((o) => o.invoiceNumber.like('$prefix%'))).get();
+  Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) async {
+    final rows = await (select(orders)
+          ..where((o) => o.invoiceNumber.like('$prefix%'))
+          ..where((o) => o.branchId.equals(branchId)))
+        .get();
     var max = 0;
     for (final o in rows) {
       final inv = o.invoiceNumber;

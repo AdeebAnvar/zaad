@@ -10,8 +10,18 @@ class CartRepositoryImpl implements CartRepository {
   /* ───────── CART ───────── */
 
   @override
-  Future<int> createCart(String invoiceNumber, {String? orderType, String? deliveryPartner}) {
-    return db.cartsDao.createCart(invoiceNumber, orderType: orderType, deliveryPartner: deliveryPartner);
+  Future<int> createCart(
+    String invoiceNumber, {
+    String? orderType,
+    String? deliveryPartner,
+    int branchId = 1,
+  }) {
+    return db.cartsDao.createCart(
+      invoiceNumber,
+      orderType: orderType,
+      deliveryPartner: deliveryPartner,
+      branchId: branchId,
+    );
   }
 
   @override

@@ -49,19 +49,23 @@ class _DeliverySaleScreenState extends State<DeliverySaleScreen> {
                 spacing: 14,
                 runSpacing: 14,
                 children: [
-                  ..._partners.map((p) => _partnerTile(p.name)),
-                  _partnerTile('NORMAL'),
+                  ..._partners.map((p) => _partnerTile(p.name, '${p.id}')),
+                  _partnerTile('NORMAL', 'NORMAL'),
                 ],
               ),
             ),
     );
   }
 
-  Widget _partnerTile(String name) {
+  Widget _partnerTile(String name, String deliveryServiceId) {
     return InkWell(
       onTap: () => AppNavigator.pushNamed(
         Routes.counter,
-        args: {'orderType': 'delivery', 'deliveryPartner': name},
+        args: {
+          'orderType': 'delivery',
+          'deliveryPartner': name,
+          'deliveryServiceId': deliveryServiceId,
+        },
       ),
       borderRadius: BorderRadius.circular(14),
       child: Container(

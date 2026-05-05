@@ -1,4 +1,5 @@
 import 'package:pos/core/constants/enums.dart';
+import 'package:pos/core/utils/item_order_channels.dart';
 import 'package:pos/domain/models/pagination_model.dart';
 
 class ItemModel {
@@ -52,6 +53,10 @@ class ItemCreatedUpdated {
   final String stockApplicable;
   final String ingredient;
   final OrderType orderType;
+  /// Raw API field (e.g. `take_away.dine_in`); use [parseItemOrderChannelsFromApi].
+  final String orderTypeRaw;
+
+  /// Backend `delivery_service` — delivery service id as string (aligned with synced delivery partner ids).
   final String deliveryService;
   final String image;
   final String expiryDate;
@@ -81,6 +86,7 @@ class ItemCreatedUpdated {
     required this.stockApplicable,
     required this.ingredient,
     required this.orderType,
+    this.orderTypeRaw = '',
     required this.deliveryService,
     required this.image,
     required this.expiryDate,
@@ -111,6 +117,7 @@ class ItemCreatedUpdated {
     String? stockApplicable,
     String? ingredient,
     OrderType? orderType,
+    String? orderTypeRaw,
     String? deliveryService,
     String? image,
     dynamic expiryDate,
@@ -140,6 +147,7 @@ class ItemCreatedUpdated {
         stockApplicable: stockApplicable ?? this.stockApplicable,
         ingredient: ingredient ?? this.ingredient,
         orderType: orderType ?? this.orderType,
+        orderTypeRaw: orderTypeRaw ?? this.orderTypeRaw,
         deliveryService: deliveryService ?? this.deliveryService,
         image: image ?? this.image,
         expiryDate: expiryDate ?? this.expiryDate,
@@ -168,7 +176,8 @@ class ItemCreatedUpdated {
         itemType: json["item_type"] ?? '',
         stockApplicable: json["stock_applicable"] ?? '',
         ingredient: json["ingredient"] ?? '',
-        orderType: json["order_type"] != null ? fromValue(json["order_type"]) : OrderType.counterSale,
+        orderTypeRaw: '${json["order_type"] ?? ''}'.trim(),
+        orderType: _orderTypeFromItemJson(json["order_type"]),
         deliveryService: json["delivery_service"] ?? '',
         image: json["image"] ?? '',
         expiryDate: json["expiry_date"] ?? '',
@@ -197,7 +206,7 @@ class ItemCreatedUpdated {
         "item_type": itemType,
         "stock_applicable": stockApplicable,
         "ingredient": ingredient,
-        "order_type": orderType.value,
+        "order_type": orderTypeRaw.isNotEmpty ? orderTypeRaw : orderType.value,
         "delivery_service": deliveryService,
         "image": image,
         "expiry_date": expiryDate,
@@ -322,11 +331,8 @@ class Itemprice {
       };
 }
 
-OrderType fromValue(String? value) {
-  if (value == null) return OrderType.counterSale;
-
-  return OrderType.values.firstWhere(
-    (e) => e.value == value,
-    orElse: () => OrderType.counterSale,
-  );
+OrderType _orderTypeFromItemJson(dynamic raw) {
+  final ch = parseItemOrderChannelsFromApi(raw);
+  if (ch.isNotEmpty) return derivePrimaryOrderType(ch);
+  return parseSingleOrderTypeFromTenantField(raw?.toString());
 }

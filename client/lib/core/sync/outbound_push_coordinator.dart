@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
-import 'package:pos/core/config/pos_app_runtime_config.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/utils/network_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/push_records_repository.dart';
@@ -11,11 +11,10 @@ import 'package:pos/data/repository/push_records_repository.dart';
 /// Triggers [PushRecordsRepository.pushSalesAndCreditSalesFromLocal] when online
 /// — after each local sale/KOT order log, and when the network comes back.
 class OutboundPushCoordinator {
-  OutboundPushCoordinator(this._push, this._db, this._runtime);
+  OutboundPushCoordinator(this._push, this._db);
 
   final PushRecordsRepository _push;
   final AppDatabase _db;
-  final PosAppRuntimeConfig _runtime;
 
   StreamSubscription<ConnectivityResult>? _connectivitySub;
   Timer? _debounce;
@@ -42,9 +41,11 @@ class OutboundPushCoordinator {
   }
 
   Future<void> flushPendingIfOnline() async {
-    // Sub devices never flush to tenant APIs from Flutter. Hub host may use Local POS + CLOUD_SYNC_VIA_NODE.
-    if (_runtime.isLanSatellite) return;
     if (_flushInProgress) return;
+    final g = GetIt.instance;
+    if (g.isRegistered<LocalHubSettings>() && g<LocalHubSettings>().blocksTenantCloudRest) {
+      return;
+    }
     final session = await _db.sessionDao.getActiveSession();
     if (session == null) return;
     if (!await NetworkUtils.hasInternetConnection()) return;
@@ -53,7 +54,7 @@ class OutboundPushCoordinator {
       final out = await _push.pushSalesAndCreditSalesFromLocal();
       if (kDebugMode) {
         debugPrint(
-          '[OutboundPush] ok=${out.ok} http=${out.httpStatus} posted=${out.ordersPosted} creditRows=${out.creditRowsPosted}',
+          '[OutboundPush] ok=${out.ok} http=${out.httpStatus} posted=${out.ordersPosted} creditRows=${out.creditRowsPosted} settleRows=${out.settleRowsPosted}',
         );
       }
     } catch (e, st) {
@@ -68,8 +69,7 @@ class OutboundPushCoordinator {
 void scheduleOutboundPushAfterLocalOrder() {
   final g = GetIt.instance;
   if (!g.isRegistered<OutboundPushCoordinator>()) return;
-  final rt = g.isRegistered<PosAppRuntimeConfig>() ? g<PosAppRuntimeConfig>() : null;
-  if (rt != null && rt.isLanSatellite) {
+  if (g.isRegistered<LocalHubSettings>() && g<LocalHubSettings>().blocksTenantCloudRest) {
     return;
   }
   try {

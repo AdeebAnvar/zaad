@@ -32,11 +32,17 @@ class CrmCubit extends Cubit<CrmState> {
 
   CrmCubit(this._customerRepo, this._db) : super(CrmInitial());
 
+  Future<List<Order>> _ordersForActiveBranch() async {
+    final session = await _db.sessionDao.getActiveSession();
+    final branchId = session?.branchId ?? 1;
+    return _db.ordersDao.getAllOrders(branchId: branchId);
+  }
+
   Future<void> loadCustomers() async {
     emit(CrmLoading());
     try {
       final customers = await _customerRepo.getAllLocalCustomers();
-      final allOrders = await _db.ordersDao.getAllOrders();
+      final allOrders = await _ordersForActiveBranch();
       final customersWithOrders = <CustomerWithOrders>[];
 
       for (final customer in customers) {
@@ -65,7 +71,7 @@ class CrmCubit extends Cubit<CrmState> {
     emit(CrmLoading());
     try {
       final customers = await _customerRepo.searchCustomers(query);
-      final allOrders = await _db.ordersDao.getAllOrders();
+      final allOrders = await _ordersForActiveBranch();
       final customersWithOrders = <CustomerWithOrders>[];
 
       for (final customer in customers) {
@@ -128,7 +134,7 @@ class CrmCubit extends Cubit<CrmState> {
     final customer = await _customerRepo.getCustomerById(customerId);
     if (customer == null) return [];
 
-    final allOrders = await _db.ordersDao.getAllOrders();
+    final allOrders = await _ordersForActiveBranch();
     final list = allOrders.where((order) => _orderMatchesCustomer(order, customer)).toList();
     list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;

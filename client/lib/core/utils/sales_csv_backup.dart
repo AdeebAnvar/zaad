@@ -49,7 +49,9 @@ class SalesCsvBackup {
 
   static Future<void> _safeRefresh(AppDatabase db) async {
     try {
-      final orders = await db.ordersDao.getAllOrders();
+      final session = await db.sessionDao.getActiveSession();
+      final branchId = session?.branchId ?? 1;
+      final orders = await db.ordersDao.getAllOrders(branchId: branchId);
       final path = await backupPath();
       final file = File(path);
       final workbook = Workbook();
@@ -110,4 +112,3 @@ class SalesCsvBackup {
     }
   }
 }
-

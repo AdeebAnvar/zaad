@@ -4,13 +4,14 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart';
-import 'package:get_it/get_it.dart';
 import 'package:path/path.dart' as p;
 import 'package:pos/core/network/cloud_sync_prerequisites.dart';
-import 'package:pos/core/network/hub_lan_catalog_live_sync.dart';
+import 'package:pos/core/sync/company_bootstrap_persist.dart';
+import 'package:pos/core/sync/hub_catalog_lan_publisher.dart';
+import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/core/utils/image_utils.dart';
+import 'package:pos/core/utils/item_order_channels.dart';
 import 'package:pos/data/local/drift_database.dart';
-import 'package:pos/core/network/pos_api_service.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
 import 'package:pos/domain/models/api/sync/sync_api.dart';
 import 'package:pos/domain/models/category_model.dart';
@@ -46,6 +47,13 @@ class PullDataRepositoryImpl implements PullDataRepository {
   final Map<int, VariationsCreatedUpdated> _variationLookupById = <int, VariationsCreatedUpdated>{};
   final Map<int, VariationOptionsCreatedUpdated> _variationOptionLookupById = <int, VariationOptionsCreatedUpdated>{};
 
+  /// Set when [pullAndPersist] finishes with LAN WS deferred ([deferLanHubMirrorUntilAfterCloudSync]).
+  bool _pendingDeferredLanMirror = false;
+  List<ItemCreatedUpdated>? _deferredLanCatalogItems;
+
+  @override
+  bool get pendingDeferredLanHubMirror => _pendingDeferredLanMirror;
+
   @override
   Stream<PullSyncProgress> get progressStream => _progressController.stream;
 
@@ -79,7 +87,11 @@ class PullDataRepositoryImpl implements PullDataRepository {
   ];
 
   @override
-  Future<PullData> pullAndPersist() async {
+  Future<PullData> pullAndPersist({bool deferLanHubMirrorUntilAfterCloudSync = false}) async {
+    if (!deferLanHubMirrorUntilAfterCloudSync) {
+      _pendingDeferredLanMirror = false;
+      _deferredLanCatalogItems = null;
+    }
     await assertTenantCloudSyncConfigured();
     final allItemForImages = <ItemCreatedUpdated>[];
     PullData? lastPull;
@@ -145,13 +157,82 @@ class PullDataRepositoryImpl implements PullDataRepository {
       page++;
     }
 
-    _emitProgress('Downloading item images...', page, _kMaxPagesPerResource);
     await _downloadItemImages(allItemForImages);
+
+    if (deferLanHubMirrorUntilAfterCloudSync) {
+      _deferredLanCatalogItems = List<ItemCreatedUpdated>.from(allItemForImages);
+      _pendingDeferredLanMirror = true;
+      _emitProgress('Finishing pull (LAN hub mirror runs after cloud push)...', page, page);
+    } else {
+      _emitProgress('Mirroring catalog to LAN hub...', page, page);
+      try {
+        await HubCatalogLanPublisher.publishAfterTenantPull(
+          db: _db,
+          pulledItemsSnapshot: allItemForImages,
+        ).timeout(const Duration(minutes: 5));
+      } on TimeoutException catch (e, st) {
+        if (kDebugMode) {
+          debugPrint('[pull] LAN catalog mirror timed out — continuing: $e\n$st');
+        }
+      }
+    }
+
+    _emitProgress('Refreshing company bootstrap...', page, page);
+    try {
+      final boot = await _api.fetchBootstrap().timeout(const Duration(seconds: 90));
+      await persistCompanyBootstrapFromApiBody(
+        boot.data,
+        broadcastToLanHub: !deferLanHubMirrorUntilAfterCloudSync,
+      );
+    } on TimeoutException catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[pullRecords] bootstrap timed out (pull still OK): $e\n$st');
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[pullRecords] bootstrap fetch/mirror failed (pull still OK): $e\n$st');
+      }
+    }
     if (lastPull == null) {
       throw StateError('Pull did not return data');
     }
     _emitProgress('Sync completed', page, page);
     return lastPull;
+  }
+
+  @override
+  Future<void> runDeferredLanHubMirrorBestEffort() async {
+    if (!_pendingDeferredLanMirror) return;
+    final items = List<ItemCreatedUpdated>.from(_deferredLanCatalogItems ?? const <ItemCreatedUpdated>[]);
+    _deferredLanCatalogItems = null;
+    _pendingDeferredLanMirror = false;
+
+    try {
+      if (kDebugMode) {
+        debugPrint('[pull] deferred LAN hub: catalog (${items.length} pulled item rows)...');
+      }
+      await HubCatalogLanPublisher.publishAfterTenantPull(
+        db: _db,
+        pulledItemsSnapshot: items,
+      ).timeout(const Duration(minutes: 5));
+    } on TimeoutException catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[pull] deferred LAN catalog mirror timed out — done: $e\n$st');
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[pull] deferred LAN catalog mirror failed: $e\n$st');
+      }
+    }
+
+    try {
+      if (kDebugMode) debugPrint('[pull] deferred LAN hub: COMPANY_SNAPSHOT...');
+      await HubCompanySnapshotPublisher.broadcastAfterTenantLink(_db);
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[pull] deferred COMPANY_SNAPSHOT failed: $e\n$st');
+      }
+    }
   }
 
   /// Placeholder for [PullDataModel.driver] (Drift [DriverModel]) so [PullData.fromJson] succeeds.
@@ -700,34 +781,46 @@ class PullDataRepositoryImpl implements PullDataRepository {
     required bool alsoCategoriesTable,
   }) async {
     for (final c in r.createdUpdated) {
-      final onValue = c.otherName == null ? const Value<String?>(null) : Value<String?>(_dynToString(c.otherName));
-      await _db.pullDataDao.upsertPullCategory(
-        PullCategoryRowsCompanion.insert(
-          resourceKey: resourceKey,
-          id: c.id,
-          uuid: c.uuid,
-          branchId: c.branchId,
-          categoryName: c.categoryName,
-          categorySlug: c.categorySlug,
-          otherName: onValue,
-          createdAt: c.createdAt,
-          updatedAt: c.updatedAt,
+      await _persistOneMirrorCategory(
+        c: c,
+        resourceKey: resourceKey,
+        alsoCategoriesTable: alsoCategoriesTable,
+      );
+    }
+  }
+
+  Future<void> _persistOneMirrorCategory({
+    required CategoryCreatedUpdated c,
+    required String resourceKey,
+    required bool alsoCategoriesTable,
+  }) async {
+    final onValue = c.otherName == null ? const Value<String?>(null) : Value<String?>(_dynToString(c.otherName));
+    await _db.pullDataDao.upsertPullCategory(
+      PullCategoryRowsCompanion.insert(
+        resourceKey: resourceKey,
+        id: c.id,
+        uuid: c.uuid,
+        branchId: c.branchId,
+        categoryName: c.categoryName,
+        categorySlug: c.categorySlug,
+        otherName: onValue,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        deletedAt: Value(_asDateTime(c.deletedAt)),
+      ),
+    );
+    if (alsoCategoriesTable) {
+      await _db.categoryDao.insertOrUpdateCategory(
+        CategoriesCompanion.insert(
+          id: Value(c.id),
+          name: c.categoryName,
+          otherName: _dynToString(c.otherName),
+          recordUuid: Value(c.uuid),
+          branchId: Value(c.branchId),
+          categorySlug: Value(c.categorySlug),
           deletedAt: Value(_asDateTime(c.deletedAt)),
         ),
       );
-      if (alsoCategoriesTable) {
-        await _db.categoryDao.insertOrUpdateCategory(
-          CategoriesCompanion.insert(
-            id: Value(c.id),
-            name: c.categoryName,
-            otherName: _dynToString(c.otherName),
-            recordUuid: Value(c.uuid),
-            branchId: Value(c.branchId),
-            categorySlug: Value(c.categorySlug),
-            deletedAt: Value(_asDateTime(c.deletedAt)),
-          ),
-        );
-      }
     }
   }
 
@@ -1002,118 +1095,193 @@ class PullDataRepositoryImpl implements PullDataRepository {
     final out = <ItemCreatedUpdated>[];
     for (final e in r.createdUpdated) {
       out.add(e);
-      final varJson = _variationsToJson(e.itemVariations);
-      final priceJson = jsonEncode(e.itemprice.map((ip) => ip.toJson()).toList());
-      await _db.pullDataDao.upsertPullItem(
-        PullItemRowsCompanion.insert(
-          id: Value(e.id),
-          uuid: e.uuid,
-          branchId: e.branchId,
-          categoryId: e.categoryId,
-          unitId: e.unitId,
-          itemName: e.itemName,
-          itemSlug: e.itemSlug,
-          itemOtherName: Value(e.itemOtherName),
-          kitchenIds: e.kitchenIds,
-          toppingIds: Value(_toppingIdsToString(e.toppingIds)),
-          tax: e.tax.name,
-          taxPercent: Value(e.taxPercent?.toString()),
-          minimumQty: e.minimumQty,
-          itemType: e.itemType,
-          stockApplicable: e.stockApplicable,
-          ingredient: e.ingredient,
-          orderType: e.orderType.name,
-          deliveryService: e.deliveryService,
-          image: e.image,
-          expiryDate: Value(e.expiryDate.toString()),
-          active: e.active.name,
-          isVariant: e.isVariant,
-          itemVariationsJson: Value(varJson),
-          itempriceJson: Value(priceJson),
-          createdAt: e.createdAt,
-          updatedAt: e.updatedAt,
-          deletedAt: Value(_asDateTime(e.deletedAt)),
-        ),
-      );
-
-      final firstPrice = e.itemprice.isNotEmpty ? e.itemprice.first.price : 0.0;
-      final firstStock = e.itemprice.isNotEmpty ? e.itemprice.first.stock : 0;
-      final kId = _firstIntFromKitchenIds(e.kitchenIds);
-      final stockOn = (e.stockApplicable).toLowerCase() == 'yes' || e.stockApplicable == '1';
-
-      await _db.itemDao.upsertItem(
-        ItemsCompanion.insert(
-          id: Value(e.id),
-          name: e.itemName,
-          otherName: e.itemOtherName,
-          sku: e.itemSlug,
-          price: firstPrice,
-          stock: firstStock,
-          stockEnabled: Value(stockOn),
-          // Do not set localImagePath here — [Value(null)] was clearing downloaded files on every sync.
-          imagePath: Value(e.image),
-          categoryName: '',
-          categoryOtherName: '',
-          barcode: e.itemSlug,
-          categoryId: e.categoryId,
-          kitchenId: Value(kId),
-          kitchenName: const Value(null),
-          deliveryPartner: e.deliveryService.isNotEmpty ? Value(e.deliveryService) : const Value(null),
-        ),
-      );
-
-      // Rebuild per-item toppings and topping groups from pull item.topping_ids.
-      await _db.itemDao.deleteToppingsByItem(e.id);
-      await _db.itemDao.deleteToppingGroupsByItem(e.id);
-      final toppingIds = _parseToppingIds(e.toppingIds);
-      final groupsByCategory = <int, ({String name, int min, int max})>{};
-      await _applyItemToppingIds(e.id, toppingIds, groupsByCategory);
-      for (final entry in groupsByCategory.entries) {
-        final groupId = (e.id * 100000) + entry.key;
-        await _db.itemDao.upsertToppingGroup(
-          ToppingGroupsCompanion(
-            id: Value(groupId),
-            itemId: Value(e.id),
-            name: Value(entry.value.name),
-            min: Value(entry.value.min),
-            max: Value(entry.value.max),
-          ),
-        );
-      }
-
-      // Rebuild variants from both item_variations and itemprice variation_option_ids.
-      await _db.itemDao.deleteVariantsByItem(e.id);
-      final variantsByName = <String, double>{};
-
-      for (final v in e.itemVariations) {
-        if (v is! Map) continue;
-        final vm = Map<String, dynamic>.from(v);
-        final vn = (vm['name']?.toString() ?? '').trim();
-        if (vn.isEmpty) continue;
-        final rawP = vm['price'];
-        final vp = rawP is num ? rawP.toDouble() : (double.tryParse('$rawP') ?? 0.0);
-        variantsByName[vn] = vp;
-      }
-
-      for (final ip in e.itemprice) {
-        final optionIds = _parseIntIds(ip.variationOptionIds);
-        final variantName = _variantNameFromOptionIds(optionIds).trim();
-        if (variantName.isNotEmpty) {
-          variantsByName[variantName] = ip.price;
-        }
-      }
-
-      for (final entry in variantsByName.entries) {
-        await _db.itemDao.upsertVariant(
-          ItemVariantsCompanion.insert(
-            itemId: e.id,
-            name: entry.key,
-            price: entry.value,
-          ),
-        );
-      }
+      await _persistPullItemCreatedUpdated(e);
     }
     return out;
+  }
+
+  /// Shared by tenant pull pages and LAN MAIN → SUB [ITEM_UPSERT] replay.
+  Future<void> _persistPullItemCreatedUpdated(ItemCreatedUpdated e) async {
+    final varJson = _variationsToJson(e.itemVariations);
+    final priceJson = jsonEncode(e.itemprice.map((ip) => ip.toJson()).toList());
+    final channelSrc = e.orderTypeRaw.isNotEmpty ? e.orderTypeRaw : e.orderType.value;
+    final channelStore = canonicalChannelsStorageFromApi(channelSrc);
+
+    await _db.pullDataDao.upsertPullItem(
+      PullItemRowsCompanion.insert(
+        id: Value(e.id),
+        uuid: e.uuid,
+        branchId: e.branchId,
+        categoryId: e.categoryId,
+        unitId: e.unitId,
+        itemName: e.itemName,
+        itemSlug: e.itemSlug,
+        itemOtherName: Value(e.itemOtherName),
+        kitchenIds: e.kitchenIds,
+        toppingIds: Value(_toppingIdsToString(e.toppingIds)),
+        tax: e.tax.name,
+        taxPercent: Value(e.taxPercent?.toString()),
+        minimumQty: e.minimumQty,
+        itemType: e.itemType,
+        stockApplicable: e.stockApplicable,
+        ingredient: e.ingredient,
+        orderType: channelStore ?? e.orderType.value,
+        deliveryService: e.deliveryService,
+        image: e.image,
+        expiryDate: Value(e.expiryDate.toString()),
+        active: e.active.name,
+        isVariant: e.isVariant,
+        itemVariationsJson: Value(varJson),
+        itempriceJson: Value(priceJson),
+        createdAt: e.createdAt,
+        updatedAt: e.updatedAt,
+        deletedAt: Value(_asDateTime(e.deletedAt)),
+      ),
+    );
+
+    final firstPrice = e.itemprice.isNotEmpty ? e.itemprice.first.price : 0.0;
+    final firstStock = e.itemprice.isNotEmpty ? e.itemprice.first.stock : 0;
+    final kId = _firstIntFromKitchenIds(e.kitchenIds);
+    final stockOn = (e.stockApplicable).toLowerCase() == 'yes' || e.stockApplicable == '1';
+
+    await _db.itemDao.upsertItem(
+      ItemsCompanion.insert(
+        id: Value(e.id),
+        name: e.itemName,
+        otherName: e.itemOtherName,
+        sku: e.itemSlug,
+        price: firstPrice,
+        stock: firstStock,
+        stockEnabled: Value(stockOn),
+        imagePath: Value(e.image),
+        categoryName: '',
+        categoryOtherName: '',
+        barcode: e.itemSlug,
+        categoryId: e.categoryId,
+        kitchenId: Value(kId),
+        kitchenName: const Value(null),
+        deliveryPartner: e.deliveryService.isNotEmpty ? Value(e.deliveryService) : const Value(null),
+        allowedOrderChannels: Value(channelStore),
+      ),
+    );
+
+    await _db.itemDao.deleteToppingsByItem(e.id);
+    await _db.itemDao.deleteToppingGroupsByItem(e.id);
+    final toppingIds = _parseToppingIds(e.toppingIds);
+    final groupsByCategory = <int, ({String name, int min, int max})>{};
+    await _applyItemToppingIds(e.id, toppingIds, groupsByCategory);
+    for (final entry in groupsByCategory.entries) {
+      final groupId = (e.id * 100000) + entry.key;
+      await _db.itemDao.upsertToppingGroup(
+        ToppingGroupsCompanion(
+          id: Value(groupId),
+          itemId: Value(e.id),
+          name: Value(entry.value.name),
+          min: Value(entry.value.min),
+          max: Value(entry.value.max),
+        ),
+      );
+    }
+
+    await _db.itemDao.deleteVariantsByItem(e.id);
+    final variantsByName = <String, double>{};
+
+    for (final v in e.itemVariations) {
+      if (v is! Map) continue;
+      final vm = Map<String, dynamic>.from(v);
+      final vn = (vm['name']?.toString() ?? '').trim();
+      if (vn.isEmpty) continue;
+      final rawP = vm['price'];
+      final vp = rawP is num ? rawP.toDouble() : (double.tryParse('$rawP') ?? 0.0);
+      variantsByName[vn] = vp;
+    }
+
+    for (final ip in e.itemprice) {
+      final optionIds = _parseIntIds(ip.variationOptionIds);
+      final variantName = _variantNameFromOptionIds(optionIds).trim();
+      if (variantName.isNotEmpty) {
+        variantsByName[variantName] = ip.price;
+      }
+    }
+
+    for (final entry in variantsByName.entries) {
+      await _db.itemDao.upsertVariant(
+        ItemVariantsCompanion.insert(
+          itemId: e.id,
+          name: entry.key,
+          price: entry.value,
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<void> upsertLanHubItemSnapshot(ItemCreatedUpdated item, {String? localImagePath}) async {
+    await _persistPullItemCreatedUpdated(item);
+    final path = localImagePath?.trim();
+    if (path != null && path.isNotEmpty) {
+      await _db.itemDao.upsertItem(
+        ItemsCompanion(
+          id: Value(item.id),
+          localImagePath: Value(path),
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<void> upsertLanHubCategory(CategoryCreatedUpdated category) async {
+    await _persistOneMirrorCategory(
+      c: category,
+      resourceKey: 'category',
+      alsoCategoriesTable: true,
+    );
+  }
+
+  @override
+  Future<void> applyMirroredPullPage(dynamic responseBody) async {
+    try {
+      final normalized = _normalizeToMap(responseBody);
+      if (normalized == null) return;
+
+      final driverForPersist = _extractApiDriverMap(normalized);
+      _injectFullPullDataForParse(normalized);
+
+      final pull = PullData.fromJson(Map<String, dynamic>.from(normalized));
+      if (pull.success != true) return;
+
+      final m = pull.data;
+      final allItemForImages = <ItemCreatedUpdated>[];
+
+      await _db.transaction(() async {
+        for (final res in _kPullResources) {
+          final rawEnvelope = _rawResourceEnvelopeFromResponse(normalized, res.dataKey);
+          final items = await _persistForResource(
+            m,
+            res,
+            driverFromPersist: res.dataKey == 'driver' ? driverForPersist : null,
+            rawResourceEnvelope: rawEnvelope,
+          );
+          if (items.isNotEmpty) {
+            allItemForImages.addAll(items);
+          }
+        }
+      });
+
+      for (final res in _kPullResources) {
+        final PaginationModel? pageMeta =
+            res.dataKey == 'driver' ? driverForPersist?.pagination : _paginationForDataKey(m, res.dataKey);
+        await _savePagination(res.paginationStoreKey, pageMeta);
+      }
+
+      await _downloadItemImages(allItemForImages);
+      await HubCatalogLanPublisher.publishAfterTenantPull(
+        db: _db,
+        pulledItemsSnapshot: allItemForImages,
+      );
+    } catch (_) {
+      /* Malformed or partial mirror payloads */
+    }
   }
 
   int? _firstIntFromKitchenIds(String kitchenIds) {
@@ -1130,21 +1298,42 @@ class PullDataRepositoryImpl implements PullDataRepository {
   }
 
   Future<void> _downloadItemImages(List<ItemCreatedUpdated> items) async {
+    final pending = <ItemCreatedUpdated>[];
     for (final e in items) {
-      if (e.image.isEmpty) continue;
+      if (e.image.trim().isEmpty) continue;
       final row = await _db.itemDao.getItemById(e.id);
       if (row == null) continue;
-      if (row.localImagePath != null && row.localImagePath!.isNotEmpty) continue;
+      if (row.localImagePath != null && row.localImagePath!.trim().isNotEmpty) continue;
+      pending.add(e);
+    }
+    final total = pending.length;
+    if (total == 0) {
+      _emitProgress('Item images up to date', 1, 1);
+      return;
+    }
+
+    for (var i = 0; i < pending.length; i++) {
+      final e = pending[i];
+      _emitProgress('Downloading item images (${i + 1} / $total)...', i, total);
       try {
-        final path = await ImageUtils.downloadImage(e.image, _buildSafeImageName(e.id, e.image));
+        final path = await ImageUtils.downloadImage(
+          e.image,
+          _buildSafeImageName(e.id, e.image),
+        ).timeout(const Duration(seconds: 45));
+        if (path == null || path.isEmpty) continue;
         await _db.itemDao.upsertItem(
           ItemsCompanion(
             id: Value(e.id),
             localImagePath: Value(path),
           ),
         );
+      } on TimeoutException catch (err) {
+        if (kDebugMode) {
+          debugPrint('[pull] item image timeout id=${e.id}: $err');
+        }
       } catch (_) {}
     }
+    _emitProgress('Item images downloaded', total, total);
   }
 
   Future<void> _persistCustomers(CustomerModel r) async {
@@ -1214,108 +1403,6 @@ class PullDataRepositoryImpl implements PullDataRepository {
       } catch (_) {
         // e.g. missing floor_id FK; surface could log in debug
       }
-    }
-  }
-
-  Map<String, dynamic> _buildHubMirrorPullRaw(String dataKey, List<dynamic> rows) {
-    final pagination = <String, dynamic>{
-      'current_page': 1,
-      'last_page': 1,
-      'per_page': rows.isEmpty ? 1 : rows.length,
-      'total': rows.length,
-      'has_more': false,
-    };
-    var envelope = <String, dynamic>{
-      'created_updated': rows,
-      'deleted': <dynamic>[],
-      'pagination': pagination,
-    };
-    if (dataKey == 'item') {
-      envelope = _normalizeItemResourceEnvelope(envelope);
-    }
-    return <String, dynamic>{
-      'success': true,
-      'message': 'hub_mirror',
-      'errors': null,
-      'data': <String, dynamic>{
-        dataKey: envelope,
-      },
-    };
-  }
-
-  Future<List<ItemCreatedUpdated>> _persistHubMirrorChunk(
-    _PullResource res,
-    List<dynamic> rows,
-  ) async {
-    if (rows.isEmpty) return [];
-    final raw = _buildHubMirrorPullRaw(res.dataKey, rows);
-    final driverForPersist = _extractApiDriverMap(raw);
-    _injectFullPullDataForParse(raw);
-    final pull = PullData.fromJson(Map<String, dynamic>.from(raw));
-    final m = pull.data;
-    final rawEnvelope = _rawResourceEnvelopeFromResponse(Map<String, dynamic>.from(raw), res.dataKey);
-    return _db.transaction(() async {
-      return _persistForResource(
-        m,
-        res,
-        driverFromPersist: driverForPersist,
-        rawResourceEnvelope: rawEnvelope,
-      );
-    });
-  }
-
-  @override
-  Future<HubCatalogHydrateResult> hydrateCatalogFromLanHub(PosApiService hubApi) async {
-    final allItemImages = <ItemCreatedUpdated>[];
-    var chunks = 0;
-    try {
-      for (var ri = 0; ri < _kPullResources.length; ri++) {
-        final res = _kPullResources[ri];
-        _emitProgress('LAN catalog: ${res.dataKey}…', ri, _kPullResources.length);
-        var offset = 0;
-        const limit = 200;
-        while (true) {
-          final page = await hubApi.fetchMirrorPage(res.dataKey, limit: limit, offset: offset);
-          final rowsRaw = page['rows'];
-          if (rowsRaw is! List) break;
-          if (rowsRaw.isEmpty) break;
-          final rows = <dynamic>[];
-          for (final r in rowsRaw) {
-            if (r is Map) {
-              rows.add(Map<String, dynamic>.from(r.map((k, v) => MapEntry(k.toString(), v))));
-            }
-          }
-          final items = await _persistHubMirrorChunk(res, rows);
-          allItemImages.addAll(items);
-          chunks++;
-          if (rowsRaw.length < limit) break;
-          offset += limit;
-        }
-      }
-      _emitProgress('Downloading item images…', _kPullResources.length, _kPullResources.length);
-      await _downloadItemImages(allItemImages);
-      try {
-        final g = GetIt.instance;
-        if (g.isRegistered<HubLanCatalogLiveSync>()) {
-          g<HubLanCatalogLiveSync>().notifyCatalogApplied();
-        }
-      } catch (_) {}
-      return HubCatalogHydrateResult(
-        ok: true,
-        message: chunks == 0
-            ? 'LAN hub mirror empty — ensure the main POS server has synced from cloud.'
-            : 'Loaded catalog from LAN hub ($chunks chunk${chunks == 1 ? '' : 's'}).',
-        resourcesTouched: chunks,
-      );
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('[hydrateCatalogFromLanHub] failed: $e\n$st');
-      }
-      return HubCatalogHydrateResult(
-        ok: false,
-        message: '$e',
-        resourcesTouched: chunks,
-      );
     }
   }
 }

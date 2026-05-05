@@ -30,6 +30,24 @@ bool _isNormalOrder(Order o) => o.deliveryPartner?.trim().toUpperCase() == 'NORM
 
 bool _hasDriver(Order o) => o.driverId != null && (o.driverName?.trim().isNotEmpty ?? false);
 
+/// UI bucket → DB status values (`out_for_delivery` includes legacy rows).
+List<String>? _deliveryStatusBucketToAnyOf(String? bucket) {
+  final b = bucket?.trim() ?? '';
+  if (b.isEmpty || b == 'all') return null;
+  switch (b) {
+    case 'pending':
+      return ['pending'];
+    case 'out_for_delivery':
+      return ['out_of_delivery', 'assigned', 'dispatched'];
+    case 'delivered':
+      return ['completed', 'delivered'];
+    case 'reject':
+      return ['cancelled'];
+    default:
+      return null;
+  }
+}
+
 class DeliveryLogCubit extends Cubit<DeliveryLogState> {
   DeliveryLogCubit(
     this.orderRepo,
@@ -62,6 +80,9 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
   String? _selectedPartner;
   final Set<int> _normalSelection = {};
 
+  /// `all` | `pending` | `out_for_delivery` | `delivered` | `reject`
+  String? _deliveryStatusBucket;
+
   void selectPartnerTab(String? partner) {
     _selectedPartner = partner;
     if (partner == null || partner.toUpperCase() != 'NORMAL') {
@@ -70,7 +91,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     if (partner == null) {
       loadOrders();
     } else {
-      filterOrders(deliveryPartner: partner);
+      filterOrders();
     }
   }
 
@@ -106,15 +127,28 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     }
   }
 
+  void setDeliveryStatusBucket(String? bucket) {
+    final t = bucket?.trim() ?? '';
+    _deliveryStatusBucket = (t.isEmpty || t.toLowerCase() == 'all') ? null : t;
+  }
+
+  String? get deliveryStatusBucket =>
+      (_deliveryStatusBucket == null || _deliveryStatusBucket == 'all') ? null : _deliveryStatusBucket;
+
+  /// Filter bar value: `all` | `pending` | `out_for_delivery` | `delivered` | `reject`
+  String get deliveryStatusFilterKey => deliveryStatusBucket ?? 'all';
+
   Future<void> loadOrders() async {
     emit(DeliveryLogLoading());
     try {
       final partners = await deliveryPartnerRepo.getAll();
       final drivers = await driverRepo.getAll();
       final partnerFilter = _selectedPartner?.trim();
+      final statusAny = _deliveryStatusBucketToAnyOf(_deliveryStatusBucket);
       var orders = await orderRepo.filterOrders(
         orderType: 'delivery',
         deliveryPartner: partnerFilter != null && partnerFilter.isNotEmpty ? partnerFilter : null,
+        statusAnyOf: statusAny,
       );
       orders = _filterDeliveryLogList(orders);
       _normalSelection.removeWhere((id) => !orders.any((o) => o.id == id));
@@ -140,22 +174,31 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     String? deliveryPartner,
     String? customerPhone,
     String? status,
+    String? deliveryStatusBucket,
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
   }) async {
-    _selectedPartner = deliveryPartner;
+    if (deliveryPartner != null && deliveryPartner.trim().isNotEmpty) {
+      _selectedPartner = deliveryPartner.trim();
+    }
+    if (deliveryStatusBucket != null) {
+      setDeliveryStatusBucket(deliveryStatusBucket);
+    }
     emit(DeliveryLogLoading());
     try {
       final partners = await deliveryPartnerRepo.getAll();
       final drivers = await driverRepo.getAll();
+      final partnerForQuery = _selectedPartner?.trim();
+      final statusAny = _deliveryStatusBucketToAnyOf(_deliveryStatusBucket);
       var orders = await orderRepo.filterOrders(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
         orderType: 'delivery',
-        deliveryPartner: deliveryPartner,
+        deliveryPartner: partnerForQuery != null && partnerForQuery.isNotEmpty ? partnerForQuery : null,
         customerPhone: customerPhone,
         status: status,
+        statusAnyOf: statusAny,
         startDate: startDate,
         endDate: endDate,
         userId: userId,
@@ -190,11 +233,22 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     if (order == null) return 'Order not found.';
     if (_isNormalOrder(order)) {
       final s = newStatus.toLowerCase();
-      if ((s == 'assigned' || s == 'delivered') && !_hasDriver(order)) {
-        return 'Assign a driver before setting status to Assigned or Delivered.';
+      if ((s == 'out_of_delivery' ||
+              s == 'assigned' ||
+              s == 'dispatched' ||
+              s == 'completed' ||
+              s == 'delivered') &&
+          !_hasDriver(order)) {
+        return 'Assign a driver before marking out for delivery or delivered.';
       }
-      if (s == 'pending' && order.status.toLowerCase() == 'assigned') {
-        return 'Cannot change status back to Pending after a driver is assigned.';
+      final cur = order.status.toLowerCase();
+      if (s == 'pending' &&
+          (cur == 'assigned' ||
+              cur == 'out_of_delivery' ||
+              cur == 'dispatched' ||
+              cur == 'delivered' ||
+              cur == 'completed')) {
+        return 'Cannot change status back to Pending after dispatch.';
       }
     }
     try {
@@ -207,7 +261,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     }
   }
 
-  /// Assign driver and set status to [assigned] for Normal delivery orders. Returns error message or null.
+  /// Assign driver and set status to [out_of_delivery] for Normal delivery orders. Returns error message or null.
   Future<String?> assignDriverToOrders(List<int> orderIds, int driverId, String driverName) async {
     if (orderIds.isEmpty) return 'Select at least one order.';
     try {
@@ -219,7 +273,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
           order.copyWith(
             driverId: Value(driverId),
             driverName: Value(driverName),
-            status: 'assigned',
+            status: 'out_of_delivery',
           ),
         );
       }

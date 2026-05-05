@@ -4,13 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/navigation.dart';
-import 'package:pos/core/config/pos_app_runtime_config.dart';
-import 'package:pos/core/network/pos_api_service.dart';
-import 'package:pos/core/network/pos_server_settings.dart';
-import 'package:pos/domain/models/api/auth/auth_repository.dart';
 import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
 import 'package:pos/data/repository/push_records_repository.dart';
 
@@ -29,6 +26,19 @@ class AutoSyncScreen extends StatefulWidget {
 class _AutoSyncScreenState extends State<AutoSyncScreen> {
   StreamSubscription<PullSyncProgress>? _progressSub;
   Timer? _pushProgressTimer;
+
+  void _scheduleDeferredLanHubMirror() {
+    unawaited(
+      locator<PullDataRepository>().runDeferredLanHubMirrorBestEffort().then(
+            (_) {},
+            onError: (Object e, StackTrace st) {
+              if (kDebugMode) {
+                debugPrint('[auto_sync] deferred LAN hub mirror: $e\n$st');
+              }
+            },
+          ),
+    );
+  }
 
   String message = 'Preparing sync...';
   double pullProgress = 0;
@@ -58,14 +68,7 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> {
     _progressSub = null;
   }
 
-  /// Tenant mirror (`pull_records` / `push_records`) — cloud mode, or Local POS on **hub host**
-  /// when `baseUrl` or `CLOUD_SYNC_VIA_NODE` hub is configured.
-  ///
-  /// [afterTenantSyncBeforeNavigate] runs after pull+push succeed (no exception), before delay/dashboard —
-  /// used on Local hub hosts to run `POST /sync/trigger-resync` then re-hydrate LAN mirror for subs.
-  Future<void> _executeTenantPullAndPush({
-    Future<void> Function()? afterTenantSyncBeforeNavigate,
-  }) async {
+  Future<void> _executeTenantPullAndPush() async {
     final repo = locator<PullDataRepository>();
 
     setState(() {
@@ -91,7 +94,7 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> {
     });
 
     try {
-      await repo.pullAndPersist();
+      await repo.pullAndPersist(deferLanHubMirrorUntilAfterCloudSync: true);
       await AppSettingsPrefs.setLastManualSyncAt(DateTime.now());
       await RuntimeAppSettings.refreshFromLocalSettings();
 
@@ -111,6 +114,7 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> {
       final pushOut = await locator<PushRecordsRepository>().pushSalesAndCreditSalesFromLocal();
       _pushProgressTimer?.cancel();
       _pushProgressTimer = null;
+      _scheduleDeferredLanHubMirror();
 
       if (kDebugMode) {
         debugPrint(
@@ -129,16 +133,13 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> {
                 : 'Sync completed · pushed ${pushOut.ordersPosted} sale(s)';
       });
 
-      if (afterTenantSyncBeforeNavigate != null) {
-        await afterTenantSyncBeforeNavigate();
-      }
-
       await Future.delayed(const Duration(milliseconds: 600));
 
       if (mounted) await _goToDashboard();
     } catch (e) {
       _pushProgressTimer?.cancel();
       _pushProgressTimer = null;
+      _scheduleDeferredLanHubMirror();
       if (!mounted) return;
 
       setState(() {
@@ -158,173 +159,20 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> {
   }
 
   Future<void> _startSync() async {
-    final runtime = locator<PosAppRuntimeConfig>();
-
-    if (runtime.isLocal) {
-      await _runLocalPosSync();
-      return;
-    }
-
-    await _executeTenantPullAndPush();
-  }
-
-  /// LAN catalog hydrate, then tenant pull/push on **main / hub host** only (not sub devices).
-  Future<void> _runLocalPosSync() async {
-    final hubRoot = (locator<PosServerSettings>().hubRoot ?? '').trim();
-    if (hubRoot.isEmpty) {
-      if (kDebugMode) {
-        debugPrint('[auto_sync] Local POS mode — no hub URL, skipping catalog hydrate');
-      }
-      setState(() {
-        message = 'Local POS mode — set LAN hub URL in setup';
-        pullProgress = 1.0;
-        pushProgress = 1.0;
-        _pushPhase = true;
-      });
-      await Future.delayed(const Duration(milliseconds: 800));
-      if (mounted) await _goToDashboard();
-      return;
-    }
-
-    setState(() {
-      message = 'Loading catalog from POS server (LAN)...';
-      pullProgress = 0.05;
-      pushProgress = 0.0;
-      _pushPhase = false;
-    });
-
-    try {
-      final out = await locator<PullDataRepository>().hydrateCatalogFromLanHub(locator<PosApiService>());
-      if (kDebugMode) {
-        debugPrint('[auto_sync] LAN catalog hydrate ok=${out.ok} msg=${out.message}');
-      }
+    if (locator<LocalHubSettings>().blocksTenantCloudRest) {
       if (!mounted) return;
       setState(() {
-        pullProgress = 0.35;
-        message = out.ok ? out.message : 'LAN catalog: ${out.message}';
-      });
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[auto_sync] LAN catalog hydrate failed: $e');
-      }
-      if (mounted) {
-        setState(() {
-          pullProgress = 1.0;
-          pushProgress = 1.0;
-          _pushPhase = true;
-          message = 'LAN catalog sync failed: $e';
-        });
-      }
-      await Future.delayed(const Duration(milliseconds: 600));
-      if (mounted) await _goToDashboard();
-      return;
-    }
-
-    if (!mounted) return;
-
-    // Sub terminals: LAN only — never call tenant APIs from Flutter.
-    if (locator<PosAppRuntimeConfig>().isLanSatellite) {
-      await AppSettingsPrefs.setLastManualSyncAt(DateTime.now());
-      await RuntimeAppSettings.refreshFromLocalSettings();
-      setState(() {
-        pullProgress = 1.0;
-        pushProgress = 1.0;
+        message =
+            'LAN SUB mode: tenant cloud sync is disabled. Inventory and orders reach this device through the MAIN hub (WebSocket) only.';
+        pullProgress = 1;
+        pushProgress = 1;
         _pushPhase = true;
       });
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future<void>.delayed(const Duration(seconds: 2));
       if (mounted) await _goToDashboard();
       return;
     }
-
-    // Hub host: tenant pull/push (Flutter), then ask Node to pull cloud → hub mirror (for sub devices), then LAN hydrate again.
-    await _executeTenantPullAndPush(
-      afterTenantSyncBeforeNavigate: () async {
-        if (!mounted) return;
-        setState(() {
-          message = 'Updating hub database for LAN terminals (Node cloud sync)…';
-        });
-        // Same URL as [AuthApi.getBaseUrl] persists → prefs `baseUrl`; [getSavedBaseUrl] reads it.
-        final tenant = await locator<AuthRepository>().getSavedBaseUrl();
-        final hasTenant = tenant != null && tenant.trim().isNotEmpty;
-        if (!hasTenant) {
-          if (mounted) {
-            setState(() {
-              message =
-                  'No company server URL in this app — use “Connect to server” on the login screen and sign in, then sync again. '
-                  'The LAN hub needs that URL to pull catalog for sub devices.';
-            });
-          }
-          return;
-        }
-        final tenantTrim = tenant.trim();
-        try {
-          await locator<PosApiService>().pushTenantBaseUrlToHub(tenantTrim);
-          if (kDebugMode) {
-            debugPrint('[auto_sync] tenant base from prefs sent to hub before trigger-resync');
-          }
-        } catch (e) {
-          if (kDebugMode) {
-            debugPrint('[auto_sync] POST /sync/tenant-base failed: $e');
-          }
-          if (mounted) {
-            setState(() {
-              message =
-                  'Could not register company URL on the LAN hub ($e). '
-                  'If the hub uses a bearer token, scan the setup QR that includes hub_token or match POS_HUB_TOKEN in the app settings.';
-            });
-          }
-          return;
-        }
-        try {
-          await locator<PosApiService>().triggerHubMirrorResyncFromCloud();
-          if (kDebugMode) {
-            debugPrint('[auto_sync] Node trigger-resync OK — refreshing LAN catalog');
-          }
-        } catch (e) {
-          if (kDebugMode) {
-            debugPrint('[auto_sync] Node trigger-resync skipped/failed (check hub cloud_sync / CLOUD_POS_TOKEN): $e');
-          }
-          if (mounted) {
-            setState(() {
-              message =
-                  'Tenant sync OK · hub mirror refresh failed ($e). '
-                  'Ensure the main device used “Connect to server” so the hub has the tenant URL. '
-                  'Cloud calls use X-Auth-Key like the app; optional CLOUD_POS_TOKEN on Node for Bearer.';
-            });
-          }
-        }
-        if (!mounted) return;
-        setState(() {
-          message = 'Loading catalog from hub…';
-          pullProgress = 0.4;
-        });
-        try {
-          final out2 =
-              await locator<PullDataRepository>().hydrateCatalogFromLanHub(locator<PosApiService>());
-          if (kDebugMode) {
-            debugPrint('[auto_sync] second LAN hydrate ok=${out2.ok} msg=${out2.message}');
-          }
-          if (!mounted) return;
-          setState(() {
-            pullProgress = 1.0;
-            message = out2.ok
-                ? (out2.resourcesTouched > 0
-                    ? 'Hub catalog loaded (${out2.resourcesTouched} batches). Sub devices can sync now.'
-                    : '${out2.message} If subs still see no items, verify Node logs and CLOUD_POS_TOKEN.')
-                : out2.message;
-          });
-        } catch (e) {
-          if (kDebugMode) {
-            debugPrint('[auto_sync] second LAN hydrate failed: $e');
-          }
-          if (mounted) {
-            setState(() {
-              message = 'Hub mirror refresh ran but LAN catalog reload failed: $e';
-            });
-          }
-        }
-      },
-    );
+    await _executeTenantPullAndPush();
   }
 
   Future<void> _goToDashboard() async {

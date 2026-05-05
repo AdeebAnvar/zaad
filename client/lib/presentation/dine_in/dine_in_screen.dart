@@ -90,8 +90,10 @@ class _DineInScreenState extends State<DineInScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
-    final floors = await _db.diningTablesDao.getFloors();
-    final allTables = await _db.diningTablesDao.getAllDiningTables();
+    final session = await _db.sessionDao.getActiveSession();
+    final branchId = session?.branchId ?? 1;
+    final floors = await _db.diningTablesDao.getFloorsForBranch(branchId);
+    final allTables = await _db.diningTablesDao.getAllDiningTablesForBranch(branchId);
     final orders = await _orderRepo.filterOrders(orderType: 'dine_in');
     final active = orders.where((o) {
       final s = o.status.toLowerCase();
@@ -105,7 +107,7 @@ class _DineInScreenState extends State<DineInScreen> {
 
     List<DiningTable> tables = [];
     if (floors.isNotEmpty) {
-      tables = await _db.diningTablesDao.getTablesByFloor(floors.first.id);
+      tables = await _db.diningTablesDao.getTablesByFloorForBranch(floors.first.id, branchId);
     }
 
     if (!mounted) return;
@@ -209,7 +211,9 @@ class _DineInScreenState extends State<DineInScreen> {
   Future<void> _changeFloor(int index) async {
     if (index < 0 || index >= _floors.length) return;
     final floorId = _floors[index].id;
-    final tables = await _db.diningTablesDao.getTablesByFloor(floorId);
+    final session = await _db.sessionDao.getActiveSession();
+    final branchId = session?.branchId ?? 1;
+    final tables = await _db.diningTablesDao.getTablesByFloorForBranch(floorId, branchId);
     if (!mounted) return;
     setState(() {
       _selectedFloorIndex = index;
@@ -805,9 +809,19 @@ class _TableCard extends StatelessWidget {
               ),
             ],
           ),
-          padding: const EdgeInsets.all(8),
-          child: Column(
-            children: [
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: LayoutBuilder(
+              builder: (context, c) {
+                return FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: c.maxWidth),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
               Row(
                 children: [
                   Flexible(
@@ -901,7 +915,12 @@ class _TableCard extends StatelessWidget {
                   '$activeOrders active order${activeOrders > 1 ? 's' : ''}',
                   style: AppStyles.getRegularTextStyle(fontSize: 10, color: AppColors.hintFontColor),
                 ),
-            ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),

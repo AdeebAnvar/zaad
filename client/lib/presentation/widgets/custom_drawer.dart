@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/print/print_service.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/repository/settings_repository.dart';
 import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 import '../../core/constants/colors.dart';
@@ -70,6 +72,12 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
           visibleWhen: (a) => a.canPrinterSettings,
         ),
         DrawerMenuItem(
+          icon: Icons.settings_ethernet,
+          title: 'LAN hub',
+          route: Routes.lanHubSettings,
+          visibleWhen: (_) => true,
+        ),
+        DrawerMenuItem(
           icon: Icons.event_available_rounded,
           title: 'Day Closing',
           route: Routes.dayClosing,
@@ -124,6 +132,7 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
           children: [
             _header(),
             if (access.canOpeningBalance) _openingBalanceTile(),
+            if (access.canOpenDrawer) _openCashDrawerTile(),
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -246,6 +255,20 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
     );
   }
 
+  Widget _openCashDrawerTile() {
+    return ListTile(
+      leading: const Icon(Icons.point_of_sale_outlined, color: AppColors.textColor),
+      title: Text(
+        'Open cash drawer',
+        style: AppStyles.getMediumTextStyle(
+          fontSize: 14,
+          color: AppColors.textColor,
+        ),
+      ),
+      onTap: _showCashDrawerPasswordDialog,
+    );
+  }
+
   Widget _menuItem({
     required IconData icon,
     required String title,
@@ -287,7 +310,6 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
 
     final branch = await db.branchesDao.getBranchById(session.branchId);
     final current = branch?.openingCash ?? 0;
-    final controller = TextEditingController(text: current.toString());
 
     if (!mounted) return;
     await showGeneralDialog<void>(
@@ -297,97 +319,10 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
       barrierColor: Colors.black.withValues(alpha: 0.35),
       transitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (_, __, ___) {
-        return Center(
-          child: GestureDetector(
-            onTap: () => FocusScope.of(context).unfocus(),
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                width: 430,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 34,
-                          height: 34,
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryColor.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(
-                            Icons.account_balance_wallet_rounded,
-                            color: AppColors.primaryColor,
-                            size: 20,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Opening Balance',
-                          style: AppStyles.getBoldTextStyle(fontSize: 18),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: controller,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Amount',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextButton(
-                            onPressed: () {
-                              FocusScope.of(context).unfocus();
-                              Navigator.pop(context);
-                            },
-                            child: const Text('Cancel'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primaryColor,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            onPressed: () async {
-                              final parsed = int.tryParse(controller.text.trim());
-                              if (parsed == null || parsed < 0) {
-                                CustomSnackBar.showWarning(message: 'Enter a valid opening balance');
-                                return;
-                              }
-                              await db.branchesDao.updateOpeningCash(
-                                branchId: session.branchId,
-                                openingCashValue: parsed,
-                              );
-                              FocusScope.of(context).unfocus();
-                              if (context.mounted) Navigator.pop(context);
-                              CustomSnackBar.showSuccess(message: 'Opening balance updated');
-                            },
-                            child: const Text('Save'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        return _OpeningBalanceDialogContent(
+          initialAmountText: current.toString(),
+          db: db,
+          branchId: session.branchId,
         );
       },
       transitionBuilder: (_, animation, __, child) {
@@ -400,7 +335,79 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
         );
       },
     );
-    controller.dispose();
+  }
+
+  Future<void> _showCashDrawerPasswordDialog() async {
+    final settings = await locator<SettingsRepository>().getSettingsFromLocal();
+    final expected = settings?.drawerPassword.trim() ?? '';
+    if (expected.isEmpty) {
+      if (!mounted) return;
+      CustomSnackBar.showWarning(
+        message: 'Set the drawer password in Settings before opening the cash drawer.',
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Open cash drawer',
+      barrierColor: Colors.black.withValues(alpha: 0.35),
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (dialogContext, _, __) {
+        return _CashDrawerPasswordDialogContent(
+          drawerHostContext: context,
+          dialogContext: dialogContext,
+          expectedPassword: expected,
+          onOpenDrawer: ({
+            required BuildContext dialogContext,
+            required BuildContext drawerHostContext,
+            required String entered,
+            required String expected,
+          }) =>
+              _tryOpenCashDrawerAfterPassword(
+                dialogContext: dialogContext,
+                drawerHostContext: drawerHostContext,
+                entered: entered,
+                expected: expected,
+              ),
+        );
+      },
+      transitionBuilder: (_, animation, __, child) {
+        return FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.92, end: 1).animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOut),
+            ),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _tryOpenCashDrawerAfterPassword({
+    required BuildContext dialogContext,
+    required BuildContext drawerHostContext,
+    required String entered,
+    required String expected,
+  }) async {
+    if (entered.isEmpty) {
+      CustomSnackBar.showWarning(message: 'Enter the drawer password');
+      return;
+    }
+    if (entered != expected) {
+      CustomSnackBar.showWarning(message: 'Incorrect password');
+      return;
+    }
+
+    FocusScope.of(dialogContext).unfocus();
+    if (dialogContext.mounted) Navigator.pop(dialogContext);
+    if (drawerHostContext.mounted) Navigator.pop(drawerHostContext);
+
+    await locator<PrintService>().openCashDrawer();
   }
 
   void _logout() async {
@@ -409,6 +416,296 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
 
     AppNavigator.pop();
     AppNavigator.pushReplacementNamed("/login");
+  }
+}
+
+typedef _CashDrawerSubmit = Future<void> Function({
+  required BuildContext dialogContext,
+  required BuildContext drawerHostContext,
+  required String entered,
+  required String expected,
+});
+
+class _OpeningBalanceDialogContent extends StatefulWidget {
+  const _OpeningBalanceDialogContent({
+    required this.initialAmountText,
+    required this.db,
+    required this.branchId,
+  });
+
+  final String initialAmountText;
+  final AppDatabase db;
+  final int branchId;
+
+  @override
+  State<_OpeningBalanceDialogContent> createState() =>
+      _OpeningBalanceDialogContentState();
+}
+
+class _OpeningBalanceDialogContentState extends State<_OpeningBalanceDialogContent> {
+  late final TextEditingController _amountController;
+
+  @override
+  void initState() {
+    super.initState();
+    _amountController = TextEditingController(text: widget.initialAmountText);
+  }
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 430,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.account_balance_wallet_rounded,
+                        color: AppColors.primaryColor,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Opening Balance',
+                      style: AppStyles.getBoldTextStyle(fontSize: 18),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _amountController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Amount',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () {
+                          FocusScope.of(context).unfocus();
+                          Navigator.pop(context);
+                        },
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primaryColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: () async {
+                          final parsed = int.tryParse(_amountController.text.trim());
+                          if (parsed == null || parsed < 0) {
+                            CustomSnackBar.showWarning(message: 'Enter a valid opening balance');
+                            return;
+                          }
+                          await widget.db.branchesDao.updateOpeningCash(
+                            branchId: widget.branchId,
+                            openingCashValue: parsed,
+                          );
+                          if (!mounted) return;
+                          FocusScope.of(context).unfocus();
+                          Navigator.pop(context);
+                          CustomSnackBar.showSuccess(message: 'Opening balance updated');
+                        },
+                        child: const Text('Save'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CashDrawerPasswordDialogContent extends StatefulWidget {
+  const _CashDrawerPasswordDialogContent({
+    required this.drawerHostContext,
+    required this.dialogContext,
+    required this.expectedPassword,
+    required this.onOpenDrawer,
+  });
+
+  final BuildContext drawerHostContext;
+  final BuildContext dialogContext;
+  final String expectedPassword;
+  final _CashDrawerSubmit onOpenDrawer;
+
+  @override
+  State<_CashDrawerPasswordDialogContent> createState() =>
+      _CashDrawerPasswordDialogContentState();
+}
+
+class _CashDrawerPasswordDialogContentState extends State<_CashDrawerPasswordDialogContent> {
+  late final TextEditingController _passwordController;
+  bool _obscure = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    await widget.onOpenDrawer(
+      dialogContext: widget.dialogContext,
+      drawerHostContext: widget.drawerHostContext,
+      entered: _passwordController.text.trim(),
+      expected: widget.expectedPassword,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: GestureDetector(
+        onTap: () => FocusScope.of(widget.dialogContext).unfocus(),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 430,
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(widget.dialogContext).height * 0.85),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.point_of_sale_rounded,
+                          color: AppColors.primaryColor,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          'Open cash drawer',
+                          style: AppStyles.getBoldTextStyle(fontSize: 18),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Enter the drawer password from Settings.',
+                    style: AppStyles.getRegularTextStyle(
+                      fontSize: 13,
+                      color: AppColors.hintFontColor,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _passwordController,
+                    obscureText: _obscure,
+                    autofocus: true,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _submit(),
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                        onPressed: () => setState(() => _obscure = !_obscure),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () {
+                            FocusScope.of(widget.dialogContext).unfocus();
+                            Navigator.pop(widget.dialogContext);
+                          },
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: _submit,
+                          child: const Text('Open drawer'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

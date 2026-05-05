@@ -4,21 +4,36 @@ import 'package:pos/data/repository/item_repository.dart';
 class ItemRepositoryImpl implements ItemRepository {
   final AppDatabase db;
   ItemRepositoryImpl(this.db);
+
+  Future<int> _activeBranchId() async {
+    final session = await db.sessionDao.getActiveSession();
+    return session?.branchId ?? 1;
+  }
+
+  Future<Set<int>> _visibleCategoryIds(int branchId) async {
+    final cats = await db.categoryDao.getVisibleForBranch(branchId);
+    return cats.map((c) => c.id).toSet();
+  }
+
   @override
   Future<List<Item>> fetchItemsFromLocal() async {
-    final item = await db.itemDao.getAll();
-    return item;
+    final bid = await _activeBranchId();
+    return db.itemDao.getVisibleForBranch(bid);
   }
 
   @override
   Future<List<Category>> fetchCategoriesFromLocal() async {
-    final categories = await db.categoryDao.getAll();
-    return categories;
+    final bid = await _activeBranchId();
+    return db.categoryDao.getVisibleForBranch(bid);
   }
 
   @override
   Future<List<ItemVariant>> fetchAllVariants() async {
-    return await db.itemDao.getAllVariants();
+    final bid = await _activeBranchId();
+    final visibleItemIds = (await db.itemDao.getVisibleForBranch(bid)).map((i) => i.id).toSet();
+    if (visibleItemIds.isEmpty) return [];
+    final all = await db.itemDao.getAllVariants();
+    return all.where((v) => visibleItemIds.contains(v.itemId)).toList();
   }
 
   @override
@@ -48,6 +63,10 @@ class ItemRepositoryImpl implements ItemRepository {
 
   @override
   Future<Item?> fetchItemByIdFromLocal(int id) async {
-    return await db.itemDao.getItemById(id);
+    final item = await db.itemDao.getItemById(id);
+    if (item == null) return null;
+    final bid = await _activeBranchId();
+    final catIds = await _visibleCategoryIds(bid);
+    return catIds.contains(item.categoryId) ? item : null;
   }
 }

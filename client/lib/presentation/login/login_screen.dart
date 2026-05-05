@@ -14,6 +14,7 @@ import 'package:pos/presentation/widgets/loader_overlay.dart';
 import '../../app/di.dart';
 import '../../app/navigation.dart';
 import '../../app/routes.dart';
+import '../../core/network/local_hub_settings.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -100,20 +101,27 @@ class _LoginScreenState extends State<LoginScreen> {
         CustomSnackBar.showWarning(message: state.expiryWarning!);
       }
 
-      if (state.showExpiryPopup) {
-        _showExpiryWarningDialog(state).then((_) {
-          AppNavigator.pushReplacementNamed(
-            "/auto_sync_screen",
-            args: state.user,
+      void gotoPostLogin() {
+        final hub = locator<LocalHubSettings>();
+        if (hub.isHubSub) {
+          CustomSnackBar.showSuccess(
+            message: 'LAN cashier: company cloud sync is off. Sale data syncs through the MAIN hub only.',
           );
-        });
+          AppNavigator.pushReplacementNamed(Routes.dashboard);
+          return;
+        }
+        AppNavigator.pushReplacementNamed(
+          Routes.autoSyncScreen,
+          args: state.user,
+        );
+      }
+
+      if (state.showExpiryPopup) {
+        _showExpiryWarningDialog(state).then((_) => gotoPostLogin());
         return;
       }
 
-      AppNavigator.pushReplacementNamed(
-        "/auto_sync_screen",
-        args: state.user,
-      );
+      gotoPostLogin();
     }
   }
 
@@ -132,7 +140,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   _loginLogo(),
                   const SizedBox(height: 24),
                   Text(
-                    'Zaad Platfforms',
+                    'Zaad Platforms',
                     style: AppStyles.getBoldTextStyle(fontSize: 20),
                   ),
                 ],
@@ -216,14 +224,29 @@ class _LoginScreenState extends State<LoginScreen> {
             onPressed: _onLoginPressed,
           ),
           const SizedBox(height: 14),
-          GestureDetector(
-            onTap: _openServerDialog,
-            child: Text(
-              'Connect to server',
-              style: AppStyles.getRegularTextStyle(
-                fontSize: 14,
-                color: AppColors.primaryColor,
+          if (locator<LocalHubSettings>().isHubSub)
+            Text(
+              'LAN cashier — company link runs on MAIN only.',
+              textAlign: TextAlign.center,
+              style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.grey.shade700),
+            )
+          else
+            GestureDetector(
+              onTap: _openServerDialog,
+              child: Text(
+                'Connect to server',
+                style: AppStyles.getRegularTextStyle(
+                  fontSize: 14,
+                  color: AppColors.primaryColor,
+                ),
               ),
+            ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () => AppNavigator.pushNamed(Routes.lanHubSettings),
+            child: Text(
+              'LAN hub (MAIN / SUB)',
+              style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: AppColors.primaryColor),
             ),
           ),
         ],
@@ -232,13 +255,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _loginLogo() {
-    return GestureDetector(
-      onLongPress: () => AppNavigator.pushNamed(Routes.setup),
-      child: Image.asset(
-        'assets/images/png/appicon2.webp',
-        height: 100,
-        width: 100,
-      ),
+    return Image.asset(
+      'assets/images/png/appicon2.webp',
+      height: 100,
+      width: 100,
     );
   }
 

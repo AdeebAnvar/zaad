@@ -29,7 +29,7 @@ class AuthApi {
     return await dio.get(ApiEndpoints.getCompanyData);
   }
 
-  /// Tenant REST root written by [getBaseUrl]. LAN Node reads the same value via `POST /sync/tenant-base`.
+  /// Tenant REST root written by [getBaseUrl].
   Future<String?> getSavedBaseUrl() async {
     final prefs = await SharedPreferences.getInstance();
     final v = prefs.getString('baseUrl')?.trim();

@@ -94,11 +94,7 @@ class BackupService {
   Future<bool> restoreLatestBackupIfAvailable() async {
     try {
       final backupDir = await _backupDir();
-      final files = await backupDir
-          .list()
-          .where((e) => e is File && p.extension(e.path).toLowerCase() == '.db')
-          .cast<File>()
-          .toList();
+      final files = await backupDir.list().where((e) => e is File && p.extension(e.path).toLowerCase() == '.db').cast<File>().toList();
       if (files.isEmpty) return false;
       files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
       final latest = files.first;
@@ -115,4 +111,3 @@ class BackupService {
     }
   }
 }
-

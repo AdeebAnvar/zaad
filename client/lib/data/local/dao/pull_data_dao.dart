@@ -138,6 +138,13 @@ class PullDataDao extends DatabaseAccessor<AppDatabase> with _$PullDataDaoMixin 
     await into(pullItemRows).insertOnConflictUpdate(row);
   }
 
+  /// Category rows synced from tenant `category` payload (LAN publisher uses this snapshot).
+  Future<List<PullCategoryRow>> lanPublishMirrorCategories() async {
+    return (select(pullCategoryRows)
+          ..where((t) => t.resourceKey.equals('category')))
+        .get();
+  }
+
   Future<void> savePagination(SyncPaginationStatesCompanion state) async {
     await into(syncPaginationStates).insertOnConflictUpdate(state);
   }

@@ -30,6 +30,7 @@ class AuthRepository {
 }
 
 Exception _handleError(dynamic e) {
+  print('frkjf $e');
   if (e is DioException) {
     return NetworkExceptions.fromDioError(e);
   } else {

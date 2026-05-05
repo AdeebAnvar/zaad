@@ -23,4 +23,12 @@ class CategoryDao extends DatabaseAccessor<AppDatabase> with _$CategoryDaoMixin 
   }
 
   Future<List<Category>> getAll() => select(categories).get();
+
+  /// Categories for the active branch; rows with null [Categories.branchId] stay visible (legacy / shared).
+  Future<List<Category>> getVisibleForBranch(int branchId) {
+    return (select(categories)
+          ..where((c) => c.branchId.equals(branchId) | c.branchId.isNull())
+          ..orderBy([(c) => OrderingTerm.asc(c.name)]))
+        .get();
+  }
 }

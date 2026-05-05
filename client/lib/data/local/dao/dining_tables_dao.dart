@@ -43,10 +43,29 @@ class DiningTablesDao extends DatabaseAccessor<AppDatabase> with _$DiningTablesD
 
   Future<List<DiningFloor>> getFloors() => (select(diningFloors)..orderBy([(f) => OrderingTerm.asc(f.sortOrder), (f) => OrderingTerm.asc(f.id)])).get();
 
+  Future<List<DiningFloor>> getFloorsForBranch(int branchId) {
+    return (select(diningFloors)
+          ..where((f) => f.branchId.equals(branchId) | f.branchId.isNull())
+          ..orderBy([(f) => OrderingTerm.asc(f.sortOrder), (f) => OrderingTerm.asc(f.id)]))
+        .get();
+  }
+
   Future<List<DiningTable>> getTablesByFloor(int floorId) => (select(diningTables)
         ..where((t) => t.floorId.equals(floorId))
         ..orderBy([(t) => OrderingTerm.asc(t.code)]))
       .get();
 
+  Future<List<DiningTable>> getTablesByFloorForBranch(int floorId, int branchId) {
+    return (select(diningTables)
+          ..where((t) => t.floorId.equals(floorId))
+          ..where((t) => t.branchId.equals(branchId) | t.branchId.isNull())
+          ..orderBy([(t) => OrderingTerm.asc(t.code)]))
+        .get();
+  }
+
   Future<List<DiningTable>> getAllDiningTables() => select(diningTables).get();
+
+  Future<List<DiningTable>> getAllDiningTablesForBranch(int branchId) {
+    return (select(diningTables)..where((t) => t.branchId.equals(branchId) | t.branchId.isNull())).get();
+  }
 }

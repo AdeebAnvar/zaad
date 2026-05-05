@@ -25,6 +25,9 @@ part 'dao/branches_dao.dart';
 part 'dao/settings_dao.dart';
 part 'dao/pull_data_dao.dart';
 part 'dao/pending_actions_dao.dart';
+part 'dao/sync_queue_dao.dart';
+part 'dao/settle_sales_outbox_dao.dart';
+part 'dao/day_closing_checkpoint_dao.dart';
 
 /// Used from `branches_dao` part; wraps [ImageUtils.downloadImage].
 Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.downloadImage(url, fileName);
@@ -57,6 +60,10 @@ Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.
     PullItemRows,
     SyncPaginationStates,
     PendingActions,
+    SyncOutbox,
+    SyncInbox,
+    SettleSalesOutbox,
+    DayClosingCheckpoint,
   ],
   daos: [
     UsersDao,
@@ -73,13 +80,16 @@ Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.
     SettingsDao,
     PullDataDao,
     PendingActionsDao,
+    SyncQueueDao,
+    SettleSalesOutboxDao,
+    DayClosingCheckpointDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
 
   @override
-  int get schemaVersion => 26;
+  int get schemaVersion => 43;
 
   @override
   MigrationStrategy get migration {
@@ -233,6 +243,31 @@ class AppDatabase extends _$AppDatabase {
         if (from < 33) {
           await m.createTable(pendingActions);
           await safeAddColumn(orders, orders.hubSyncPending);
+        }
+        if (from < 34) {
+          await m.createTable(syncOutbox);
+          await m.createTable(syncInbox);
+        }
+        if (from < 35) {
+          await safeAddColumn(items, items.allowedOrderChannels);
+        }
+        if (from < 38) {
+          await safeAddColumn(orders, orders.branchId);
+          await safeAddColumn(carts, carts.branchId);
+          try {
+            await customStatement(
+              'UPDATE orders SET branch_id = COALESCE((SELECT branch_id FROM users WHERE users.id = orders.user_id), 1) '
+              'WHERE branch_id IS NULL OR branch_id <= 0',
+            );
+          } on SqliteException catch (_) {
+            /* best-effort backfill */
+          }
+        }
+        if (from < 41) {
+          await m.createTable(settleSalesOutbox);
+        }
+        if (from < 42) {
+          await m.createTable(dayClosingCheckpoint);
         }
       },
       // Legacy rows (or partial inserts) can leave NULL in NOT NULL columns; Drift’s

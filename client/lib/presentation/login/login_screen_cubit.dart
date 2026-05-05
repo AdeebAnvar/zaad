@@ -1,12 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/enums.dart';
-import 'package:pos/core/config/pos_app_runtime_config.dart';
-import 'package:pos/core/network/pos_api_service.dart';
-import 'package:pos/core/network/pos_server_settings.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
+import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/local/tenant_switch_local_wipe.dart';
 import 'package:pos/data/repository/branch_repository.dart';
 import 'package:pos/data/repository/settings_repository.dart';
 import 'package:pos/domain/models/api/auth/auth_repository.dart';
@@ -63,9 +66,6 @@ class LoginCubit extends Cubit<LoginState> {
       user.branchId,
     );
 
-    await _ensureLanHubIfUnset();
-    await _syncTenantBaseUrlToLanHubFromPrefs();
-
     final critical = daysLeft <= 5;
     final warning = daysLeft <= 10 ? (daysLeft == 0 ? 'Subscription expires today.' : 'Subscription expires in $daysLeft day${daysLeft == 1 ? '' : 's'}.') : null;
     emit(LoginSuccess(
@@ -79,11 +79,24 @@ class LoginCubit extends Cubit<LoginState> {
   }
 
   Future<void> connectToServer(String code) async {
+    if (locator.isRegistered<LocalHubSettings>()) {
+      if (locator<LocalHubSettings>().isHubSub) {
+        emit(
+          LoginServerConnectError(
+            'This tablet is a LAN SUB cashier. It cannot use “Connect to server” — that runs only on MAIN. '
+            'Link the company on the MAIN machine first, then open LAN hub settings on MAIN and verify the WebSocket URL. '
+            'Users and settings are pushed automatically after MAIN connects.',
+          ),
+        );
+        return;
+      }
+    }
     try {
       emit(LoginLoading());
       if (kDebugMode) {
         debugPrint('[connectToServer] started, appId="${code.trim()}"');
       }
+      final priorBaseUrl = normalizedTenantBaseUrl(await authRepo.getSavedBaseUrl());
       CompanyDataModel companyDataModel = await authRepo.connectToServer(code);
       final resolvedBaseUrl = await authRepo.getSavedBaseUrl();
       final remoteUsers = companyDataModel.data.user;
@@ -102,6 +115,14 @@ class LoginCubit extends Cubit<LoginState> {
       }
 
       final db = locator<AppDatabase>();
+      final newBaseUrl = normalizedTenantBaseUrl(resolvedBaseUrl);
+      if (newBaseUrl != null && priorBaseUrl != newBaseUrl) {
+        await clearLocalDataForNewTenant(db);
+        if (locator.isRegistered<CurrentCounterSession>()) {
+          locator<CurrentCounterSession>().clear();
+        }
+      }
+
       await db.transaction(() async {
         await userRepo.saveUsersToLocal(companyDataModel.data.user);
         await branchRepo.saveBranchesToLocal(companyDataModel.data.branch);
@@ -120,8 +141,7 @@ class LoginCubit extends Cubit<LoginState> {
         return;
       }
 
-      await _ensureLanHubIfUnset();
-      await _syncTenantBaseUrlToLanHubFromPrefs();
+      unawaited(HubCompanySnapshotPublisher.broadcastAfterTenantLink(db));
 
       emit(LoginServerConnected());
     } catch (e, s) {
@@ -132,50 +152,5 @@ class LoginCubit extends Cubit<LoginState> {
       final detail = '$e${kDebugMode ? '\n\n$s' : ''}';
       emit(LoginServerConnectError(detail.trim()));
     }
-  }
-
-  /// Copies SharedPreferences tenant `baseUrl` (after common-api connect) to Node `sync_meta` over LAN
-  /// so the hub can run cloud mirror pulls without `api_base_url` in config.json.
-  Future<void> _syncTenantBaseUrlToLanHubFromPrefs() async {
-    if (!locator<PosAppRuntimeConfig>().isLocal) return;
-    final hub = locator<PosServerSettings>();
-    if ((hub.hubRoot ?? '').trim().isEmpty) return;
-    final base = await authRepo.getSavedBaseUrl();
-    if (base == null || base.trim().isEmpty) return;
-    try {
-      await locator<PosApiService>().pushTenantBaseUrlToHub(base);
-      if (kDebugMode) {
-        debugPrint('[login] tenant base URL pushed to LAN hub for Node mirror');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[login] push tenant base to hub failed (hub offline or auth): $e');
-      }
-    }
-  }
-
-  /// When [AppMode.local] and [PosServerSettings.hubRoot] is empty, set a default hub URL **only in [kDebugMode]**.
-  ///
-  /// Order: non-empty `--dart-define=POS_DEFAULT_HUB_AFTER_CONNECT`, else `http://127.0.0.1:3000`.
-  /// Release/profile local installs must use Setup to set the LAN URL.
-  Future<void> _ensureLanHubIfUnset() async {
-    if (!locator<PosAppRuntimeConfig>().isLocal) return;
-    if (!kDebugMode) return;
-
-    final hub = locator<PosServerSettings>();
-    if ((hub.hubRoot ?? '').trim().isNotEmpty) return;
-
-    const fromEnv = String.fromEnvironment('POS_DEFAULT_HUB_AFTER_CONNECT');
-    final envHub = fromEnv.trim();
-    if (envHub.isNotEmpty) {
-      await hub.setBaseUrl(envHub);
-      debugPrint('[hub] pos_server_base_url set from POS_DEFAULT_HUB_AFTER_CONNECT');
-      return;
-    }
-
-    await hub.setBaseUrl('http://127.0.0.1:3000');
-    debugPrint(
-      '[hub] pos_server_base_url empty — defaulted to http://127.0.0.1:3000 (kDebugMode only)',
-    );
   }
 }

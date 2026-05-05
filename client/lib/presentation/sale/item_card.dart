@@ -34,7 +34,7 @@ class ItemCard extends StatelessWidget {
         final toppings = await itemsCubit.getToppings(item.id);
         final toppingGroups = await itemsCubit.getToppingGroups(item.id);
         // If item has variants and/or toppings, show item configuration dialog.
-        if (variants.isNotEmpty || toppings.isNotEmpty) {
+        if (variants.isNotEmpty) {
           showItemConfigDialog(
             context,
             item: item,

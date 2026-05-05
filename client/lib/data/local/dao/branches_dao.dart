@@ -44,8 +44,10 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
   BranchesDao(super.db);
 
   /// UPSERT (sync safe)
-  Future<void> insertBranches(List<BranchModel> list) async {
-    final companions = await Future.wait(list.map(_toCompanion));
+  Future<void> insertBranches(List<BranchModel> list, {bool downloadRemoteImages = true}) async {
+    final companions = await Future.wait(
+      list.map((b) => _toCompanion(b, downloadRemoteImages: downloadRemoteImages)),
+    );
     await batch((batch) {
       batch.insertAllOnConflictUpdate(
         branches,
@@ -87,11 +89,14 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
   /// MAPPERS
   /// =========================
 
-  Future<BranchesCompanion> _toCompanion(BranchModel b) async {
-    String? localImage = await _downloadBranchImage(
-      b.image,
-      'Branch_${b.id}_${b.branchName}',
-    );
+  Future<BranchesCompanion> _toCompanion(BranchModel b, {required bool downloadRemoteImages}) async {
+    String localImage = '';
+    if (downloadRemoteImages && b.image.trim().isNotEmpty) {
+      localImage =
+          await _downloadBranchImage(b.image, 'Branch_${b.id}_${b.branchName}') ?? '';
+    } else {
+      localImage = b.localImage;
+    }
     return BranchesCompanion(
       id: Value(b.id),
       branchName: Value(b.branchName),
@@ -110,7 +115,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
       installationDate: Value(b.installationDate),
       expiryDate: Value(b.expiryDate),
       openingCash: Value(b.openingCash ?? 0),
-      localImage: Value(localImage ?? ""),
+      localImage: Value(localImage),
     );
   }
 

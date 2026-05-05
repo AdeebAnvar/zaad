@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 
 /// Dropdown-style filter listing synced staff from the local DB (not placeholders).
@@ -46,7 +47,23 @@ class _OrderLogUserFilterAutocompleteState
 
   Future<void> _loadUsers() async {
     try {
-      final users = await locator<AppDatabase>().usersDao.getAllUsers();
+      final db = locator<AppDatabase>();
+      final session = await db.sessionDao.getActiveSession();
+      final branchId = session?.branchId ?? 1;
+      // Use cashiers who actually have orders on this branch — [Users.branchId] from sync is often wrong/shared.
+      final ids = await db.ordersDao.getDistinctCashierUserIdsForBranch(branchId);
+      final users = <UserModel>[];
+      for (final id in ids) {
+        final u = await db.usersDao.findUserById(id);
+        if (u != null) users.add(u);
+      }
+      if (users.isEmpty) {
+        final selfId = session?.userId;
+        if (selfId != null) {
+          final self = await db.usersDao.findUserById(selfId);
+          if (self != null) users.add(self);
+        }
+      }
       users.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       if (!mounted) return;
       setState(() {

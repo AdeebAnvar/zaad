@@ -45,6 +45,10 @@ class Items extends Table {
 
   /// Delivery partner id/name - items filtered by partner when in delivery mode
   TextColumn get deliveryPartner => text().nullable()();
+
+  /// Canonical `take_away.dine_in` style keys from tenant `order_type` (see [parseItemOrderChannelsFromApi]).
+  /// Null/empty = available on all sale modes (legacy).
+  TextColumn get allowedOrderChannels => text().nullable()();
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -91,6 +95,7 @@ class ToppingGroups extends Table {
 @DriftAccessor(tables: [
   Kitchens,
   KitchenPrinters,
+  Categories,
   Items,
   ItemVariants,
   ItemToppings,
@@ -106,6 +111,10 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
   }
 
   Future<List<Kitchen>> getAllKitchens() => select(kitchens).get();
+
+  Future<List<Kitchen>> getKitchensForBranch(int branchId) {
+    return (select(kitchens)..where((k) => k.branchId.equals(branchId) | k.branchId.isNull())).get();
+  }
 
   Future<Kitchen?> getKitchenById(int kitchenId) {
     return (select(kitchens)..where((k) => k.id.equals(kitchenId))).getSingleOrNull();
@@ -148,6 +157,16 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
   }
 
   Future<List<Item>> getAll() => select(items).get();
+
+  /// Items whose category belongs to [branchId] or has no branch (shared catalog).
+  Future<List<Item>> getVisibleForBranch(int branchId) async {
+    final catRows = await (select(categories)
+          ..where((c) => c.branchId.equals(branchId) | c.branchId.isNull()))
+        .get();
+    if (catRows.isEmpty) return [];
+    final ids = catRows.map((c) => c.id).toList();
+    return (select(items)..where((i) => i.categoryId.isIn(ids))).get();
+  }
   Future<List<ItemVariant>> getAllVariants() => select(itemVariants).get();
 
   Future<Item?> getItemById(int itemId) {

@@ -1,6 +1,4 @@
 import 'dart:math' as math;
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -158,14 +156,6 @@ class _PreviewLineTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final toppingsColor = AppColors.primaryColor;
-    if (line.toppings != null && line.toppings!.isNotEmpty) {
-      // #region agent log
-      _dbgLog('cart_preview_toppings_color', {
-        'toppingsCount': line.toppings!.length,
-        'colorArgb': toppingsColor.toARGB32(),
-      }, hypothesisId: 'H1');
-      // #endregion
-    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -218,20 +208,3 @@ class _PreviewLineTile extends StatelessWidget {
     );
   }
 }
-
-// #region agent log
-void _dbgLog(String message, Map<String, Object?> data, {String hypothesisId = 'H1'}) {
-  try {
-    final payload = {
-      'sessionId': 'bead4f',
-      'runId': 'cart-preview-toppings-color',
-      'hypothesisId': hypothesisId,
-      'location': 'cart_preview_dialog.dart',
-      'message': message,
-      'data': data,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    };
-    File('debug-bead4f.log').writeAsStringSync('${jsonEncode(payload)}\n', mode: FileMode.append, flush: true);
-  } catch (_) {}
-}
-// #endregion

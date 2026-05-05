@@ -11,7 +11,6 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
-import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/widgets/order_log_user_filter_autocomplete.dart';
 import 'package:pos/presentation/widgets/app_snackbar.dart';
@@ -30,9 +29,7 @@ class TakeAwayLogScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => TakeAwayLogCubit(locator<OrderRepository>()),
-      child: CustomScaffold(
+    return CustomScaffold(
         title: 'Take Away Log',
         appBarScreen: 'take_away_log',
         floatingActionButton: _MobileTakeAwayFilterFab(),
@@ -112,7 +109,6 @@ class TakeAwayLogScreen extends StatelessWidget {
             return const SizedBox.shrink();
           },
         ),
-      ),
     );
   }
 }
@@ -338,13 +334,7 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
   Future<void> _handlePrint(BuildContext context, Order order) async {
     final cartRepo = locator<CartRepository>();
     final printService = locator<PrintService>();
-    final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
-    if (cartItems == null || cartItems.isEmpty) {
-      if (context.mounted) {
-        showAppSnackBar(context, 'No items to print');
-      }
-      return;
-    }
+    final cartItems = await cartRepo.getCartItemsByCartId(order.cartId) ?? [];
     try {
       final printFailed = await printService.printFinalBill(
         order: order,

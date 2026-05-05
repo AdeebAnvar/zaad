@@ -1,4 +1,5 @@
 import 'package:intl/intl.dart';
+import 'package:pos/features/orders/data/order_push_status.dart';
 
 /// Maps local order log JSON ([OrderRepositoryImpl] snapshot) to `push_records` sale objects.
 class PushLocalToPushRecordsMapper {
@@ -10,7 +11,7 @@ class PushLocalToPushRecordsMapper {
 
   static String formatApiDateTime(DateTime dt) => _apiDate.format(dt.toLocal());
 
-  /// Credit portion for [push_records] (`credit_sales` + payment_status).
+  /// Credit portion for [push_records] (`credit_sales` + `payment_status`).
   ///
   /// Prefer persisted [credit_amount]. If it is absent or ~zero but the tendered
   /// amounts don't cover [final_amount], infer the unpaid balance so we still
@@ -40,7 +41,10 @@ class PushLocalToPushRecordsMapper {
     final updated = created;
 
     final orderType = _normalizeOrderType(snap['order_type']?.toString());
-    final status = _mapSaleStatus(snap['status']?.toString());
+    final status = OrderPushStatus.toRemote(
+      orderType: snap['order_type']?.toString(),
+      localStatus: snap['status']?.toString(),
+    );
     final invoice = snap['invoice_number']?.toString() ?? '';
     final ref = snap['reference_number'];
     final refNum = ref == null ? null : int.tryParse(ref.toString());
@@ -69,7 +73,7 @@ class PushLocalToPushRecordsMapper {
       onlineId: onlinePaymentTypeId,
     );
 
-    final paymentStatus = credit > _kCreditEpsilon ? 'partial' : 'paid';
+    final paymentStatus = credit > _kCreditEpsilon ? 'unpaid' : 'paid';
 
     final items = _buildItems(
       snap['items'],
@@ -155,7 +159,6 @@ class PushLocalToPushRecordsMapper {
       if (e is! Map) continue;
       final m = Map<String, dynamic>.from(e);
       final itemId = m['item_id'] as int? ?? 0;
-      final variantId = m['item_variant_id'] as int?;
       final toppingId = m['item_topping_id'] as int?;
       final qty = (m['quantity'] as int?) ?? 1;
       final total = _toDouble(m['total']);
@@ -165,6 +168,8 @@ class PushLocalToPushRecordsMapper {
       final discAmt = discType != 'percentage' ? disc : 0.0;
       final unitNet = qty > 0 ? total / qty : total;
       final unitGross = qty > 0 ? (total + discAmt) / qty : total + discAmt;
+
+      final prePriceId = (m['price_id'] as num?)?.toInt();
 
       final toppings = <Map<String, dynamic>>[];
       if (toppingId != null && toppingId > 0) {
@@ -181,7 +186,8 @@ class PushLocalToPushRecordsMapper {
         'item_id': itemId,
         if ((m['item_name'] ?? '').toString().trim().isNotEmpty)
           'item_name': m['item_name'].toString().trim(),
-        'price_id': variantId ?? itemId,
+        // `price_id` = server `itemprice.id`; normally set in [PushRecordsRepositoryImpl._enrichSaleLineItemsForPush].
+        if (prePriceId != null && prePriceId > 0) 'price_id': prePriceId,
         'price': unitGross,
         'item_unit_price': unitNet,
         'discount_percent': discPct,
@@ -252,15 +258,6 @@ class PushLocalToPushRecordsMapper {
     if (s == 'dine_in' || s == 'dine-in') return 'dine_in';
     if (s == 'counter_sale' || s == 'counter') return 'take_away';
     return 'take_away';
-  }
-
-  static String _mapSaleStatus(String? raw) {
-    final s = (raw ?? '').trim().toLowerCase();
-    if (s == 'completed') return 'delivered';
-    if (s == 'cancelled' || s == 'canceled') return 'reject';
-    if (s == 'delivered') return 'delivered';
-    if (s == 'dispatched' || s == 'out_for_delivery') return 'out_of_delivery';
-    return 'pending';
   }
 
   static double _toDouble(dynamic v) {
