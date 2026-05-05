@@ -929,9 +929,9 @@ class PrintService {
     String unitPriceStr,
     String lineTotalStr,
   ) {
-    // Keep bill rows printer-friendly: print item name on its own line, then a compact qty/price/total line.
-    // This avoids brittle fixed-column spacing on some thermal firmwares.
-    const itemWrapChars = 40;
+    // Print in strict table layout: Item | Qty | Price | Total.
+    // Use addAll() so bytes are appended to the same caller buffer.
+    const itemWrapChars = 22;
     final wrapped = _wrapReceiptLine(itemText.trim(), itemWrapChars);
     final u = _sanitize(unitPriceStr);
     final t = _sanitize(lineTotalStr);
@@ -951,25 +951,30 @@ class PrintService {
     );
     // #endregion
     for (var i = 0; i < wrapped.length; i++) {
+      final qStr = i == 0 ? '$quantity' : '';
       final rowLeft = wrapped[i];
       // #region agent log
       _dbg(
         runId: 'pre-fix',
         hypothesisId: 'H6',
         location: 'print_service.dart:_billEmitItemTableRow:row-cells',
-        message: 'Resolved row cells for plain-text receipt row',
+        message: 'Resolved row cells for fixed-width receipt row',
         data: {
           'rowIndex': i,
           'rowLeft': rowLeft,
+          'qCell': qStr,
+          'uCell': i == 0 ? u : ' ',
+          'tCell': i == 0 ? t : ' ',
         },
       );
       // #endregion
-      bytes.addAll(generator.text(rowLeft.isEmpty ? ' ' : rowLeft));
+      final left = rowLeft.isEmpty ? ' ' : rowLeft;
+      final leftCell = left.length >= 22 ? left.substring(0, 22) : left.padRight(22);
+      final qtyCell = qStr.padLeft(3);
+      final unitCell = (i == 0 ? u : '').padLeft(8);
+      final totalCell = (i == 0 ? t : '').padLeft(9);
+      bytes.addAll(generator.text('$leftCell$qtyCell$unitCell$totalCell'));
     }
-
-    final qtyPriceTotal = '  $quantity x $u = $t';
-    bytes.addAll(generator.text(qtyPriceTotal));
-    bytes.addAll(generator.feed(1));
   }
 
   void _kotEmitPrintLineBlock(Generator generator, List<int> bytes, _PrintLine line, {required bool bold}) {
@@ -1262,8 +1267,8 @@ class PrintService {
         bytes,
         _sanitize(name),
         line.quantity,
-        '$_currency${_fmtMoney(line.unitPrice)}',
-        '$_currency${_fmtMoney(line.total)}',
+        _fmtMoney(line.unitPrice),
+        _fmtMoney(line.total),
       );
     }
 
