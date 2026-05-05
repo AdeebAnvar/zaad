@@ -1003,25 +1003,20 @@ class PrintService {
     required String qtyStr,
     bool bold = false,
   }) {
-    final wrapped = _wrapReceiptLine(_sanitize(rawLeft.trim()), 26);
+    final wrapped = _wrapReceiptLine(_sanitize(rawLeft.trim()), 34);
     for (var i = 0; i < wrapped.length; i++) {
       final rowLeft = wrapped[i];
       final qCell = i == 0 ? qtyStr : '';
-      bytes += generator.row([
-        PosColumn(
-          text: rowLeft.isEmpty ? ' ' : rowLeft,
-          width: 8,
+      bytes += generator.text(
+        rowLeft.isEmpty ? ' ' : rowLeft,
+        styles: PosStyles(bold: bold),
+      );
+      if (qCell.isNotEmpty) {
+        bytes += generator.text(
+          '  qty: ${_sanitize(qCell)}',
           styles: PosStyles(bold: bold),
-        ),
-        PosColumn(
-          text: qCell.isEmpty ? ' ' : _sanitize(qCell),
-          width: 4,
-          styles: PosStyles(
-            bold: bold,
-            align: PosAlign.right,
-          ),
-        ),
-      ]);
+        );
+      }
     }
   }
 
