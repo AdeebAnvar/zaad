@@ -964,12 +964,12 @@ class PrintService {
         },
       );
       // #endregion
-      bytes += generator.text(rowLeft.isEmpty ? ' ' : rowLeft);
+      bytes.addAll(generator.text(rowLeft.isEmpty ? ' ' : rowLeft));
     }
 
     final qtyPriceTotal = '  $quantity x $u = $t';
-    bytes += generator.text(qtyPriceTotal);
-    bytes += generator.feed(1);
+    bytes.addAll(generator.text(qtyPriceTotal));
+    bytes.addAll(generator.feed(1));
   }
 
   void _kotEmitPrintLineBlock(Generator generator, List<int> bytes, _PrintLine line, {required bool bold}) {
@@ -987,12 +987,12 @@ class PrintService {
         _kotEmitItemQty(generator, bytes, label, qtyStr: _kotFmtQty(t.$2));
       }
     } else if (line.toppingInfo != null && line.toppingInfo!.trim().isNotEmpty) {
-      bytes += generator.text('  ${_sanitize(line.toppingInfo!)}');
+      bytes.addAll(generator.text('  ${_sanitize(line.toppingInfo!)}'));
     }
 
     final lineNote = _lineNoteFromCartNotes(line.notes);
     if (lineNote != null && lineNote.isNotEmpty) {
-      bytes += generator.text('  Note: ${_sanitize(lineNote)}');
+      bytes.addAll(generator.text('  Note: ${_sanitize(lineNote)}'));
     }
   }
 
@@ -1007,15 +1007,15 @@ class PrintService {
     for (var i = 0; i < wrapped.length; i++) {
       final rowLeft = wrapped[i];
       final qCell = i == 0 ? qtyStr : '';
-      bytes += generator.text(
+      bytes.addAll(generator.text(
         rowLeft.isEmpty ? ' ' : rowLeft,
         styles: PosStyles(bold: bold),
-      );
+      ));
       if (qCell.isNotEmpty) {
-        bytes += generator.text(
+        bytes.addAll(generator.text(
           '  qty: ${_sanitize(qCell)}',
           styles: PosStyles(bold: bold),
-        );
+        ));
       }
     }
   }
