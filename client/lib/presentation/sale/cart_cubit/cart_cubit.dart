@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
@@ -63,6 +64,33 @@ class CartCubit extends Cubit<CartState> {
   // Cart-level discount (mutually exclusive with item discounts)
   double _cartDiscountAmount = 0.0;
   String? _cartDiscountType; // 'amount' or 'percentage'
+  static const String _debugLogPath =
+      r'c:\Users\adeeb\OneDrive\Desktop\pos\pos\debug-079196.log';
+
+  Future<void> _dbg({
+    required String runId,
+    required String hypothesisId,
+    required String location,
+    required String message,
+    required Map<String, Object?> data,
+  }) async {
+    final payload = <String, Object?>{
+      'sessionId': '079196',
+      'runId': runId,
+      'hypothesisId': hypothesisId,
+      'location': location,
+      'message': message,
+      'data': data,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+    try {
+      await File(_debugLogPath).writeAsString(
+        '${jsonEncode(payload)}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {}
+  }
 
   String? get currentKOTReference => _currentKOTReference;
   bool get isEditingPaidOrder => _editingOrderId != null && (_editingOrderStatus == 'placed' || _editingOrderStatus == 'completed');
@@ -678,6 +706,21 @@ class CartCubit extends Cubit<CartState> {
         );
       }
       if (printInvoice) {
+        // #region agent log
+        await _dbg(
+          runId: 'pre-fix',
+          hypothesisId: 'H5',
+          location:
+              'cart_cubit.dart:placeOrderWithPayment:before-printFinalBill',
+          message: 'Calling printFinalBill from placeOrderWithPayment',
+          data: {
+            'orderId': saved.id,
+            'stateItemsCount': state.items.length,
+            'activeCartId': _activeCartId,
+            'savedCartId': saved.cartId,
+          },
+        );
+        // #endregion
         printFailed.addAll(
           await printService.printFinalBill(
             order: saved,
@@ -691,6 +734,19 @@ class CartCubit extends Cubit<CartState> {
         }
       }
 
+      // #region agent log
+      await _dbg(
+        runId: 'pre-fix',
+        hypothesisId: 'H5',
+        location: 'cart_cubit.dart:placeOrderWithPayment:before-clear-cart',
+        message: 'About to clear cart state after print path',
+        data: {
+          'orderId': saved.id,
+          'stateItemsCount': state.items.length,
+          'activeCartId': _activeCartId,
+        },
+      );
+      // #endregion
       await _clearCartStateOnly();
       return printFailed;
     } catch (e) {

@@ -24,12 +24,39 @@ class PrintService {
 
   static const int _defaultPort = 9100;
   static const Duration _connectionTimeout = Duration(seconds: 15);
+  static const String _debugLogPath =
+      r'c:\Users\adeeb\OneDrive\Desktop\pos\pos\debug-079196.log';
 
   static String get _currency => '${RuntimeAppSettings.currency} ';
 
   static int get _decimals => RuntimeAppSettings.decimalDigits;
 
   static String _fmtMoney(num v) => v.toStringAsFixed(_decimals);
+
+  static Future<void> _dbg({
+    required String runId,
+    required String hypothesisId,
+    required String location,
+    required String message,
+    required Map<String, Object?> data,
+  }) async {
+    final payload = <String, Object?>{
+      'sessionId': '079196',
+      'runId': runId,
+      'hypothesisId': hypothesisId,
+      'location': location,
+      'message': message,
+      'data': data,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+    try {
+      await File(_debugLogPath).writeAsString(
+        '${jsonEncode(payload)}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {}
+  }
 
   /// Strip ₹ from any string (item names, notes, etc.) so printer receives ASCII-only.
   static String _sanitize(String s) => s.replaceAll('₹', 'Rs');
@@ -54,12 +81,9 @@ class PrintService {
             : 'ble:${addr.isNotEmpty ? addr : '—'}';
     final n = bytes.length;
     final headLen = n >= 48 ? 48 : n;
-    final headHex = headLen == 0
-        ? ''
-        : bytes.sublist(0, headLen).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    final headHex = headLen == 0 ? '' : bytes.sublist(0, headLen).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
     final sha = n == 0 ? 'empty' : sha256.convert(bytes).toString();
-    final line =
-        'POS_PRINT | job=$jobKind | printer=$safeLabel | conn=$connectionType | target=$target | bytes=$n | sha256=$sha | headHex=$headHex';
+    final line = 'POS_PRINT | job=$jobKind | printer=$safeLabel | conn=$connectionType | target=$target | bytes=$n | sha256=$sha | headHex=$headHex';
     debugPrint(line);
     developer.log(line, name: 'POS_PRINT');
   }
@@ -71,8 +95,7 @@ class PrintService {
     required String source,
     required List<_PrintLine> lines,
   }) {
-    final head =
-        'POS_PRINT_ITEMS | orderId=$orderId | cartId=$cartId | source=$source | count=${lines.length}';
+    final head = 'POS_PRINT_ITEMS | orderId=$orderId | cartId=$cartId | source=$source | count=${lines.length}';
     debugPrint(head);
     developer.log(head, name: 'POS_PRINT_ITEMS');
     for (var i = 0; i < lines.length; i++) {
@@ -84,8 +107,7 @@ class PrintService {
       if (l.toppingInfo != null && l.toppingInfo!.trim().isNotEmpty) {
         name = '$name + ${l.toppingInfo!.trim()}';
       }
-      final line =
-          'POS_PRINT_ITEMS | idx=${i + 1} | qty=${l.quantity} | unit=${_fmtMoney(l.unitPrice)} | total=${_fmtMoney(l.total)} | item=${_sanitize(name)}';
+      final line = 'POS_PRINT_ITEMS | idx=${i + 1} | qty=${l.quantity} | unit=${_fmtMoney(l.unitPrice)} | total=${_fmtMoney(l.total)} | item=${_sanitize(name)}';
       debugPrint(line);
       developer.log(line, name: 'POS_PRINT_ITEMS');
     }
@@ -110,8 +132,7 @@ class PrintService {
       if (top != null && top.isNotEmpty) {
         name = '$name + $top';
       }
-      final line =
-          'POS_PRINT_ITEMS | job=$job | kitchen=$kitchenKey | idx=${i + 1} | qty=${l.quantity} | total=${_fmtMoney(l.total)} | item=${_sanitize(name)}';
+      final line = 'POS_PRINT_ITEMS | job=$job | kitchen=$kitchenKey | idx=${i + 1} | qty=${l.quantity} | total=${_fmtMoney(l.total)} | item=${_sanitize(name)}';
       debugPrint(line);
       developer.log(line, name: 'POS_PRINT_ITEMS');
     }
@@ -156,10 +177,12 @@ class PrintService {
       'take_away' => 'Take away',
       'dine_in' => 'Dine in',
       'delivery' => 'Delivery',
-      _ => s.isEmpty ? '' : s.replaceAll('_', ' ').split(' ').map((w) {
-          if (w.isEmpty) return w;
-          return w[0].toUpperCase() + w.substring(1);
-        }).join(' '),
+      _ => s.isEmpty
+          ? ''
+          : s.replaceAll('_', ' ').split(' ').map((w) {
+              if (w.isEmpty) return w;
+              return w[0].toUpperCase() + w.substring(1);
+            }).join(' '),
     };
   }
 
@@ -312,10 +335,7 @@ class PrintService {
     final sessionBranch = branchId ?? (await _db.sessionDao.getActiveSession())?.branchId ?? 1;
     final branchModel = await _db.branchesDao.getBranchById(sessionBranch);
     final resolvedBranchName = _sanitize((branchModel?.branchName ?? '').trim());
-    final receiptNo = ((invoiceNumber ?? '').trim().isNotEmpty
-            ? invoiceNumber!.trim()
-            : referenceNumber.trim())
-        .trim();
+    final receiptNo = ((invoiceNumber ?? '').trim().isNotEmpty ? invoiceNumber!.trim() : referenceNumber.trim()).trim();
     final sanitizedReceipt = receiptNo.isNotEmpty ? _sanitize(receiptNo) : '';
     final orderDate = orderedAt ?? DateTime.now();
 
@@ -541,9 +561,7 @@ class PrintService {
       if (raw is! Map) continue;
       final m = Map<String, dynamic>.from(raw);
       final qtyRaw = m['quantity'] ?? m['qty'];
-      final qty = qtyRaw is int
-          ? qtyRaw
-          : (qtyRaw is num ? qtyRaw.toInt() : int.tryParse('$qtyRaw') ?? 1);
+      final qty = qtyRaw is int ? qtyRaw : (qtyRaw is num ? qtyRaw.toInt() : int.tryParse('$qtyRaw') ?? 1);
       if (qty <= 0) continue;
       final totalRaw = m['total'];
       var total = totalRaw is num ? totalRaw.toDouble() : double.tryParse('$totalRaw') ?? 0.0;
@@ -565,9 +583,7 @@ class PrintService {
       final notesStr = notesRaw is String ? notesRaw : null;
       final toppingsData = _decodeToppingsJson(notesStr);
       if (toppingsData != null && toppingsData.isNotEmpty) {
-        toppingInfo = toppingsData
-            .map((t) => '${t['name'] ?? ''} x${t['qty'] ?? 1}')
-            .join(', ');
+        toppingInfo = toppingsData.map((t) => '${t['name'] ?? ''} x${t['qty'] ?? 1}').join(', ');
         kotToppings = toppingsData
             .map((t) {
               final n = '${t['name'] ?? ''}'.trim();
@@ -600,15 +616,31 @@ class PrintService {
   Future<List<String>> printFinalBill({
     required Order order,
     required List<CartItem> cartItems,
+
     /// When true (e.g. customer bill from order log), receipt shows a settled-bill header.
     bool settledBill = false,
+
     /// When true, print header indicates edited bill.
     bool updatedOrder = false,
+
     /// Matches **Invoice print** in payment: tax-invoice title vs simple receipt.
     /// Reprints from logs default this to true via [printFinalBill] defaults at call sites.
     bool asTaxInvoice = true,
   }) async {
     final failed = <String>[];
+    // #region agent log
+    await _dbg(
+      runId: 'pre-fix',
+      hypothesisId: 'H1',
+      location: 'print_service.dart:printFinalBill:entry',
+      message: 'Entered printFinalBill',
+      data: {
+        'orderId': order.id,
+        'orderCartId': order.cartId,
+        'cartItemsArgCount': cartItems.length,
+      },
+    );
+    // #endregion
     // Call sites sometimes pass an empty list after UI cleared state; lines still live on order.cartId.
     var effectiveCart = cartItems;
     if (effectiveCart.isEmpty) {
@@ -619,8 +651,7 @@ class PrintService {
       lines = await _fallbackPrintLinesWhenCartEmpty(order);
     }
     if (lines.isEmpty) {
-      final payable =
-          order.finalAmount > 0.009 ? order.finalAmount : order.totalAmount;
+      final payable = order.finalAmount > 0.009 ? order.finalAmount : order.totalAmount;
       if (payable > 0.009) {
         lines = [
           _PrintLine(
@@ -641,6 +672,19 @@ class PrintService {
         ];
       }
     }
+    // #region agent log
+    await _dbg(
+      runId: 'pre-fix',
+      hypothesisId: 'H2',
+      location: 'print_service.dart:printFinalBill:resolved-lines',
+      message: 'Resolved effective cart and receipt lines',
+      data: {
+        'orderId': order.id,
+        'effectiveCartCount': effectiveCart.length,
+        'linesCount': lines.length,
+      },
+    );
+    // #endregion
     if (kDebugMode) {
       final src = effectiveCart.isNotEmpty ? 'cart_rows' : 'fallback_rows';
       debugPrint(
@@ -655,6 +699,18 @@ class PrintService {
     }
     final billPrinter = await _db.itemDao.getBillPrinter();
     if (billPrinter == null || billPrinter.printerIp.isEmpty) {
+      // #region agent log
+      await _dbg(
+        runId: 'pre-fix',
+        hypothesisId: 'H3',
+        location: 'print_service.dart:printFinalBill:no-printer',
+        message: 'Bill printer missing while lines were already resolved',
+        data: {
+          'orderId': order.id,
+          'linesCount': lines.length,
+        },
+      );
+      // #endregion
       if (kDebugMode) debugPrint('PrintService: No bill printer configured');
       return failed;
     }
@@ -668,6 +724,19 @@ class PrintService {
         updatedOrder: updatedOrder,
         asTaxInvoice: asTaxInvoice,
       );
+      // #region agent log
+      await _dbg(
+        runId: 'pre-fix',
+        hypothesisId: 'H4',
+        location: 'print_service.dart:printFinalBill:bytes-ready',
+        message: 'Generated receipt ticket bytes',
+        data: {
+          'orderId': order.id,
+          'linesCount': lines.length,
+          'bytesCount': bytes.length,
+        },
+      );
+      // #endregion
       final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
       await _sendToPrinter(
         jobKind: 'RECEIPT',
@@ -774,9 +843,7 @@ class PrintService {
       List<(String name, num qty)>? kotToppings;
       final toppingsData = _decodeToppingsJson(ci.notes);
       if (toppingsData != null && toppingsData.isNotEmpty) {
-        toppingInfo = toppingsData
-            .map((t) => '${t['name'] ?? ''} x${t['qty'] ?? 1}')
-            .join(', ');
+        toppingInfo = toppingsData.map((t) => '${t['name'] ?? ''} x${t['qty'] ?? 1}').join(', ');
         kotToppings = toppingsData
             .map((t) {
               final n = '${t['name'] ?? ''}'.trim();
@@ -850,8 +917,7 @@ class PrintService {
     return notes.trim();
   }
 
-  static String _kotFmtQty(num q) =>
-      ((q - q.round()).abs() < 1e-9) ? q.round().toString() : '$q'.trimRight();
+  static String _kotFmtQty(num q) => ((q - q.round()).abs() < 1e-9) ? q.round().toString() : '$q'.trimRight();
 
   /// Item / qty columns; qty is printed only on the first continuation line when the name wraps.
   /// Receipt line items: **Item | Qty | Price | Total** (80mm row widths sum to 12).
@@ -867,30 +933,47 @@ class PrintService {
     final wrapped = _wrapReceiptLine(itemText.trim(), itemWrapChars);
     final u = _sanitize(unitPriceStr);
     final t = _sanitize(lineTotalStr);
+    // #region agent log
+    _dbg(
+      runId: 'pre-fix',
+      hypothesisId: 'H6',
+      location: 'print_service.dart:_billEmitItemTableRow:entry',
+      message: 'Receipt row layout inputs before generator.row',
+      data: {
+        'itemText': itemText,
+        'quantity': quantity,
+        'unitPriceStr': unitPriceStr,
+        'lineTotalStr': lineTotalStr,
+        'wrappedCount': wrapped.length,
+      },
+    );
+    // #endregion
     for (var i = 0; i < wrapped.length; i++) {
       final qStr = i == 0 ? '$quantity' : '';
       final rowLeft = wrapped[i];
-      bytes += generator.row([
-        PosColumn(
-          text: rowLeft.isEmpty ? ' ' : rowLeft,
-          width: 5,
-        ),
-        PosColumn(
-          text: qStr.isEmpty ? ' ' : qStr,
-          width: 1,
-          styles: const PosStyles(align: PosAlign.right),
-        ),
-        PosColumn(
-          text: i == 0 ? u : ' ',
-          width: 3,
-          styles: const PosStyles(align: PosAlign.right),
-        ),
-        PosColumn(
-          text: i == 0 ? t : ' ',
-          width: 3,
-          styles: const PosStyles(align: PosAlign.right),
-        ),
-      ]);
+      // #region agent log
+      _dbg(
+        runId: 'pre-fix',
+        hypothesisId: 'H6',
+        location: 'print_service.dart:_billEmitItemTableRow:row-cells',
+        message: 'Resolved row cells for generator.row',
+        data: {
+          'rowIndex': i,
+          'rowLeft': rowLeft,
+          'qCell': qStr,
+          'uCell': i == 0 ? u : ' ',
+          'tCell': i == 0 ? t : ' ',
+        },
+      );
+      // #endregion
+      // Some network printers intermittently ignore ESC/POS table rows from `generator.row`.
+      // Emit receipt item lines as plain text with fixed-width columns for maximum compatibility.
+      final left = (rowLeft.isEmpty ? ' ' : rowLeft);
+      final leftCell = left.length >= 22 ? left.substring(0, 22) : left.padRight(22);
+      final qtyCell = (qStr.isEmpty ? '' : qStr).padLeft(3);
+      final unitCell = (i == 0 ? u : '').padLeft(8);
+      final totalCell = (i == 0 ? t : '').padLeft(9);
+      bytes += generator.text('$leftCell$qtyCell$unitCell$totalCell');
     }
   }
 
@@ -1153,10 +1236,7 @@ class PrintService {
     );
 
     final totalPayable = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
-    final paidSum = order.cashAmount +
-        order.cardAmount +
-        order.creditAmount +
-        order.onlineAmount;
+    final paidSum = order.cashAmount + order.cardAmount + order.creditAmount + order.onlineAmount;
     if (_receiptShowsPaid(order, totalPayable, paidSum)) {
       bytes += generator.feed(1);
       bytes += generator.text('PAID', styles: centerBold);
@@ -1168,30 +1248,21 @@ class PrintService {
     }
 
     bytes += generator.feed(1);
-    bytes += generator.row([
-      PosColumn(
-        text: 'Item',
-        width: 5,
-        styles: const PosStyles(bold: true),
-      ),
-      PosColumn(
-        text: 'Qty',
-        width: 1,
-        styles: const PosStyles(bold: true, align: PosAlign.right),
-      ),
-      PosColumn(
-        text: 'Price',
-        width: 3,
-        styles: const PosStyles(bold: true, align: PosAlign.right),
-      ),
-      PosColumn(
-        text: 'Total',
-        width: 3,
-        styles: const PosStyles(bold: true, align: PosAlign.right),
-      ),
-    ]);
+    bytes += generator.text('Item'.padRight(22) + 'Qty'.padLeft(3) + 'Price'.padLeft(8) + 'Total'.padLeft(9));
     bytes += generator.hr(ch: '-');
 
+    // #region agent log
+    await _dbg(
+      runId: 'pre-fix',
+      hypothesisId: 'H7',
+      location: 'print_service.dart:_generateFinalBillTicket:before-items-loop',
+      message: 'Receipt layout about to render item table loop',
+      data: {
+        'orderId': order.id,
+        'lineCount': lines.length,
+      },
+    );
+    // #endregion
     for (final line in lines) {
       String name = line.itemName;
       if (line.variantName != null) name += ' (${line.variantName})';
@@ -1269,13 +1340,8 @@ class PrintService {
     );
     final vatMode = branch?.vat.trim().toLowerCase();
     final vatPctDyn = branch?.vatPercent;
-    final vatPct = vatPctDyn is num
-        ? vatPctDyn.toDouble()
-        : double.tryParse('$vatPctDyn') ?? 0.0;
-    if (vatMode != null &&
-        vatMode != 'no_vat' &&
-        vatPct > 0 &&
-        vatParts.vatAmount > 0.0001) {
+    final vatPct = vatPctDyn is num ? vatPctDyn.toDouble() : double.tryParse('$vatPctDyn') ?? 0.0;
+    if (vatMode != null && vatMode != 'no_vat' && vatPct > 0 && vatParts.vatAmount > 0.0001) {
       bytes += generator.text(
         '${vatPct.toStringAsFixed(2)}% (inclusive)',
         styles: center,
@@ -1408,9 +1474,7 @@ class PrintService {
         debugPrint('PrintService: Printer error [$printerLabel]: $e');
         debugPrint('PrintService: stack trace:\n$st');
         final msg = e.toString();
-        if (msg.contains('Unreachable') ||
-            msg.contains('UniversalBle') ||
-            (connType == 'ble' && msg.contains('Ble'))) {
+        if (msg.contains('Unreachable') || msg.contains('UniversalBle') || (connType == 'ble' && msg.contains('Ble'))) {
           throw Exception(
             '$printerLabel: Bluetooth printer unreachable. '
             'Turn the printer on, stay in range, and try again.',
@@ -1454,8 +1518,7 @@ class PrintService {
   }) async {
     if (kitchenId == 0) {
       await _db.itemDao.upsertKitchenPrinter(
-        KitchenPrintersCompanion.insert(printerIp: ip, printerPort: Value(port))
-            .copyWith(kitchenId: const Value(0)),
+        KitchenPrintersCompanion.insert(printerIp: ip, printerPort: Value(port)).copyWith(kitchenId: const Value(0)),
       );
     } else {
       await _db.itemDao.updateKitchenPrinter(
@@ -1471,6 +1534,7 @@ class _PrintLine {
   final String itemName;
   final String? variantName;
   final String? toppingInfo;
+
   /// Structured toppings for KOT (one indented row each); bill still uses [toppingInfo].
   final List<(String name, num qty)>? kotToppings;
   final int quantity;
