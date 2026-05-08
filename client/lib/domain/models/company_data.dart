@@ -42,9 +42,11 @@ class CompanyDataModel {
       );
 
   factory CompanyDataModel.fromJson(Map<String, dynamic> json) => CompanyDataModel(
-        success: json["success"],
-        message: json["message"],
-        data: Data.fromJson(json["data"]),
+        success: json["success"] == true || json["success"]?.toString().toLowerCase() == 'true',
+        message: json["message"]?.toString() ?? '',
+        data: json["data"] is Map
+            ? Data.fromJson(Map<String, dynamic>.from(json["data"] as Map))
+            : Data(branch: const [], user: const [], settings: SettingsModel.empty()),
         errors: json["errors"],
       );
 
@@ -79,9 +81,17 @@ class Data {
       );
 
   factory Data.fromJson(Map<String, dynamic> json) => Data(
-        branch: List<BranchModel>.from(json["branch"].map((x) => BranchModel.fromJson(x))),
-        user: List<UserModel>.from(json["user"].map((x) => UserModel.fromJson(x))),
-        settings: SettingsModel.fromJson(json["settings"]),
+        branch: (json["branch"] as List?)
+                ?.map((x) => BranchModel.fromJson(Map<String, dynamic>.from(x as Map)))
+                .toList() ??
+            const [],
+        user: (json["user"] as List?)
+                ?.map((x) => UserModel.fromJson(Map<String, dynamic>.from(x as Map)))
+                .toList() ??
+            const [],
+        settings: json["settings"] is Map
+            ? SettingsModel.fromJson(Map<String, dynamic>.from(json["settings"] as Map))
+            : SettingsModel.empty(),
       );
 
   Map<String, dynamic> toJson() => {

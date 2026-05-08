@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:pos/core/network/cloud_sync_prerequisites.dart';
 import 'package:pos/core/sync/company_bootstrap_persist.dart';
@@ -21,6 +23,7 @@ import 'package:pos/domain/models/driver_model.dart' as api_driver;
 import 'package:pos/domain/models/expense_category_model.dart';
 import 'package:pos/domain/models/item_model.dart';
 import 'package:pos/domain/models/kitchen_model.dart';
+import 'package:pos/domain/models/offer_model.dart';
 import 'package:pos/domain/models/pagination_model.dart';
 import 'package:pos/domain/models/pull_data_model.dart';
 import 'package:pos/domain/models/staff_model.dart';
@@ -46,6 +49,8 @@ class PullDataRepositoryImpl implements PullDataRepository {
   final Map<int, ToppingCategoriesCreatedUpdated> _toppingCategoryLookupById = <int, ToppingCategoriesCreatedUpdated>{};
   final Map<int, VariationsCreatedUpdated> _variationLookupById = <int, VariationsCreatedUpdated>{};
   final Map<int, VariationOptionsCreatedUpdated> _variationOptionLookupById = <int, VariationOptionsCreatedUpdated>{};
+  static const String _debugLogPath = r'c:\Users\adeeb\OneDrive\Desktop\pos\pos\debug-aa2a57.log';
+  static const String _debugSessionId = 'aa2a57';
 
   /// Set when [pullAndPersist] finishes with LAN WS deferred ([deferLanHubMirrorUntilAfterCloudSync]).
   bool _pendingDeferredLanMirror = false;
@@ -64,6 +69,9 @@ class PullDataRepositoryImpl implements PullDataRepository {
 
   /// API query parameter name for paged pull requests.
   static const String _pageQuery = 'page';
+  static const String _branchQuery = 'branch_id';
+  static const String _lastSyncedAtQuery = 'last_synced_at';
+  static final DateFormat _apiDateTime = DateFormat('yyyy-MM-dd HH:mm:ss');
   static const int _kMaxPagesPerResource = 500;
 
   static const List<_PullResource> _kPullResources = [
@@ -84,6 +92,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
     _PullResource('item', 'item'),
     _PullResource('customer', 'customer'),
     _PullResource('tables', 'tables'),
+    _PullResource('offers', 'offers'),
   ];
 
   @override
@@ -93,17 +102,39 @@ class PullDataRepositoryImpl implements PullDataRepository {
       _deferredLanCatalogItems = null;
     }
     await assertTenantCloudSyncConfigured();
+    final session = await _db.sessionDao.getActiveSession();
+    final activeBranchId = session?.branchId ?? 1;
     final allItemForImages = <ItemCreatedUpdated>[];
     PullData? lastPull;
     var page = 1;
+    final cycleLastSyncedAt = await _db.pullDataDao.getPullLastSyncedAt();
+    String? nextPullLastSyncedAt;
     _emitProgress('Starting sync...', 0, _kMaxPagesPerResource);
     while (page <= _kMaxPagesPerResource) {
       _emitProgress('Pulling page $page...', page - 1, _kMaxPagesPerResource);
       final Response response;
       try {
-        response = await _api.pullData({
+        // #region agent log
+        await _agentLog(
+          runId: 'post-fix',
+          hypothesisId: 'H7',
+          location: 'pull_data_repository_impl.dart:106',
+          message: 'Calling pullData with scoped branch_id',
+          data: {
+            'page': page,
+            'branch_id': activeBranchId,
+          },
+        );
+        // #endregion
+        final queryParams = <String, dynamic>{
           _pageQuery: page,
-        });
+          _branchQuery: activeBranchId,
+        };
+        final normalizedLastSyncedAt = _normalizeLastSyncedAtForQuery(cycleLastSyncedAt);
+        if (normalizedLastSyncedAt != null) {
+          queryParams[_lastSyncedAtQuery] = normalizedLastSyncedAt;
+        }
+        response = await _api.pullData(queryParams);
       } on DioException catch (e) {
         throw Exception('Pull failed (page $page): ${e.message}');
       }
@@ -113,6 +144,20 @@ class PullDataRepositoryImpl implements PullDataRepository {
       final raw = _normalizeToMap(response.data);
       if (raw == null) {
         throw Exception('Pull failed: response body is not a JSON object');
+      }
+      if (kDebugMode) {
+        final offersEnvelope = _rawResourceEnvelopeFromResponse(raw, 'offers');
+        final offersCreated = offersEnvelope?['created_updated'];
+        final offersDeleted = offersEnvelope?['deleted'];
+        final offersCreatedCount = offersCreated is List ? offersCreated.length : 0;
+        final offersDeletedCount = offersDeleted is List ? offersDeleted.length : 0;
+        debugPrint(
+          '[pull] offers payload: created_updated=$offersCreatedCount, deleted=$offersDeletedCount, page=$page',
+        );
+      }
+      final responseLastSyncedAt = _extractLastSyncedAtFromResponse(raw);
+      if (responseLastSyncedAt != null) {
+        nextPullLastSyncedAt = responseLastSyncedAt;
       }
 
       final driverForPersist = _extractApiDriverMap(raw);
@@ -158,6 +203,9 @@ class PullDataRepositoryImpl implements PullDataRepository {
     }
 
     await _downloadItemImages(allItemForImages);
+    if (nextPullLastSyncedAt != null) {
+      await _db.pullDataDao.savePullLastSyncedAt(nextPullLastSyncedAt);
+    }
 
     if (deferLanHubMirrorUntilAfterCloudSync) {
       _deferredLanCatalogItems = List<ItemCreatedUpdated>.from(allItemForImages);
@@ -273,6 +321,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
       'waiters',
       'floors',
       'tables',
+      'offers',
     ];
     final inRoot = raw['data'];
     final inData = inRoot is Map
@@ -299,6 +348,35 @@ class PullDataRepositoryImpl implements PullDataRepository {
     }
 
     raw['data'] = inData;
+  }
+
+  String? _extractLastSyncedAtFromResponse(Map<String, dynamic> raw) {
+    final data = raw['data'];
+    if (data is Map) {
+      final inData = data['last_synced_at']?.toString().trim();
+      if (inData != null && inData.isNotEmpty) return inData;
+    }
+    final rootValue = raw['last_synced_at']?.toString().trim();
+    if (rootValue != null && rootValue.isNotEmpty) return rootValue;
+    return null;
+  }
+
+  /// Ensures `last_synced_at` query uses API-friendly `yyyy-MM-dd HH:mm:ss`.
+  String? _normalizeLastSyncedAtForQuery(String? value) {
+    final input = value?.trim();
+    if (input == null || input.isEmpty) return null;
+
+    final directMatch = RegExp(r'^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})').firstMatch(input);
+    if (directMatch != null) {
+      return '${directMatch.group(1)} ${directMatch.group(2)}';
+    }
+
+    final parsed = DateTime.tryParse(input);
+    if (parsed != null) {
+      return _apiDateTime.format(parsed);
+    }
+
+    return input;
   }
 
   /// API sometimes returns map/object instead of list for item subfields.
@@ -387,6 +465,8 @@ class PullDataRepositoryImpl implements PullDataRepository {
         return m.floors.pagination;
       case 'tables':
         return m.tables.pagination;
+      case 'offers':
+        return m.offers.pagination;
       default:
         return null;
     }
@@ -475,6 +555,10 @@ class PullDataRepositoryImpl implements PullDataRepository {
         return <ItemCreatedUpdated>[];
       case 'tables':
         await _persistTables(m.tables);
+        await _applyDeletedForResource(res.dataKey, rawResourceEnvelope);
+        return <ItemCreatedUpdated>[];
+      case 'offers':
+        await _persistOffers(m.offers);
         await _applyDeletedForResource(res.dataKey, rawResourceEnvelope);
         return <ItemCreatedUpdated>[];
       default:
@@ -601,6 +685,9 @@ class PullDataRepositoryImpl implements PullDataRepository {
       case 'tables':
         await (_db.delete(_db.diningTables)..where((t) => t.id.isIn(ids))).go();
         break;
+      case 'offers':
+        await _deleteFromPullCategoryRows('offers', ids);
+        break;
       default:
         break;
     }
@@ -663,11 +750,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
     if (raw == null) return const <int>[];
     if (raw is int) return <int>[raw];
     if (raw is List) {
-      return raw
-          .map((e) => int.tryParse(e.toString()))
-          .whereType<int>()
-          .toSet()
-          .toList();
+      return raw.map((e) => int.tryParse(e.toString())).whereType<int>().toSet().toList();
     }
     final text = raw.toString().trim();
     if (text.isEmpty) return const <int>[];
@@ -675,20 +758,11 @@ class PullDataRepositoryImpl implements PullDataRepository {
       try {
         final decoded = jsonDecode(text);
         if (decoded is List) {
-          return decoded
-              .map((e) => int.tryParse(e.toString()))
-              .whereType<int>()
-              .toSet()
-              .toList();
+          return decoded.map((e) => int.tryParse(e.toString())).whereType<int>().toSet().toList();
         }
       } catch (_) {}
     }
-    return text
-        .split(',')
-        .map((e) => int.tryParse(e.trim()))
-        .whereType<int>()
-        .toSet()
-        .toList();
+    return text.split(',').map((e) => int.tryParse(e.trim())).whereType<int>().toSet().toList();
   }
 
   List<int> _parseToppingIds(dynamic raw) => _parseIntIds(raw);
@@ -1164,6 +1238,22 @@ class PullDataRepositoryImpl implements PullDataRepository {
         allowedOrderChannels: Value(channelStore),
       ),
     );
+    // #region agent log
+    await _agentLog(
+      runId: 'pre-fix',
+      hypothesisId: 'H1',
+      location: 'pull_data_repository_impl.dart:1167',
+      message: 'Pulled item persisted to local Items table',
+      data: {
+        'item_id': e.id,
+        'item_name': e.itemName,
+        'branch_id': e.branchId,
+        'category_id': e.categoryId,
+        'first_price': firstPrice,
+        'nutella_match': e.itemName.toLowerCase().contains('nutella'),
+      },
+    );
+    // #endregion
 
     await _db.itemDao.deleteToppingsByItem(e.id);
     await _db.itemDao.deleteToppingGroupsByItem(e.id);
@@ -1243,6 +1333,10 @@ class PullDataRepositoryImpl implements PullDataRepository {
     try {
       final normalized = _normalizeToMap(responseBody);
       if (normalized == null) return;
+      final mirroredLastSyncedAt = _extractLastSyncedAtFromResponse(normalized);
+      if (mirroredLastSyncedAt != null) {
+        await _db.pullDataDao.savePullLastSyncedAt(mirroredLastSyncedAt);
+      }
 
       final driverForPersist = _extractApiDriverMap(normalized);
       _injectFullPullDataForParse(normalized);
@@ -1252,6 +1346,15 @@ class PullDataRepositoryImpl implements PullDataRepository {
 
       final m = pull.data;
       final allItemForImages = <ItemCreatedUpdated>[];
+      // #region agent log
+      await _agentLog(
+        runId: 'pre-fix',
+        hypothesisId: 'H1',
+        location: 'pull_data_repository_impl.dart:applyMirroredPullPage:before_persist',
+        message: 'SUB started applyMirroredPullPage',
+        data: {},
+      );
+      // #endregion
 
       await _db.transaction(() async {
         for (final res in _kPullResources) {
@@ -1269,11 +1372,21 @@ class PullDataRepositoryImpl implements PullDataRepository {
       });
 
       for (final res in _kPullResources) {
-        final PaginationModel? pageMeta =
-            res.dataKey == 'driver' ? driverForPersist?.pagination : _paginationForDataKey(m, res.dataKey);
+        final PaginationModel? pageMeta = res.dataKey == 'driver' ? driverForPersist?.pagination : _paginationForDataKey(m, res.dataKey);
         await _savePagination(res.paginationStoreKey, pageMeta);
       }
 
+      // #region agent log
+      await _agentLog(
+        runId: 'pre-fix',
+        hypothesisId: 'H4',
+        location: 'pull_data_repository_impl.dart:applyMirroredPullPage:before_download',
+        message: 'SUB about to run _downloadItemImages after mirrored pull',
+        data: {
+          'items_for_image_download': allItemForImages.length,
+        },
+      );
+      // #endregion
       await _downloadItemImages(allItemForImages);
       await HubCatalogLanPublisher.publishAfterTenantPull(
         db: _db,
@@ -1307,6 +1420,18 @@ class PullDataRepositoryImpl implements PullDataRepository {
       pending.add(e);
     }
     final total = pending.length;
+    // #region agent log
+    await _agentLog(
+      runId: 'pre-fix',
+      hypothesisId: 'H4',
+      location: 'pull_data_repository_impl.dart:_downloadItemImages:pending',
+      message: 'Computed pending image download queue',
+      data: {
+        'input_items': items.length,
+        'pending_items': total,
+      },
+    );
+    // #endregion
     if (total == 0) {
       _emitProgress('Item images up to date', 1, 1);
       return;
@@ -1404,5 +1529,57 @@ class PullDataRepositoryImpl implements PullDataRepository {
         // e.g. missing floor_id FK; surface could log in debug
       }
     }
+  }
+
+  Future<void> _persistOffers(OfferModel r) async {
+    for (final o in r.createdUpdated) {
+      final payload = jsonEncode({
+        'promocode': o.promocode,
+        'from_date': o.fromDate,
+        'to_date': o.toDate,
+        'value': o.value,
+        'type': o.type,
+        'active': o.active,
+      });
+      await _db.pullDataDao.upsertPullCategory(
+        PullCategoryRowsCompanion.insert(
+          resourceKey: 'offers',
+          id: o.id,
+          uuid: o.uuid,
+          branchId: o.branchId,
+          categoryName: o.offerName,
+          categorySlug: o.type,
+          otherName: Value(payload),
+          createdAt: o.createdAt,
+          updatedAt: o.updatedAt,
+          deletedAt: Value(_asDateTime(o.deletedAt)),
+        ),
+      );
+    }
+  }
+
+  Future<void> _agentLog({
+    required String runId,
+    required String hypothesisId,
+    required String location,
+    required String message,
+    required Map<String, dynamic> data,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        'sessionId': _debugSessionId,
+        'runId': runId,
+        'hypothesisId': hypothesisId,
+        'location': location,
+        'message': message,
+        'data': data,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+      await File(_debugLogPath).writeAsString(
+        '${jsonEncode(payload)}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {}
   }
 }

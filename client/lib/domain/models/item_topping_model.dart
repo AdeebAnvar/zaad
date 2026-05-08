@@ -13,10 +13,10 @@ class ItemTopping {
 
   factory ItemTopping.fromJson(Map<String, dynamic> json) {
     return ItemTopping(
-      id: json['id'] as int,
-      name: json['name'] as String,
-      price: (json['price'] as num).toDouble(),
-      maxQty: json['max_qty'] as int? ?? 1,
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      name: json['name']?.toString() ?? '',
+      price: (json['price'] as num?)?.toDouble() ?? 0,
+      maxQty: (json['max_qty'] as num?)?.toInt() ?? 1,
     );
   }
 

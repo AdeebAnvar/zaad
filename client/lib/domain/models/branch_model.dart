@@ -75,22 +75,23 @@ class BranchModel {
       );
 
   factory BranchModel.fromJson(Map<String, dynamic> json) => BranchModel(
-        id: json["id"],
-        branchName: json["branch_name"],
-        location: json["location"],
-        contactNo: json["contact_no"],
-        email: json["email"],
-        socialMedia: json["social_media"],
-        vat: json["vat"],
+        id: (json["id"] as num?)?.toInt() ?? 0,
+        branchName: json["branch_name"]?.toString() ?? '',
+        location: json["location"]?.toString() ?? '',
+        contactNo: json["contact_no"]?.toString() ?? '',
+        email: json["email"]?.toString(),
+        socialMedia: json["social_media"]?.toString(),
+        vat: json["vat"]?.toString() ?? '',
         vatPercent: json["vat_percent"],
-        trnNumber: json["trn_number"],
-        prefixInv: json["prefix_inv"],
-        invoiceHeader: json["invoice_header"],
-        image: json["image"] ?? "",
+        trnNumber: json["trn_number"]?.toString(),
+        prefixInv: json["prefix_inv"]?.toString() ?? '',
+        invoiceHeader: json["invoice_header"]?.toString() ?? '',
+        image: json["image"]?.toString() ?? '',
         localImage: '',
-        installationDate: DateTime.parse(json["installation_date"]),
-        expiryDate: DateTime.parse(json["expiry_date"]),
-        openingCash: json["opening_cash"],
+        installationDate:
+            DateTime.tryParse(json["installation_date"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        expiryDate: DateTime.tryParse(json["expiry_date"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        openingCash: (json["opening_cash"] as num?)?.toInt(),
       );
 
   Map<String, dynamic> toJson() => {

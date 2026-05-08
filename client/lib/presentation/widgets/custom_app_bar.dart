@@ -165,34 +165,34 @@ class _CustomAppBarState extends State<CustomAppBar> {
           expiryBadge,
           const SizedBox(width: 8),
         ],
-        if (showSyncText && !hubCashierNoCloud) ...[
+        if (!hubCashierNoCloud) ...[
+          if (showSyncText) ...[
+            Text(
+              _lastSyncLabel(),
+              style: AppStyles.getRegularTextStyle(
+                fontSize: 11,
+                color: AppColors.hintFontColor,
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
+          const SizedBox(width: 6),
           Text(
-            _lastSyncLabel(),
-            style: AppStyles.getRegularTextStyle(
-              fontSize: 11,
-              color: AppColors.hintFontColor,
+            'Sync',
+            style: AppStyles.getSemiBoldTextStyle(
+              fontSize: 13,
+              color: hubCashierNoCloud ? AppColors.hintFontColor : null,
             ),
           ),
           const SizedBox(width: 6),
-        ],
-        const SizedBox(width: 6),
-        Text(
-          'Sync',
-          style: AppStyles.getSemiBoldTextStyle(
-            fontSize: 13,
-            color: hubCashierNoCloud ? AppColors.hintFontColor : null,
+          IconButton(
+            tooltip: hubCashierNoCloud ? 'Cloud sync runs on Primary POS only. This device is updated via the LAN hub.' : 'Sync now',
+            onPressed: hubCashierNoCloud ? null : _runManualSync,
+            icon: const Icon(Icons.sync),
+            color: hubCashierNoCloud ? AppColors.hintFontColor : AppColors.primaryColor,
+            visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
           ),
-        ),
-        const SizedBox(width: 6),
-        IconButton(
-          tooltip: hubCashierNoCloud
-              ? 'Cloud sync runs on Primary POS only. This device is updated via the LAN hub.'
-              : 'Sync now',
-          onPressed: hubCashierNoCloud ? null : _runManualSync,
-          icon: const Icon(Icons.sync),
-          color: hubCashierNoCloud ? AppColors.hintFontColor : AppColors.primaryColor,
-          visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
-        ),
+        ],
         SizedBox(width: compact ? 4 : 8),
       ],
     );

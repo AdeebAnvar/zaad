@@ -155,7 +155,10 @@ class LocalHubSyncCoordinator {
     final connect = PosSyncEnvelope(
       eventId: _uuid.v4(),
       type: PosSyncEventTypes.connect,
-      payload: const <String, dynamic>{},
+      payload: const <String, dynamic>{
+        'clientRole': 'SUB_CLIENT',
+        'appMode': 'hub_sub',
+      },
       timestamp: ts,
       deviceId: deviceId,
     );
@@ -179,9 +182,35 @@ class LocalHubSyncCoordinator {
     await _flushOutboxOver(ch);
   }
 
-  Future<void> _flushOutboxOver(WebSocketChannel ch) async {
+  Future<int> retryUnsyncedNow() async {
+    if (!_enabled) return 0;
+    final ready = await _ensureConnectedForRetry();
+    if (!ready) return 0;
+    final ch = _channel;
+    if (ch == null) return 0;
+    try {
+      return await _flushOutboxOver(ch);
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Best-effort wait for an active socket so manual Retry works right after Wi-Fi reconnect.
+  Future<bool> _ensureConnectedForRetry({Duration timeout = const Duration(seconds: 5)}) async {
+    await startIfEnabled();
+    final end = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(end)) {
+      if (_channel != null) return true;
+      if (_stopDesired || !_enabled) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+    return _channel != null;
+  }
+
+  Future<int> _flushOutboxOver(WebSocketChannel ch) async {
     final now = DateTime.now();
     final rows = await _db.syncQueueDao.outboxWorkQueue(now);
+    var ackedNow = 0;
     for (final r in rows) {
       if (_stopDesired) break;
       Map<String, dynamic> payload;
@@ -211,6 +240,7 @@ class LocalHubSyncCoordinator {
       try {
         ch.sink.add(env.encode());
         await _db.syncQueueDao.patchOutbox(r.id, const SyncOutboxCompanion(status: Value('SENT')));
+        ackedNow++;
       } catch (_) {
         await _db.syncQueueDao.patchOutbox(
           r.id,
@@ -222,6 +252,7 @@ class LocalHubSyncCoordinator {
         );
       }
     }
+    return ackedNow;
   }
 
   int _nextBackoffSec(int retryCount) => (1 << retryCount.clamp(0, 8)).clamp(1, 120);

@@ -48,8 +48,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
     required Map<String, dynamic> snap,
   }) {
     final oidRaw = snap['order_id'];
-    final orderId =
-        oidRaw is int ? oidRaw : int.tryParse(oidRaw?.toString() ?? '') ?? 0;
+    final orderId = oidRaw is int ? oidRaw : int.tryParse(oidRaw?.toString() ?? '') ?? 0;
     if (orderId > 0) {
       return _uuid.v5(_v5NsDns, 'pos_sale|$branchId|$orderId');
     }
@@ -63,8 +62,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
   }
 
   /// One credit row per sale; stable whenever the sale uuid is stable.
-  String _deterministicCreditUuid(String saleUuid) =>
-      _uuid.v5(_v5NsDns, 'pos_credit|$saleUuid');
+  String _deterministicCreditUuid(String saleUuid) => _uuid.v5(_v5NsDns, 'pos_credit|$saleUuid');
 
   /// Snapshot JSON carries `order_id` (Drift orders.id). Only sync logs for orders on [branchId].
   Future<bool> _orderLogMatchesBranch(OrderLog log, int branchId) async {
@@ -178,8 +176,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         continue;
       }
 
-      final saleUuid =
-          _deterministicSaleUuid(branchId: branchId, snap: snap);
+      final saleUuid = _deterministicSaleUuid(branchId: branchId, snap: snap);
       final phone = snap['customer_phone']?.toString().trim();
       final customerUuid = await _customerUuidForPhone(phone);
 
@@ -347,12 +344,30 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       if (raw is! Map) continue;
       final line = Map<String, dynamic>.from(raw);
 
-      final itemId = (line['item_id'] as num?)?.toInt() ?? int.tryParse('${line['item_id']}') ?? 0;
-      if (itemId <= 0) continue;
+      final sourceItemId = (line['item_id'] as num?)?.toInt() ?? int.tryParse('${line['item_id']}') ?? 0;
+      if (sourceItemId <= 0) continue;
 
       int? categoryId = (line['category_id'] as num?)?.toInt();
       String? itemName = line['item_name']?.toString().trim();
       if (itemName != null && itemName.isEmpty) itemName = null;
+
+      var itemId = sourceItemId;
+      final remap = await _remapSaleItemIdIfStale(
+        itemId: sourceItemId,
+        itemName: itemName,
+        categoryId: categoryId,
+        branchId: branchId,
+      );
+      if (remap != null) {
+        itemId = remap.id;
+        line['item_id'] = remap.id;
+        categoryId ??= remap.categoryId;
+        itemName ??= remap.itemName;
+        final other = remap.itemOtherName?.trim() ?? '';
+        if (other.isNotEmpty) line['other_item_name'] = other;
+        final type = remap.itemType.trim();
+        if (type.isNotEmpty) line['item_type'] = type;
+      }
 
       final localItem = await _db.itemDao.getItemById(itemId);
       if (localItem != null) {
@@ -386,11 +401,107 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       if (resolvedPriceId != null && resolvedPriceId > 0) {
         line['price_id'] = resolvedPriceId;
       }
+      final linePriceId = (line['price_id'] as num?)?.toInt();
+      if (linePriceId != null &&
+          linePriceId == itemId &&
+          resolvedPriceId == null) {
+        final strictPriceId = await _resolveSaleItemPriceId(
+          itemId: itemId,
+          variantLocalId: variantLocalId,
+          branchId: branchId,
+          preferPriceIdDifferentFromItemId: true,
+        );
+        if (strictPriceId != null && strictPriceId > 0) {
+          line['price_id'] = strictPriceId;
+        } else {
+          line.remove('price_id');
+        }
+      }
+      final validatedPriceId = (line['price_id'] as num?)?.toInt();
+      if (validatedPriceId != null) {
+        final validPair = await _isPriceIdValidForItem(
+          itemId: itemId,
+          priceId: validatedPriceId,
+          branchId: branchId,
+        );
+        if (!validPair) {
+          final repairedPriceId = await _resolveSaleItemPriceId(
+            itemId: itemId,
+            variantLocalId: variantLocalId,
+            branchId: branchId,
+            preferPriceIdDifferentFromItemId: true,
+          );
+          if (repairedPriceId != null &&
+              repairedPriceId > 0 &&
+              await _isPriceIdValidForItem(
+                itemId: itemId,
+                priceId: repairedPriceId,
+                branchId: branchId,
+              )) {
+            line['price_id'] = repairedPriceId;
+          } else {
+            line.remove('price_id');
+          }
+        }
+      }
 
       await _enrichToppingsForPush(line['toppings'], branchId: branchId);
 
       items[i] = line;
     }
+  }
+
+  Future<bool> _isPriceIdValidForItem({
+    required int itemId,
+    required int priceId,
+    required int branchId,
+  }) async {
+    try {
+      final pull = await (_db.select(_db.pullItemRows)..where((t) => t.id.equals(itemId))).getSingleOrNull();
+      final raw = pull?.itempriceJson?.trim();
+      if (raw == null || raw.isEmpty || raw == 'null') return false;
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return false;
+      for (final e in decoded) {
+        if (e is! Map) continue;
+        final m = Map<String, dynamic>.from(e);
+        final id = (m['id'] as num?)?.toInt() ?? int.tryParse('${m['id']}');
+        if (id != priceId) continue;
+        final pb = (m['branch_id'] as num?)?.toInt() ?? int.tryParse('${m['branch_id']}') ?? 0;
+        return pb == branchId || pb == 0;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<PullItemRow?> _remapSaleItemIdIfStale({
+    required int itemId,
+    required String? itemName,
+    required int? categoryId,
+    required int branchId,
+  }) async {
+    final current =
+        await (_db.select(_db.pullItemRows)..where((t) => t.id.equals(itemId))).getSingleOrNull();
+    if (current != null && (current.branchId == branchId || current.branchId == 0)) {
+      return null;
+    }
+    final name = itemName?.trim().toLowerCase() ?? '';
+    if (name.isEmpty) return null;
+
+    final candidates = await (_db.select(_db.pullItemRows)
+          ..where((t) => t.branchId.equals(branchId) | t.branchId.equals(0)))
+        .get();
+    final matchedByName = candidates.where((r) => r.itemName.trim().toLowerCase() == name).toList();
+    if (matchedByName.isEmpty) return null;
+
+    if (categoryId != null && categoryId > 0) {
+      for (final c in matchedByName) {
+        if (c.categoryId == categoryId) return c;
+      }
+    }
+    return matchedByName.first;
   }
 
   static const double _kItemPriceMatchTol = 0.02;
@@ -425,6 +536,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
     required int itemId,
     required int? variantLocalId,
     required int branchId,
+    bool preferPriceIdDifferentFromItemId = false,
   }) async {
     try {
       final pull = await (_db.select(_db.pullItemRows)..where((t) => t.id.equals(itemId))).getSingleOrNull();
@@ -466,6 +578,10 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
           }
         }
         basePick ??= scoped.first;
+        if (preferPriceIdDifferentFromItemId && basePick.id == itemId) {
+          final alt = scoped.where((p) => p.id != itemId).toList();
+          if (alt.isNotEmpty) return alt.first.id;
+        }
         return basePick.id;
       }
 
@@ -474,6 +590,10 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         for (final p in scoped) {
           if ((p.price - basePx).abs() <= _kItemPriceMatchTol) return p.id;
         }
+        if (preferPriceIdDifferentFromItemId && scoped.first.id == itemId) {
+          final alt = scoped.where((p) => p.id != itemId).toList();
+          if (alt.isNotEmpty) return alt.first.id;
+        }
         return scoped.first.id;
       }
 
@@ -481,6 +601,10 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       final vp = vRow.price;
       final cand = scoped.where((p) => (p.price - vp).abs() <= _kItemPriceMatchTol).toList();
       if (cand.isEmpty) {
+        if (preferPriceIdDifferentFromItemId && scoped.first.id == itemId) {
+          final alt = scoped.where((p) => p.id != itemId).toList();
+          if (alt.isNotEmpty) return alt.first.id;
+        }
         return scoped.first.id;
       }
       if (cand.length == 1) return cand.first.id;
@@ -497,6 +621,10 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         if (tail.isNotEmpty && tail.every((t) => lbl.contains(t))) {
           return p.id;
         }
+      }
+      if (preferPriceIdDifferentFromItemId && cand.first.id == itemId) {
+        final alt = cand.where((p) => p.id != itemId).toList();
+        if (alt.isNotEmpty) return alt.first.id;
       }
       return cand.first.id;
     } catch (e, st) {
@@ -534,8 +662,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
   }
 
   Future<_PaymentTypeIds> _resolvePaymentTypeIds() async {
-    final rows =
-        await (_db.select(_db.pullFloorRows)..where((t) => t.resourceKey.equals('paymentMethods'))).get();
+    final rows = await (_db.select(_db.pullFloorRows)..where((t) => t.resourceKey.equals('paymentMethods'))).get();
 
     final first = rows.isEmpty ? 1 : rows.first.id;
 
@@ -565,8 +692,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       final res = await _api.fetchBootstrap();
       await persistCompanyBootstrapFromApiBody(res.data, broadcastToLanHub: false);
 
-      final deferPullMirror =
-          locator.isRegistered<PullDataRepository>() && locator<PullDataRepository>().pendingDeferredLanHubMirror;
+      final deferPullMirror = locator.isRegistered<PullDataRepository>() && locator<PullDataRepository>().pendingDeferredLanHubMirror;
 
       if (!deferPullMirror) {
         unawaited(_companySnapshotToLanHubAfterIdle());

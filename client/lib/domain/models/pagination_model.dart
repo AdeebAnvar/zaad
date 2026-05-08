@@ -13,6 +13,14 @@ class PaginationModel {
     required this.hasMore,
   });
 
+  factory PaginationModel.fallback() => PaginationModel(
+        currentPage: 1,
+        lastPage: 1,
+        perPage: 15,
+        total: 0,
+        hasMore: false,
+      );
+
   PaginationModel copyWith({
     int? currentPage,
     int? lastPage,
@@ -29,11 +37,11 @@ class PaginationModel {
       );
 
   factory PaginationModel.fromJson(Map<String, dynamic> json) => PaginationModel(
-        currentPage: json["current_page"],
-        lastPage: json["last_page"],
-        perPage: json["per_page"],
-        total: json["total"],
-        hasMore: json["has_more"],
+        currentPage: (json["current_page"] as num?)?.toInt() ?? 0,
+        lastPage: (json["last_page"] as num?)?.toInt() ?? 0,
+        perPage: (json["per_page"] as num?)?.toInt() ?? 0,
+        total: (json["total"] as num?)?.toInt() ?? 0,
+        hasMore: json["has_more"] as bool? ?? false,
       );
 
   Map<String, dynamic> toJson() => {

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pos/core/constants/colors.dart';
@@ -130,9 +129,6 @@ class _CustomTextFieldState extends State<CustomTextField> {
 
       if (widget.focusNode == null && _internalFocusNode == null) {
         _internalFocusNode = FocusNode();
-      } else if (widget.focusNode != null && _internalFocusNode != null) {
-        _internalFocusNode?.dispose();
-        _internalFocusNode = null;
       }
 
       _effectiveFocusNode.addListener(_onFocusChange);
@@ -143,9 +139,6 @@ class _CustomTextFieldState extends State<CustomTextField> {
     if (oldWidget.controller != widget.controller) {
       if (widget.controller == null && _internalController == null) {
         _internalController = TextEditingController();
-      } else if (widget.controller != null && _internalController != null) {
-        _internalController?.dispose();
-        _internalController = null;
       }
     }
   }
@@ -160,18 +153,11 @@ class _CustomTextFieldState extends State<CustomTextField> {
 
   @override
   void dispose() {
-    try {
-      // Remove listener from effective focus node
-      _effectiveFocusNode.removeListener(_onFocusChange);
-
-      // Dispose internal instances only
-      _internalFocusNode?.dispose();
-      _internalController?.dispose();
-    } catch (e) {
-      if (kDebugMode) {
-        print('CustomTextField dispose error: $e');
-      }
-    }
+    // Remove listener from whichever node is currently in use.
+    _effectiveFocusNode.removeListener(_onFocusChange);
+    // Dispose internal instances only.
+    _internalFocusNode?.dispose();
+    _internalController?.dispose();
     super.dispose();
   }
 

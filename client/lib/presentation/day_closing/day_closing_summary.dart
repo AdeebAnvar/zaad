@@ -4,13 +4,40 @@ import 'package:pos/data/local/drift_database.dart';
 double _sumOrders(Iterable<Order> list, double Function(Order o) pick) =>
     list.fold<double>(0, (acc, e) => acc + pick(e));
 
+double _cashSaleAfterDiscount(Iterable<Order> settled, double Function(Order o) effectiveOrderDiscount) {
+  var total = 0.0;
+  for (final o in settled) {
+    final cash = o.cashAmount;
+    if (cash <= 0.009) continue;
+    final paid = o.cashAmount + o.cardAmount + o.creditAmount + o.onlineAmount;
+    if (paid <= 0.009) {
+      total += cash;
+      continue;
+    }
+    final discount = effectiveOrderDiscount(o).clamp(0, o.totalAmount).toDouble();
+    final cashShare = (cash / paid).clamp(0.0, 1.0);
+    final discountFromCash = discount * cashShare;
+    final netCash = (cash - discountFromCash).clamp(0.0, cash).toDouble();
+    total += netCash;
+  }
+  return total;
+}
+
 /// Normalizes order-level discount. Supports amount/percentage and falls back to total-final gap.
 double _orderLevelDiscount(Order o) {
+  final t = (o.discountType ?? '').trim().toLowerCase();
   if (o.discountAmount > 0.009) {
-    final t = (o.discountType ?? '').trim().toLowerCase();
     if (t == 'percentage') {
-      final pct = o.discountAmount.clamp(0, 100);
-      return (o.totalAmount * pct / 100).clamp(0, o.totalAmount);
+      final pct = o.discountAmount.clamp(0, 100).toDouble();
+      final computed = (o.totalAmount * pct / 100).clamp(0, o.totalAmount).toDouble();
+      final gap = (o.totalAmount - o.finalAmount).toDouble();
+      final validGap = gap > 0.009 ? gap : 0.0;
+      if (validGap > 0 && (computed - validGap).abs() > 0.02) {
+        // Legacy-compat: old records sometimes stored discount amount with `discountType=percentage`.
+        // For day-closing amount reporting, trust the actual billed gap when values materially disagree.
+        return validGap;
+      }
+      return computed;
     }
     return o.discountAmount;
   }
@@ -74,6 +101,7 @@ class DayClosingSummary {
   final DateTime generatedAt;
   final DateTime? lastClosingAt;
   final double grossTotal;
+  final double totalVatAmount;
   final double discount;
   final double netTotal;
   final double openingCash;
@@ -112,6 +140,7 @@ class DayClosingSummary {
     required this.generatedAt,
     required this.lastClosingAt,
     required this.grossTotal,
+    required this.totalVatAmount,
     required this.discount,
     required this.netTotal,
     required this.openingCash,
@@ -146,6 +175,7 @@ class DayClosingSummary {
         generatedAt: DateTime.now(),
         lastClosingAt: null,
         grossTotal: 0,
+        totalVatAmount: 0,
         discount: 0,
         netTotal: 0,
         openingCash: 0,
@@ -290,29 +320,39 @@ Future<DayClosingSummary> computeDayClosingSummary(
   double effectiveOrderDiscount(Order o) =>
       (_orderLevelDiscount(o) + (cartLineDiscountByCartId[o.cartId] ?? 0.0))
           .clamp(0, o.totalAmount);
+  double effectiveOrderNet(Order o) =>
+      (o.totalAmount - effectiveOrderDiscount(o)).clamp(0.0, o.totalAmount).toDouble();
 
-  final grossTotal = _sumOrders(settled, (o) => o.totalAmount);
   final discount = _sumOrders(settled, effectiveOrderDiscount);
-  final netTotal = _sumOrders(settled, (o) => o.finalAmount);
+  final netTotal = _sumOrders(settled, effectiveOrderNet);
+  // Keep gross aligned with billing view: amount before discount = net + discount.
+  final grossTotal = netTotal + discount;
+  final vatMode = (branch?.vat ?? '').trim().toLowerCase();
+  final vp = branch?.vatPercent;
+  final vatPct = vp is num ? vp.toDouble() : double.tryParse('$vp') ?? 0.0;
+  final totalVatAmount = (vatMode.isNotEmpty && vatMode != 'no_vat' && vatPct > 0)
+      ? (netTotal - (netTotal / (1 + vatPct / 100.0)))
+      : 0.0;
   final cashSale = _sumOrders(settled, (o) => o.cashAmount);
+  final cashSaleAfterDiscount = _cashSaleAfterDiscount(settled, effectiveOrderDiscount);
   final cardSale = _sumOrders(settled, (o) => o.cardAmount);
   final creditSale = _sumOrders(settled, (o) => o.creditAmount);
   final onlineSale = _sumOrders(settled, (o) => o.onlineAmount);
 
   final dineInSales = _sumOrders(
     settled.where((o) => (o.orderType ?? '').toLowerCase() == 'dine_in'),
-    (o) => o.finalAmount,
+    effectiveOrderNet,
   );
   final deliverySale = _sumOrders(
     settled.where((o) => (o.orderType ?? '').toLowerCase() == 'delivery'),
-    (o) => o.finalAmount,
+    effectiveOrderNet,
   );
   final takeAwaySale = _sumOrders(
     settled.where((o) {
       final t = (o.orderType ?? '').toLowerCase();
       return t.isEmpty || t == 'take_away';
     }),
-    (o) => o.finalAmount,
+    effectiveOrderNet,
   );
   final unpaidAmount = _sumOrders(unpaidBranchList, (o) => o.finalAmount);
   final unsettledFromAccessibleLogs =
@@ -326,8 +366,10 @@ Future<DayClosingSummary> computeDayClosingSummary(
   const salary = 0.0;
   const otherIncome = 0.0;
   final expUnpaidTotal = purchase + salary + unpaidAmount - otherIncome;
-  final cashIn = openingCash + cashSale;
-  final cashOut = purchase + salary + unpaidAmount;
+  // Modeled drawer per requirement:
+  // opening cash + cash sales (after discount) - expenses paid from cash.
+  final cashIn = openingCash + cashSaleAfterDiscount;
+  final cashOut = purchase + salary;
   final cashDrawer = cashIn - cashOut;
   final difference = expUnpaidTotal - cashDrawer;
 
@@ -446,8 +488,10 @@ Future<DayClosingSummary> computeDayClosingSummary(
 
   return DayClosingSummary(
     generatedAt: DateTime.now(),
-    lastClosingAt: settled.isEmpty ? null : settled.first.createdAt,
+    // Show the most recent successful day-closing checkpoint timestamp.
+    lastClosingAt: cutoff,
     grossTotal: grossTotal,
+    totalVatAmount: totalVatAmount,
     discount: discount,
     netTotal: netTotal,
     openingCash: openingCash,

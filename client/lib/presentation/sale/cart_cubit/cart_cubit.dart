@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
@@ -64,33 +63,6 @@ class CartCubit extends Cubit<CartState> {
   // Cart-level discount (mutually exclusive with item discounts)
   double _cartDiscountAmount = 0.0;
   String? _cartDiscountType; // 'amount' or 'percentage'
-  static const String _debugLogPath =
-      r'c:\Users\adeeb\OneDrive\Desktop\pos\pos\debug-079196.log';
-
-  Future<void> _dbg({
-    required String runId,
-    required String hypothesisId,
-    required String location,
-    required String message,
-    required Map<String, Object?> data,
-  }) async {
-    final payload = <String, Object?>{
-      'sessionId': '079196',
-      'runId': runId,
-      'hypothesisId': hypothesisId,
-      'location': location,
-      'message': message,
-      'data': data,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    };
-    try {
-      await File(_debugLogPath).writeAsString(
-        '${jsonEncode(payload)}\n',
-        mode: FileMode.append,
-        flush: true,
-      );
-    } catch (_) {}
-  }
 
   String? get currentKOTReference => _currentKOTReference;
   bool get isEditingPaidOrder => _editingOrderId != null && (_editingOrderStatus == 'placed' || _editingOrderStatus == 'completed');
@@ -529,6 +501,33 @@ class CartCubit extends Cubit<CartState> {
     return s?.branchId ?? 1;
   }
 
+  Map<String, dynamic>? _offerFromDiscountPayload(Map<String, dynamic> discount) {
+    final raw = discount['offer'];
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    return null;
+  }
+
+  String? _withOfferMetadata(String? hubMetadata, Map<String, dynamic>? offer) {
+    if (offer == null) return hubMetadata;
+    final cleanedOffer = <String, dynamic>{
+      'name': offer['name']?.toString() ?? '',
+      'type': offer['type']?.toString() ?? '',
+      'value': (offer['value'] as num?)?.toDouble() ?? (double.tryParse(offer['value']?.toString() ?? '') ?? 0.0),
+      'discountAmount': (offer['discountAmount'] as num?)?.toDouble() ??
+          (double.tryParse(offer['discountAmount']?.toString() ?? '') ?? 0.0),
+      'toDate': offer['toDate']?.toString() ?? '',
+    };
+    try {
+      final root = (hubMetadata != null && hubMetadata.trim().isNotEmpty) ? jsonDecode(hubMetadata) : <String, dynamic>{};
+      final map = root is Map ? Map<String, dynamic>.from(root) : <String, dynamic>{};
+      map['applied_offer'] = cleanedOffer;
+      return jsonEncode(map);
+    } catch (_) {
+      return jsonEncode({'applied_offer': cleanedOffer});
+    }
+  }
+
   /// Save KOT using the already defined reference (edit only). No reference dialog.
   Future<List<String>> saveKOTWithExistingReference() async {
     return saveKOT(_currentKOTReference ?? '');
@@ -646,14 +645,16 @@ class CartCubit extends Cubit<CartState> {
       (sum, item) => sum + item.total,
     );
 
-    // Calculate final amount with cart discount
-    final discountAmount = _cartDiscountAmount > 0 ? _cartDiscountAmount : discountValue;
-    double finalAmount;
-    if (_cartDiscountType == 'percentage') {
-      finalAmount = (totalAmount * (1 - discountAmount / 100)).clamp(0.0, double.infinity);
-    } else {
-      finalAmount = (totalAmount - discountAmount).clamp(0.0, double.infinity);
-    }
+    final discountType = _cartDiscountType ?? discount['type'] as String?;
+    final manualDiscountInput = _cartDiscountAmount > 0 ? _cartDiscountAmount : discountValue;
+    final manualDiscountAmount = discountType == 'percentage'
+        ? (totalAmount * (manualDiscountInput / 100)).clamp(0.0, totalAmount).toDouble()
+        : manualDiscountInput.clamp(0.0, totalAmount).toDouble();
+    final offer = _offerFromDiscountPayload(discount);
+    final offerDiscountAmount = (offer?['discountAmount'] as num?)?.toDouble() ??
+        (double.tryParse(offer?['discountAmount']?.toString() ?? '') ?? 0.0);
+    final discountAmount = (manualDiscountAmount + offerDiscountAmount).clamp(0.0, totalAmount).toDouble();
+    final finalAmount = (totalAmount - discountAmount).clamp(0.0, double.infinity);
 
     // Create order record (same invoice as cart / KOT if any).
     final invoiceNum = await _invoiceNumberForPersistedCart();
@@ -667,7 +668,7 @@ class CartCubit extends Cubit<CartState> {
       referenceNumber: refNumber,
       totalAmount: totalAmount,
       discountAmount: discountAmount,
-      discountType: _cartDiscountType ?? discount['type'] as String?,
+      discountType: discountAmount > 0 ? 'amount' : discountType,
       finalAmount: finalAmount,
       customerName: customerDetails['name'] as String?,
       customerEmail: customerDetails['email'] as String?,
@@ -683,6 +684,7 @@ class CartCubit extends Cubit<CartState> {
       deliveryPartner: deliveryPartner,
       userId: cashierId,
       branchId: branchId,
+      hubMetadata: _withOfferMetadata(null, offer),
       hubSyncPending: false,
     );
 
@@ -706,21 +708,6 @@ class CartCubit extends Cubit<CartState> {
         );
       }
       if (printInvoice) {
-        // #region agent log
-        await _dbg(
-          runId: 'pre-fix',
-          hypothesisId: 'H5',
-          location:
-              'cart_cubit.dart:placeOrderWithPayment:before-printFinalBill',
-          message: 'Calling printFinalBill from placeOrderWithPayment',
-          data: {
-            'orderId': saved.id,
-            'stateItemsCount': state.items.length,
-            'activeCartId': _activeCartId,
-            'savedCartId': saved.cartId,
-          },
-        );
-        // #endregion
         printFailed.addAll(
           await printService.printFinalBill(
             order: saved,
@@ -734,19 +721,6 @@ class CartCubit extends Cubit<CartState> {
         }
       }
 
-      // #region agent log
-      await _dbg(
-        runId: 'pre-fix',
-        hypothesisId: 'H5',
-        location: 'cart_cubit.dart:placeOrderWithPayment:before-clear-cart',
-        message: 'About to clear cart state after print path',
-        data: {
-          'orderId': saved.id,
-          'stateItemsCount': state.items.length,
-          'activeCartId': _activeCartId,
-        },
-      );
-      // #endregion
       await _clearCartStateOnly();
       return printFailed;
     } catch (e) {
@@ -842,14 +816,16 @@ class CartCubit extends Cubit<CartState> {
       (sum, item) => sum + item.total,
     );
 
-    // Calculate final amount with cart discount
-    final discountAmount = _cartDiscountAmount > 0 ? _cartDiscountAmount : discountValue;
-    double finalAmount;
-    if (_cartDiscountType == 'percentage') {
-      finalAmount = (totalAmount * (1 - discountAmount / 100)).clamp(0.0, double.infinity);
-    } else {
-      finalAmount = (totalAmount - discountAmount).clamp(0.0, double.infinity);
-    }
+    final discountType = _cartDiscountType ?? discount['type'] as String?;
+    final manualDiscountInput = _cartDiscountAmount > 0 ? _cartDiscountAmount : discountValue;
+    final manualDiscountAmount = discountType == 'percentage'
+        ? (totalAmount * (manualDiscountInput / 100)).clamp(0.0, totalAmount).toDouble()
+        : manualDiscountInput.clamp(0.0, totalAmount).toDouble();
+    final offer = _offerFromDiscountPayload(discount);
+    final offerDiscountAmount = (offer?['discountAmount'] as num?)?.toDouble() ??
+        (double.tryParse(offer?['discountAmount']?.toString() ?? '') ?? 0.0);
+    final discountAmount = (manualDiscountAmount + offerDiscountAmount).clamp(0.0, totalAmount).toDouble();
+    final finalAmount = (totalAmount - discountAmount).clamp(0.0, double.infinity);
 
     // Update order with new totals and payment details
     final refNumber = existingOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : existingOrder.referenceNumber;
@@ -860,7 +836,7 @@ class CartCubit extends Cubit<CartState> {
       referenceNumber: refNumber,
       totalAmount: totalAmount,
       discountAmount: discountAmount,
-      discountType: _cartDiscountType ?? discount['type'] as String?,
+      discountType: discountAmount > 0 ? 'amount' : discountType,
       finalAmount: finalAmount,
       customerName: customerDetails['name'] as String?,
       customerEmail: customerDetails['email'] as String?,
@@ -877,7 +853,7 @@ class CartCubit extends Cubit<CartState> {
       userId: existingOrder.userId,
       branchId: existingOrder.branchId,
       serverOrderId: existingOrder.serverOrderId,
-      hubMetadata: existingOrder.hubMetadata,
+      hubMetadata: _withOfferMetadata(existingOrder.hubMetadata, offer),
       hubSyncPending: existingOrder.hubSyncPending,
     );
 

@@ -1,9 +1,4 @@
 'use strict';
 
-require('dotenv').config();
-const { start } = require('./src/bootstrap');
-
-start().catch((err) => {
-  console.error('[pos-server] fatal', err);
-  process.exitCode = 1;
-});
+// Entry for `node server.js` (Windows installer / batch); real app lives in src/.
+require('./src/app.js');

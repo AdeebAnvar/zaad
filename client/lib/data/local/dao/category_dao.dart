@@ -31,4 +31,11 @@ class CategoryDao extends DatabaseAccessor<AppDatabase> with _$CategoryDaoMixin 
           ..orderBy([(c) => OrderingTerm.asc(c.name)]))
         .get();
   }
+
+  Stream<List<Category>> watchVisibleForBranch(int branchId) {
+    return (select(categories)
+          ..where((c) => c.branchId.equals(branchId) | c.branchId.isNull())
+          ..orderBy([(c) => OrderingTerm.asc(c.name)]))
+        .watch();
+  }
 }

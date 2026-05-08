@@ -243,7 +243,10 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           const SizedBox(height: 12),
           TextButton(
-            onPressed: () => AppNavigator.pushNamed(Routes.lanHubSettings),
+            onPressed: () async {
+              await AppNavigator.pushNamed(Routes.lanHubSettings);
+              if (mounted) setState(() {});
+            },
             child: Text(
               'LAN hub (MAIN / SUB)',
               style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: AppColors.primaryColor),

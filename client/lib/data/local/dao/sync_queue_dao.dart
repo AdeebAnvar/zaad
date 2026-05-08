@@ -66,6 +66,22 @@ class SyncQueueDao extends DatabaseAccessor<AppDatabase> with _$SyncQueueDaoMixi
   Future<SyncOutboxData?> outboxRowById(String id) =>
       (select(syncOutbox)..where((t) => t.id.equals(id))).getSingleOrNull();
 
+  Future<int> unsyncedOutboxCount() async {
+    final rows = await (selectOnly(syncOutbox)
+          ..addColumns([syncOutbox.id.count()])
+          ..where(syncOutbox.status.isNotValue('ACKED')))
+        .getSingle();
+    return rows.read(syncOutbox.id.count()) ?? 0;
+  }
+
+  Future<List<SyncOutboxData>> unsyncedOutboxRows({int limit = 100}) {
+    return (select(syncOutbox)
+          ..where((t) => t.status.isNotValue('ACKED'))
+          ..orderBy([(t) => OrderingTerm.asc(t.createdAt)])
+          ..limit(limit))
+        .get();
+  }
+
   Future<void> patchOutbox(String id, SyncOutboxCompanion patch) =>
       (update(syncOutbox)..where((t) => t.id.equals(id))).write(patch);
 

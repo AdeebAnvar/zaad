@@ -23,9 +23,14 @@ class StaffsModel {
       );
 
   factory StaffsModel.fromJson(Map<String, dynamic> json) => StaffsModel(
-        createdUpdated: List<StaffsCreatedUpdated>.from(json["created_updated"].map((x) => StaffsCreatedUpdated.fromJson(x))),
-        deleted: List<dynamic>.from(json["deleted"].map((x) => x)),
-        pagination: PaginationModel.fromJson(json["pagination"]),
+        createdUpdated: (json["created_updated"] as List?)
+                ?.map((x) => StaffsCreatedUpdated.fromJson(Map<String, dynamic>.from(x as Map)))
+                .toList() ??
+            const [],
+        deleted: List<dynamic>.from(json["deleted"] as List? ?? const []),
+        pagination: json["pagination"] is Map
+            ? PaginationModel.fromJson(Map<String, dynamic>.from(json["pagination"] as Map))
+            : PaginationModel.fallback(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -98,18 +103,21 @@ class StaffsCreatedUpdated {
       );
 
   factory StaffsCreatedUpdated.fromJson(Map<String, dynamic> json) => StaffsCreatedUpdated(
-        id: json["id"],
-        uuid: json["uuid"],
-        branchId: json["branch_id"],
-        staffName: json["staff_name"],
-        staffEmail: json["staff_email"],
-        staffPhone: json["staff_phone"],
-        staffAddress: json["staff_address"],
-        dateOfJoin: DateTime.parse(json["date_of_join"]),
-        staffCode: json["staff_code"],
-        staffPin: json["staff_pin"],
-        createdAt: DateTime.parse(json["created_at"]),
-        updatedAt: DateTime.parse(json["updated_at"]),
+        id: (json["id"] as num?)?.toInt() ?? 0,
+        uuid: json["uuid"]?.toString() ?? '',
+        branchId: (json["branch_id"] as num?)?.toInt() ?? 0,
+        staffName: json["staff_name"]?.toString() ?? '',
+        staffEmail: json["staff_email"]?.toString() ?? '',
+        staffPhone: json["staff_phone"]?.toString() ?? '',
+        staffAddress: json["staff_address"]?.toString() ?? '',
+        dateOfJoin:
+            DateTime.tryParse(json["date_of_join"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        staffCode: json["staff_code"]?.toString() ?? '',
+        staffPin: json["staff_pin"]?.toString() ?? '',
+        createdAt:
+            DateTime.tryParse(json["created_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt:
+            DateTime.tryParse(json["updated_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         deletedAt: json["deleted_at"],
       );
 

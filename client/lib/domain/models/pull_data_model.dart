@@ -1,17 +1,30 @@
 import 'dart:convert';
 
 import 'package:pos/domain/models/category_model.dart';
+import 'package:pos/domain/models/pagination_model.dart';
 import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/domain/models/delivery_partner_model.dart';
 import 'package:pos/domain/models/driver_model.dart';
 import 'package:pos/domain/models/expense_category_model.dart';
 import 'package:pos/domain/models/item_model.dart';
 import 'package:pos/domain/models/kitchen_model.dart';
+import 'package:pos/domain/models/offer_model.dart';
 import 'package:pos/domain/models/staff_model.dart';
 import 'package:pos/domain/models/table_model.dart';
 import 'package:pos/domain/models/toppings_model.dart';
 import 'package:pos/domain/models/variation_model.dart';
 import 'package:pos/domain/models/waiter_model.dart';
+
+Map<String, dynamic>? _asJsonMap(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}
+
+T _parseChild<T>(dynamic raw, T Function(Map<String, dynamic> m) parse, T empty) {
+  final m = _asJsonMap(raw);
+  return m != null ? parse(m) : empty;
+}
 
 PullData pullDataFromJson(String str) => PullData.fromJson(json.decode(str));
 
@@ -43,12 +56,16 @@ class PullData {
         errors: errors ?? this.errors,
       );
 
-  factory PullData.fromJson(Map<String, dynamic> json) => PullData(
-        success: json["success"],
-        message: json["message"],
-        data: PullDataModel.fromJson(json["data"]),
-        errors: json["errors"],
-      );
+  factory PullData.fromJson(Map<String, dynamic> json) {
+    final dataMap = _asJsonMap(json["data"]);
+    final empty = _emptyPullDataModel();
+    return PullData(
+      success: json["success"] == true || json["success"]?.toString().toLowerCase() == 'true',
+      message: json["message"]?.toString() ?? '',
+      data: dataMap != null ? PullDataModel.fromJson(dataMap) : empty,
+      errors: json["errors"],
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         "success": success,
@@ -76,6 +93,7 @@ class PullDataModel {
   final WaitersModel waiters;
   final ExpenseCategoryModel floors;
   final TablesModel tables;
+  final OfferModel offers;
   // final Category chairs;
 
   PullDataModel({
@@ -96,6 +114,7 @@ class PullDataModel {
     required this.waiters,
     required this.floors,
     required this.tables,
+    required this.offers,
     // required this.chairs,
   });
 
@@ -117,6 +136,7 @@ class PullDataModel {
     WaitersModel? waiters,
     ExpenseCategoryModel? floors,
     TablesModel? tables,
+    OfferModel? offers,
     // Category? chairs,
   }) =>
       PullDataModel(
@@ -137,29 +157,48 @@ class PullDataModel {
         waiters: waiters ?? this.waiters,
         floors: floors ?? this.floors,
         tables: tables ?? this.tables,
+        offers: offers ?? this.offers,
         // chairs: chairs ?? this.chairs,
       );
 
-  factory PullDataModel.fromJson(Map<String, dynamic> json) => PullDataModel(
-        category: CategoryModel.fromJson(json["category"]),
-        unit: ExpenseCategoryModel.fromJson(json["unit"]),
-        deliveryService: DeliveryServiceModel.fromJson(json["deliveryService"]),
-        variations: VariationsModel.fromJson(json["variations"]),
-        variationOptions: VariationOptionsModel.fromJson(json["variationOptions"]),
-        toppingCategories: ToppingModel.fromJson(json["toppingCategories"]),
-        toppings: ToppingModel.fromJson(json["toppings"]),
-        kitchens: KitchensModel.fromJson(json["kitchens"]),
-        item: ItemModel.fromJson(json["item"]),
-        expenseCategory: ExpenseCategoryModel.fromJson(json["expenseCategory"]),
-        paymentMethods: ExpenseCategoryModel.fromJson(json["paymentMethods"]),
-        customer: CustomerModel.fromJson(json["customer"]),
-        driver: DriverModel.fromJson(json["driver"]),
-        staffs: StaffsModel.fromJson(json["staffs"]),
-        waiters: WaitersModel.fromJson(json["waiters"]),
-        floors: ExpenseCategoryModel.fromJson(json["floors"]),
-        tables: TablesModel.fromJson(json["tables"]),
-        // chairs: Category.fromJson(json["chairs"]),
-      );
+  factory PullDataModel.fromJson(Map<String, dynamic> json) {
+    final p = PaginationModel.fallback();
+    final emptyCategory = CategoryModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyExpense = ExpenseCategoryModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyDelivery = DeliveryServiceModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyVariations = VariationsModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyVarOptions = VariationOptionsModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyTopping = ToppingModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyKitchens = KitchensModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyItem = ItemModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyCustomer = CustomerModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyDriver = DriverModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyStaffs = StaffsModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyWaiters = WaitersModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyTables = TablesModel(createdUpdated: [], deleted: [], pagination: p);
+    final emptyOffers = OfferModel(createdUpdated: [], deleted: [], pagination: p);
+
+    return PullDataModel(
+      category: _parseChild(json["category"], CategoryModel.fromJson, emptyCategory),
+      unit: _parseChild(json["unit"], ExpenseCategoryModel.fromJson, emptyExpense),
+      deliveryService: _parseChild(json["deliveryService"], DeliveryServiceModel.fromJson, emptyDelivery),
+      variations: _parseChild(json["variations"], VariationsModel.fromJson, emptyVariations),
+      variationOptions: _parseChild(json["variationOptions"], VariationOptionsModel.fromJson, emptyVarOptions),
+      toppingCategories: _parseChild(json["toppingCategories"], ToppingModel.fromJson, emptyTopping),
+      toppings: _parseChild(json["toppings"], ToppingModel.fromJson, emptyTopping),
+      kitchens: _parseChild(json["kitchens"], KitchensModel.fromJson, emptyKitchens),
+      item: _parseChild(json["item"], ItemModel.fromJson, emptyItem),
+      expenseCategory: _parseChild(json["expenseCategory"], ExpenseCategoryModel.fromJson, emptyExpense),
+      paymentMethods: _parseChild(json["paymentMethods"], ExpenseCategoryModel.fromJson, emptyExpense),
+      customer: _parseChild(json["customer"], CustomerModel.fromJson, emptyCustomer),
+      driver: _parseChild(json["driver"], DriverModel.fromJson, emptyDriver),
+      staffs: _parseChild(json["staffs"], StaffsModel.fromJson, emptyStaffs),
+      waiters: _parseChild(json["waiters"], WaitersModel.fromJson, emptyWaiters),
+      floors: _parseChild(json["floors"], ExpenseCategoryModel.fromJson, emptyExpense),
+      tables: _parseChild(json["tables"], TablesModel.fromJson, emptyTables),
+      offers: _parseChild(json["offers"], OfferModel.fromJson, emptyOffers),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         "category": category.toJson(),
@@ -179,6 +218,31 @@ class PullDataModel {
         "waiters": waiters.toJson(),
         "floors": floors.toJson(),
         "tables": tables.toJson(),
+        "offers": offers.toJson(),
         // "chairs": chairs.toJson(),
       };
+}
+
+PullDataModel _emptyPullDataModel() {
+  final p = PaginationModel.fallback();
+  return PullDataModel(
+    category: CategoryModel(createdUpdated: [], deleted: [], pagination: p),
+    unit: ExpenseCategoryModel(createdUpdated: [], deleted: [], pagination: p),
+    deliveryService: DeliveryServiceModel(createdUpdated: [], deleted: [], pagination: p),
+    variations: VariationsModel(createdUpdated: [], deleted: [], pagination: p),
+    variationOptions: VariationOptionsModel(createdUpdated: [], deleted: [], pagination: p),
+    toppingCategories: ToppingModel(createdUpdated: [], deleted: [], pagination: p),
+    toppings: ToppingModel(createdUpdated: [], deleted: [], pagination: p),
+    kitchens: KitchensModel(createdUpdated: [], deleted: [], pagination: p),
+    item: ItemModel(createdUpdated: [], deleted: [], pagination: p),
+    expenseCategory: ExpenseCategoryModel(createdUpdated: [], deleted: [], pagination: p),
+    paymentMethods: ExpenseCategoryModel(createdUpdated: [], deleted: [], pagination: p),
+    customer: CustomerModel(createdUpdated: [], deleted: [], pagination: p),
+    driver: DriverModel(createdUpdated: [], deleted: [], pagination: p),
+    staffs: StaffsModel(createdUpdated: [], deleted: [], pagination: p),
+    waiters: WaitersModel(createdUpdated: [], deleted: [], pagination: p),
+    floors: ExpenseCategoryModel(createdUpdated: [], deleted: [], pagination: p),
+    tables: TablesModel(createdUpdated: [], deleted: [], pagination: p),
+    offers: OfferModel(createdUpdated: [], deleted: [], pagination: p),
+  );
 }

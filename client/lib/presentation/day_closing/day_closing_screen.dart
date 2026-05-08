@@ -79,6 +79,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       final rows = <({String label, double amount})>[
         (label: 'Opening Cash', amount: _summary.openingCash),
         (label: 'Gross Sales', amount: _summary.grossTotal),
+        if (_summary.totalVatAmount > 0.009) (label: 'Total VAT', amount: _summary.totalVatAmount),
         (label: 'Discounts', amount: _summary.discount),
         (label: 'Cash Sale', amount: _summary.cashSale),
         (label: 'Card Sale', amount: _summary.cardSale),
@@ -210,6 +211,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                         rows: [
                           _row('OPENING CASH', RuntimeAppSettings.money(_summary.openingCash)),
                           _row('GROSS SALES (before discount)', RuntimeAppSettings.money(_summary.grossTotal)),
+                          if (_summary.totalVatAmount > 0.009) _row('TOTAL VAT AMOUNT', RuntimeAppSettings.money(_summary.totalVatAmount)),
                           _row(
                             'DISCOUNTS',
                             RuntimeAppSettings.money(_summary.discount),
@@ -221,6 +223,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                           _row('CREDIT SALE', RuntimeAppSettings.money(_summary.creditSale)),
                           _row('ONLINE SALE', RuntimeAppSettings.money(_summary.onlineSale)),
                           _row('DELIVERY SALE', RuntimeAppSettings.money(_summary.deliverySale)),
+                          _row('CASH DRAWER BALANCE', RuntimeAppSettings.money(_summary.cashDrawer)),
                         ],
                       ),
                       const SizedBox(height: 14),
@@ -288,8 +291,8 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                           _row('DINE-IN SALES', RuntimeAppSettings.money(_summary.dineInSales)),
                           _row('DELIVERY SALES', RuntimeAppSettings.money(_summary.deliverySale)),
                           _row('TAKEAWAY SALES', RuntimeAppSettings.money(_summary.takeAwaySales)),
-                          _row('CASH IN (CASH SALE + OPENING)', RuntimeAppSettings.money(_summary.cashIn), emphasize: true),
-                          _row('CASH OUT (EXP + SAL + UNPAID)', RuntimeAppSettings.money(_summary.cashOut), emphasize: true),
+                          _row('CASH IN (OPENING + CASH SALE AFTER DISCOUNT)', RuntimeAppSettings.money(_summary.cashIn), emphasize: true),
+                          _row('CASH OUT (EXPENSES FROM CASH)', RuntimeAppSettings.money(_summary.cashOut), emphasize: true),
                         ],
                         footerLabel: 'TOTAL CASH DRAWER',
                         footerValue: '${RuntimeAppSettings.money(_summary.cashDrawer)} ${_cashDrawerVarianceHint(_summary.difference)}',

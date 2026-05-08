@@ -5,6 +5,7 @@ class Kitchens extends Table {
   TextColumn get name => text()();
   TextColumn get printerIp => text().nullable()();
   IntColumn get printerPort => integer().withDefault(const Constant(9100))();
+
   /// [KitchensCreatedUpdated] from [KitchenSyncResponse]
   TextColumn get recordUuid => text().nullable()();
   IntColumn get branchId => integer().nullable()();
@@ -160,14 +161,24 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
 
   /// Items whose category belongs to [branchId] or has no branch (shared catalog).
   Future<List<Item>> getVisibleForBranch(int branchId) async {
-    final catRows = await (select(categories)
-          ..where((c) => c.branchId.equals(branchId) | c.branchId.isNull()))
-        .get();
+    final catRows = await (select(categories)..where((c) => c.branchId.equals(branchId) | c.branchId.isNull())).get();
     if (catRows.isEmpty) return [];
     final ids = catRows.map((c) => c.id).toList();
     return (select(items)..where((i) => i.categoryId.isIn(ids))).get();
   }
+
+  Stream<List<Item>> watchVisibleForBranch(int branchId) {
+    final q = select(items).join([
+      innerJoin(categories, categories.id.equalsExp(items.categoryId)),
+    ])
+      ..where(categories.branchId.equals(branchId) | categories.branchId.isNull())
+      ..orderBy([OrderingTerm.asc(items.name)]);
+    return q.watch().map((rows) => rows.map((r) => r.readTable(items)).toList());
+  }
+
   Future<List<ItemVariant>> getAllVariants() => select(itemVariants).get();
+
+  Stream<List<ItemVariant>> watchAllVariants() => select(itemVariants).watch();
 
   Future<Item?> getItemById(int itemId) {
     return (select(items)..where((v) => v.id.equals(itemId))).getSingleOrNull();

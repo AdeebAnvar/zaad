@@ -6,7 +6,7 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/branch_repository.dart';
 import 'package:pos/data/repository/settings_repository.dart';
 import 'package:pos/data/repository/user_repository.dart';
-import 'package:pos/domain/models/company_Data.dart';
+import 'package:pos/domain/models/company_data.dart';
 
 /// Applies `/sync/bootstrap`-shaped JSON to MAIN Drift, then broadcasts [COMPANY_SNAPSHOT] over the hub WS
 /// (users include [UserModel.permissions] as in the tenant response).

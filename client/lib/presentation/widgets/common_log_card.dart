@@ -75,6 +75,8 @@ class _CommonLogCardState extends State<CommonLogCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _header(),
+              const SizedBox(height: 4),
+              _userNameLine(),
               const SizedBox(height: 6),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -123,6 +125,7 @@ class _CommonLogCardState extends State<CommonLogCard> {
 
   Widget _header() {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         if (widget.leadingHeader != null) ...[
           widget.leadingHeader!,
@@ -144,25 +147,20 @@ class _CommonLogCardState extends State<CommonLogCard> {
           ),
         ),
         const SizedBox(width: 6),
-        Expanded(
+        // Full user name is on the row below so the amount stays readable; scale down only on very narrow cards.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
           child: Text(
             widget.amount,
             maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            softWrap: false,
             style: AppStyles.getBoldTextStyle(fontSize: 16, color: AppColors.textColor),
           ),
         ),
-        if (widget.orderTakerName != null && widget.orderTakerName!.trim().isNotEmpty) ...[
-          const SizedBox(height: 2),
-          Text(
-            widget.orderTakerName!.trim(),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppStyles.getRegularTextStyle(fontSize: 10.5, color: AppColors.hintFontColor),
-          ),
-        ],
+        const Spacer(),
         if (widget.onDelete != null) ...[
-          const SizedBox(width: 2),
+          const SizedBox(width: 4),
           IconButton(
             icon: Icon(Icons.delete_outline, color: Colors.red.shade700, size: 18),
             tooltip: 'Delete order',
@@ -172,6 +170,31 @@ class _CommonLogCardState extends State<CommonLogCard> {
             constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
           ),
         ],
+      ],
+    );
+  }
+
+  /// Dedicated row so cashier / counter name stays readable on every card (take-away, dine-in, delivery).
+  Widget _userNameLine() {
+    final trimmed = widget.orderTakerName?.trim() ?? '';
+    final display = trimmed.isNotEmpty ? trimmed : '—';
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.person_outline,
+          size: 13,
+          color: AppColors.hintFontColor.withValues(alpha: 0.9),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            display,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+          ),
+        ),
       ],
     );
   }

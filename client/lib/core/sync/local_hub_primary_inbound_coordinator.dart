@@ -173,7 +173,10 @@ class LocalHubPrimaryInboundCoordinator {
     final connect = PosSyncEnvelope(
       eventId: _uuid.v4(),
       type: PosSyncEventTypes.connect,
-      payload: const <String, dynamic>{},
+      payload: const <String, dynamic>{
+        'clientRole': 'MAIN_CLIENT',
+        'appMode': 'main',
+      },
       timestamp: ts,
       deviceId: deviceId,
     );

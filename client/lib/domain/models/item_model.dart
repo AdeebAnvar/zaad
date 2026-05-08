@@ -24,9 +24,9 @@ class ItemModel {
         pagination: pagination ?? this.pagination,
       );
   factory ItemModel.fromJson(Map<String, dynamic> json) => ItemModel(
-        createdUpdated: (json["created_updated"] as List? ?? []).map((x) => ItemCreatedUpdated.fromJson(x)).toList(),
+        createdUpdated: (json["created_updated"] as List? ?? []).map((x) => ItemCreatedUpdated.fromJson(Map<String, dynamic>.from(x as Map))).toList(),
         deleted: (json["deleted"] as List? ?? []),
-        pagination: PaginationModel.fromJson(json["pagination"]), // create an empty constructor if needed
+        pagination: json["pagination"] is Map ? PaginationModel.fromJson(Map<String, dynamic>.from(json["pagination"] as Map)) : PaginationModel.fallback(),
       );
   Map<String, dynamic> toJson() => {
         "created_updated": List<dynamic>.from(createdUpdated.map((x) => x.toJson())),
@@ -53,6 +53,7 @@ class ItemCreatedUpdated {
   final String stockApplicable;
   final String ingredient;
   final OrderType orderType;
+
   /// Raw API field (e.g. `take_away.dine_in`); use [parseItemOrderChannelsFromApi].
   final String orderTypeRaw;
 
@@ -159,36 +160,38 @@ class ItemCreatedUpdated {
         deletedAt: deletedAt ?? this.deletedAt,
         itemprice: itemprice ?? this.itemprice,
       );
-  factory ItemCreatedUpdated.fromJson(Map<String, dynamic> json) => ItemCreatedUpdated(
-        id: json["id"] ?? 0,
-        uuid: json["uuid"] ?? '',
-        branchId: json["branch_id"] ?? 0,
-        categoryId: json["category_id"] ?? 0,
-        unitId: json["unit_id"] ?? 0,
-        itemName: json["item_name"] ?? '',
-        itemSlug: json["item_slug"] ?? '',
-        itemOtherName: json["item_other_name"] ?? '',
-        kitchenIds: json["kitchen_ids"] ?? '',
-        toppingIds: json["topping_ids"],
-        tax: json["tax"] == 'yes' ? YesOrNo.yes : YesOrNo.no,
-        taxPercent: json["tax_percent"],
-        minimumQty: json["minimum_qty"] ?? 0,
-        itemType: json["item_type"] ?? '',
-        stockApplicable: json["stock_applicable"] ?? '',
-        ingredient: json["ingredient"] ?? '',
-        orderTypeRaw: '${json["order_type"] ?? ''}'.trim(),
-        orderType: _orderTypeFromItemJson(json["order_type"]),
-        deliveryService: json["delivery_service"] ?? '',
-        image: json["image"] ?? '',
-        expiryDate: json["expiry_date"] ?? '',
-        active: json["active"] == 'yes' ? YesOrNo.yes : YesOrNo.no,
-        isVariant: json["is_variant"] ?? 0,
-        itemVariations: (json["item_variations"] as List? ?? []),
-        createdAt: json["created_at"] != null ? DateTime.parse(json["created_at"]) : DateTime.now(),
-        updatedAt: json["updated_at"] != null ? DateTime.parse(json["updated_at"]) : DateTime.now(),
-        deletedAt: json["deleted_at"],
-        itemprice: (json["itemprice"] as List? ?? []).map((x) => Itemprice.fromJson(x)).toList(),
-      );
+  factory ItemCreatedUpdated.fromJson(Map<String, dynamic> json) {
+    return ItemCreatedUpdated(
+      id: json["id"] ?? 0,
+      uuid: json["uuid"] ?? '',
+      branchId: json["branch_id"] ?? 0,
+      categoryId: json["category_id"] ?? 0,
+      unitId: json["unit_id"] ?? 0,
+      itemName: json["item_name"] ?? '',
+      itemSlug: json["item_slug"] ?? '',
+      itemOtherName: json["item_other_name"] ?? '',
+      kitchenIds: json["kitchen_ids"] ?? '',
+      toppingIds: json["topping_ids"],
+      tax: json["tax"] == 'yes' ? YesOrNo.yes : YesOrNo.no,
+      taxPercent: json["tax_percent"],
+      minimumQty: json["minimum_qty"] ?? 0,
+      itemType: json["item_type"] ?? '',
+      stockApplicable: json["stock_applicable"] ?? '',
+      ingredient: json["ingredient"] ?? '',
+      orderTypeRaw: '${json["order_type"] ?? ''}'.trim(),
+      orderType: _orderTypeFromItemJson(json["order_type"]),
+      deliveryService: json["delivery_service"] ?? '',
+      image: json["image"] ?? '',
+      expiryDate: json["expiry_date"] ?? '',
+      active: json["active"] == 'yes' ? YesOrNo.yes : YesOrNo.no,
+      isVariant: json["is_variant"] ?? 0,
+      itemVariations: (json["item_variations"] as List? ?? []),
+      createdAt: json["created_at"] != null ? DateTime.parse(json["created_at"]) : DateTime.now(),
+      updatedAt: json["updated_at"] != null ? DateTime.parse(json["updated_at"]) : DateTime.now(),
+      deletedAt: json["deleted_at"],
+      itemprice: (json["itemprice"] as List? ?? []).map((x) => Itemprice.fromJson(x)).toList(),
+    );
+  }
   Map<String, dynamic> toJson() => {
         "id": id,
         "uuid": uuid,
@@ -293,24 +296,26 @@ class Itemprice {
         variationOptionIds: variationOptionIds ?? this.variationOptionIds,
         variationOptions: variationOptions ?? this.variationOptions,
       );
-  factory Itemprice.fromJson(Map<String, dynamic> json) => Itemprice(
-        id: json["id"] ?? 0,
-        branchId: json["branch_id"] ?? 0,
-        itemId: json["item_id"] ?? 0,
-        barcode: json["barcode"],
-        costPrice: json["cost_price"] ?? 0,
-        price: (json["price"] ?? 0).toDouble(),
-        stock: json["stock"] ?? 0,
-        totalCostPrice: json["total_cost_price"] ?? 0,
-        ingredientAdded: json["ingredient_added"] ?? '',
-        priceItemType: json["price_item_type"] ?? '',
-        combination: json["combination"],
-        createdAt: json["created_at"] != null ? DateTime.parse(json["created_at"]) : DateTime.now(),
-        updatedAt: json["updated_at"] != null ? DateTime.parse(json["updated_at"]) : DateTime.now(),
-        deletedAt: json["deleted_at"],
-        variationOptionIds: json["variation_option_ids"],
-        variationOptions: (json["variation_options"] as List? ?? []),
-      );
+  factory Itemprice.fromJson(Map<String, dynamic> json) {
+    return Itemprice(
+      id: json["id"] ?? 0,
+      branchId: json["branch_id"] ?? 0,
+      itemId: json["item_id"] ?? 0,
+      barcode: json["barcode"]?.toString(),
+      costPrice: json["cost_price"] ?? 0,
+      price: (json["price"] ?? 0).toDouble(),
+      stock: json["stock"] ?? 0,
+      totalCostPrice: json["total_cost_price"] ?? 0,
+      ingredientAdded: json["ingredient_added"] ?? '',
+      priceItemType: json["price_item_type"] ?? '',
+      combination: json["combination"],
+      createdAt: json["created_at"] != null ? DateTime.parse(json["created_at"]) : DateTime.now(),
+      updatedAt: json["updated_at"] != null ? DateTime.parse(json["updated_at"]) : DateTime.now(),
+      deletedAt: json["deleted_at"],
+      variationOptionIds: json["variation_option_ids"],
+      variationOptions: (json["variation_options"] as List? ?? []),
+    );
+  }
   Map<String, dynamic> toJson() => {
         "id": id,
         "branch_id": branchId,

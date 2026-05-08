@@ -1,134 +1,176 @@
 'use strict';
 
-const sqlite3 = require('sqlite3').verbose();
+const fs = require('fs');
+const path = require('path');
+const Database = require('better-sqlite3');
 
-/**
- * Promise helpers bound to one sqlite3 Database connection (single-file WAL hub DB).
- *
- * @param {sqlite3.Database} rawDb
- */
-function createDbApi(rawDb) {
-  let closed = false;
-  /**
-   * @param {string} sql
-   * @param {unknown[]} [params]
-   */
-  function run(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      rawDb.run(sql, params, function onRun(err) {
-        if (err) return reject(err);
-        resolve({ lastID: this.lastID, changes: this.changes });
-      });
-    });
-  }
+let lockFd = null;
+let lockFilePath = null;
 
-  /**
-   * @param {string} sql
-   * @param {unknown[]} [params]
-   */
-  function get(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      rawDb.get(sql, params, (err, row) => {
-        if (err) return reject(err);
-        resolve(row);
-      });
-    });
-  }
-
-  /**
-   * @param {string} sql
-   * @param {unknown[]} [params]
-   */
-  function all(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      rawDb.all(sql, params, (err, rows) => {
-        if (err) return reject(err);
-        resolve(rows);
-      });
-    });
-  }
-
-  /**
-   * @param {string} sql — may contain multiple statements (schema bootstrap).
-   */
-  function exec(sql) {
-    return new Promise((resolve, reject) => {
-      rawDb.exec(sql, (err) => {
-        if (err) return reject(err);
-        resolve();
-      });
-    });
-  }
-
-  /**
-   * SERIALIZABLE transaction with BEGIN IMMEDIATE / COMMIT / ROLLBACK.
-   * @template T
-   * @param {() => Promise<T>} work
-   * @returns {Promise<T>}
-   */
-  async function transaction(work) {
-    await run('BEGIN IMMEDIATE');
+/** @returns {boolean} true if lock file removed or missing (safe to create) */
+function removeStaleMainLock(lockPath) {
+  try {
+    if (!fs.existsSync(lockPath)) return true;
+    let pid = NaN;
     try {
-      const result = await work();
-      await run('COMMIT');
-      return result;
-    } catch (e) {
-      await run('ROLLBACK').catch(() => {});
-      throw e;
+      const raw = fs.readFileSync(lockPath, 'utf8').trim();
+      pid = Number.parseInt(String(raw).split(/\s/)[0], 10);
+    } catch (_) {
+      /* empty or unreadable */
     }
+    if (!Number.isFinite(pid) || pid <= 0) {
+      fs.unlinkSync(lockPath);
+      return true;
+    }
+    if (pid === process.pid) {
+      fs.unlinkSync(lockPath);
+      return true;
+    }
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch (e) {
+      const code = e && e.code;
+      if (code === 'EPERM') return false;
+      try {
+        fs.unlinkSync(lockPath);
+      } catch (_) {
+        /* ignore */
+      }
+      return true;
+    }
+  } catch (_) {
+    try {
+      fs.unlinkSync(lockPath);
+    } catch (_2) {
+      /* ignore */
+    }
+    return true;
   }
-
-  function close() {
-    if (closed) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      rawDb.close((err) => {
-        if (err) {
-          if (err.code === 'SQLITE_MISUSE' || /Database handle is closed/i.test(String(err.message))) {
-            closed = true;
-            return resolve();
-          }
-          return reject(err);
-        }
-        closed = true;
-        resolve();
-      });
-    });
-  }
-
-  async function applyPragmas() {
-    await run('PRAGMA journal_mode = WAL');
-    await run('PRAGMA foreign_keys = ON');
-    await run('PRAGMA busy_timeout = 5000');
-  }
-
-  return {
-    run,
-    get,
-    all,
-    exec,
-    transaction,
-    close,
-    applyPragmas,
-    /** @package exposed for rare diagnostics only */
-    _raw: rawDb,
-  };
 }
 
 /**
- * Open SQLite at `dbPath` (directory created if missing).
- *
- * @param {{ dbPath: string }} opts
+ * Prevents multiple MAIN hubs on one machine (spec: single authoritative server).
+ * Stale `main.lock` from a crashed MAIN is removed after checking the stored PID.
  */
-function openSqlite(opts) {
-  const fs = require('fs');
-  const path = require('path');
-  const dbPath = opts.dbPath;
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  const rawDb = new sqlite3.Database(dbPath);
-  return createDbApi(rawDb);
+function acquireMainLock(dataDir) {
+  const lockPath = path.join(dataDir, 'main.lock');
+  try {
+    lockFd = fs.openSync(lockPath, 'wx');
+    fs.writeSync(lockFd, `${process.pid}\n`);
+    lockFilePath = lockPath;
+    return;
+  } catch (_) {
+    /* continue */
+  }
+
+  if (!removeStaleMainLock(lockPath)) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[POS MAIN] Cannot start: another MAIN is running (lock: ${lockPath}). Stop that process first.`,
+    );
+    process.exit(1);
+    return;
+  }
+
+  try {
+    lockFd = fs.openSync(lockPath, 'wx');
+    fs.writeSync(lockFd, `${process.pid}\n`);
+    lockFilePath = lockPath;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[POS MAIN] Cannot create lock at ${lockPath}: ${e && e.message ? e.message : e}`,
+    );
+    process.exit(1);
+  }
+}
+
+function releaseMainLock() {
+  try {
+    if (lockFd != null) fs.closeSync(lockFd);
+    lockFd = null;
+    if (lockFilePath && fs.existsSync(lockFilePath)) fs.unlinkSync(lockFilePath);
+  } catch (_) {
+    /* ignore */
+  }
+  lockFilePath = null;
+}
+
+function migrate(db) {
+  db.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = FULL;
+
+    CREATE TABLE IF NOT EXISTS processed_events (
+      event_id TEXT PRIMARY KEY,
+      processed_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS inbox (
+      id TEXT PRIMARY KEY,
+      event_id TEXT NOT NULL UNIQUE,
+      type TEXT NOT NULL,
+      raw_envelope TEXT NOT NULL,
+      received_at INTEGER NOT NULL,
+      applied INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS event_journal (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id TEXT NOT NULL UNIQUE,
+      type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      envelope TEXT NOT NULL,
+      effective_ms INTEGER NOT NULL,
+      device_id TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_journal_effective_ms ON event_journal(effective_ms);
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY,
+      json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS items (
+      id TEXT PRIMARY KEY,
+      json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS kot_entries (
+      id TEXT PRIMARY KEY,
+      json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS payments (
+      id TEXT PRIMARY KEY,
+      json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+}
+
+function openDatabase(filePath) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const db = new Database(filePath);
+  db.pragma('foreign_keys = ON');
+  migrate(db);
+  return db;
 }
 
 module.exports = {
-  createDbApi,
-  openSqlite,
+  openDatabase,
+  acquireMainLock,
+  releaseMainLock,
 };

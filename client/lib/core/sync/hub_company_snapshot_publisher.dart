@@ -5,13 +5,11 @@ import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import 'package:pos/core/network/lan_hub_health.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
-import 'package:pos/core/sync/ws_detach_done_errors.dart';
 import 'package:pos/core/utils/image_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/branch_model.dart';
-import 'package:uuid/uuid.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// After MAIN successfully links the tenant ([connectToServer]), push users/branches/settings
 /// to the Node hub so SUB devices can log in locally without tenant REST.
@@ -57,14 +55,7 @@ class HubCompanySnapshotPublisher {
 
     final branchImageInline = await _branchImagesPayload(branches);
 
-    WebSocketChannel? ch;
     try {
-      await hub.resolveOrAllocateDeviceId(() => const Uuid().v4());
-      final deviceId = hub.requireDeviceId();
-      final uri = Uri.parse(resolvedUrl.trim());
-      ch = WebSocketChannel.connect(uri);
-      detachWebSocketSinkDone(ch);
-
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       final payload = <String, dynamic>{
         'users': users.map((u) => u.toJson()).toList(),
@@ -76,28 +67,17 @@ class HubCompanySnapshotPublisher {
         payload['branchImageInline'] = branchImageInline;
       }
 
-      final env = PosSyncEnvelope(
-        eventId: const Uuid().v4(),
+      await HubOrderLanPublisher.enqueueMainEventWithQueue(
         type: PosSyncEventTypes.companySnapshot,
         payload: payload,
-        timestamp: nowMs ~/ 1000,
-        deviceId: deviceId,
       );
-
-      ch.sink.add(env.encode());
       if (kDebugMode) {
         debugPrint(
-          '[HubCompanySnapshotPublisher] sent COMPANY_SNAPSHOT (${users.length} users, ${branches.length} branches, ${branchImageInline.length} branch images) → $uri',
+          '[HubCompanySnapshotPublisher] queued COMPANY_SNAPSHOT (${users.length} users, ${branches.length} branches, ${branchImageInline.length} branch images)',
         );
       }
     } catch (e, st) {
       if (kDebugMode) debugPrint('[HubCompanySnapshotPublisher] failed: $e\n$st');
-    } finally {
-      try {
-        await ch?.sink.close();
-      } catch (_) {
-        /* ignore */
-      }
     }
   }
 

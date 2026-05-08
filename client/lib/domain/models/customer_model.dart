@@ -23,9 +23,14 @@ class CustomerModel {
       );
 
   factory CustomerModel.fromJson(Map<String, dynamic> json) => CustomerModel(
-        createdUpdated: List<CustomerCreatedUpdated>.from(json["created_updated"].map((x) => CustomerCreatedUpdated.fromJson(x))),
-        deleted: List<dynamic>.from(json["deleted"].map((x) => x)),
-        pagination: PaginationModel.fromJson(json["pagination"]),
+        createdUpdated: (json["created_updated"] as List?)
+                ?.map((x) => CustomerCreatedUpdated.fromJson(Map<String, dynamic>.from(x as Map)))
+                .toList() ??
+            const [],
+        deleted: List<dynamic>.from(json["deleted"] as List? ?? const []),
+        pagination: json["pagination"] is Map
+            ? PaginationModel.fromJson(Map<String, dynamic>.from(json["pagination"] as Map))
+            : PaginationModel.fallback(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -94,17 +99,19 @@ class CustomerCreatedUpdated {
       );
 
   factory CustomerCreatedUpdated.fromJson(Map<String, dynamic> json) => CustomerCreatedUpdated(
-        id: json["id"],
-        uuid: json["uuid"],
-        branchId: json["branch_id"],
-        customerName: json["customer_name"],
-        customerNumber: json["customer_number"],
-        customerEmail: json["customer_email"],
-        customerAddress: json["customer_address"],
-        customerGender: json["customer_gender"],
-        cardNo: json["card_no"],
-        createdAt: DateTime.parse(json["created_at"]),
-        updatedAt: DateTime.parse(json["updated_at"]),
+        id: (json["id"] as num?)?.toInt() ?? 0,
+        uuid: json["uuid"]?.toString() ?? '',
+        branchId: (json["branch_id"] as num?)?.toInt() ?? 0,
+        customerName: json["customer_name"]?.toString() ?? '',
+        customerNumber: json["customer_number"]?.toString() ?? '',
+        customerEmail: json["customer_email"]?.toString() ?? '',
+        customerAddress: json["customer_address"]?.toString() ?? '',
+        customerGender: json["customer_gender"]?.toString() ?? '',
+        cardNo: json["card_no"]?.toString() ?? '',
+        createdAt:
+            DateTime.tryParse(json["created_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt:
+            DateTime.tryParse(json["updated_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         deletedAt: json["deleted_at"],
       );
 

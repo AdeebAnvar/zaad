@@ -3,10 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
-import 'package:pos/core/sync/ws_detach_done_errors.dart';
-import 'package:uuid/uuid.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// Mirrors successful tenant API JSON responses from MAIN Flutter to SUBs via the Node hub.
 ///
@@ -84,31 +82,13 @@ class HubApiMirrorPublisher {
   }
 
   static Future<void> _publishOne(LocalHubSettings hub, Map<String, dynamic> mirrorPayload) async {
-    WebSocketChannel? ch;
     try {
-      await hub.resolveOrAllocateDeviceId(() => const Uuid().v4());
-      final deviceId = hub.requireDeviceId();
-      final uri = Uri.parse(hub.publishHubWsUrlOrLoopback.trim());
-      ch = WebSocketChannel.connect(uri);
-      detachWebSocketSinkDone(ch);
-
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      final env = PosSyncEnvelope(
-        eventId: const Uuid().v4(),
+      await HubOrderLanPublisher.enqueueMainEventWithQueue(
         type: PosSyncEventTypes.apiMirror,
         payload: mirrorPayload,
-        timestamp: nowMs ~/ 1000,
-        deviceId: deviceId,
       );
-      ch.sink.add(env.encode());
     } catch (e, st) {
       if (kDebugMode) debugPrint('[HubApiMirrorPublisher] send failed: $e\n$st');
-    } finally {
-      try {
-        await ch?.sink.close();
-      } catch (_) {
-        /* ignore */
-      }
     }
   }
 }

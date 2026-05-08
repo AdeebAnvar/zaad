@@ -16,8 +16,7 @@ class DioClient {
   static const String _authHeaderKey = 'X-Auth-Key';
   static const String _authHeaderValue = 'd0ff75bf-77e6-4032-a7d4-9061ddd89752';
 
-  static String _trimTrailingSlash(String s) =>
-      s.replaceFirst(RegExp(r'/+$'), '');
+  static String _trimTrailingSlash(String s) => s.replaceFirst(RegExp(r'/+$'), '');
 
   static void _maybeAttachLogger(Dio dio) {
     final hasPrettyLogger = dio.interceptors.any(
@@ -45,6 +44,7 @@ class DioClient {
     } else {
       final prefs = await SharedPreferences.getInstance();
       final baseUrl = prefs.getString('baseUrl') ?? '';
+
       _dio!.options.baseUrl = _trimTrailingSlash(baseUrl);
     }
     _dio!.options.headers = {_authHeaderKey: _authHeaderValue};

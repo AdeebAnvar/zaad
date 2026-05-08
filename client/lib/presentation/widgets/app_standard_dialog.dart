@@ -216,7 +216,7 @@ Future<bool?> showAppConfirmDialog(
                       onPressed: () => Navigator.pop(ctx, false),
                     ),
                     CustomButton(
-                      width: 110,
+                      hugContent: true,
                       backgroundColor: confirmBackgroundColor ?? AppColors.primaryColor,
                       onPressed: () => Navigator.pop(ctx, true),
                       text: confirmText,

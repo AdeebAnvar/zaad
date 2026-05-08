@@ -15,7 +15,7 @@ import 'package:pos/data/repository/settings_repository.dart';
 import 'package:pos/data/repository/user_repository.dart';
 import 'package:pos/domain/models/branch_model.dart';
 import 'package:pos/domain/models/category_model.dart';
-import 'package:pos/domain/models/company_Data.dart';
+import 'package:pos/domain/models/company_data.dart';
 import 'package:pos/domain/models/item_model.dart';
 import 'package:pos/domain/models/settings_model.dart';
 import 'package:pos/domain/models/user_model.dart';

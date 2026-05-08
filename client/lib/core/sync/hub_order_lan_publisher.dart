@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
@@ -43,6 +44,16 @@ class HubOrderLanPublisher {
       final hub = g<LocalHubSettings>();
       if (hub.publishHubWsUrlOrLoopback.isEmpty) return null;
       return hub;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static AppDatabase? _dbOrNull() {
+    try {
+      final g = GetIt.instance;
+      if (!g.isRegistered<AppDatabase>()) return null;
+      return g<AppDatabase>();
     } catch (_) {
       return null;
     }
@@ -100,9 +111,9 @@ class HubOrderLanPublisher {
 
       _serial = (_serial ?? Future<void>.value()).then((_) async {
         try {
-          await _publishMainEnvelope(hub, type, payload);
+          await _enqueueAndFlushMain(hub: hub, type: type, payload: payload);
         } catch (_) {
-          /* ignore transient WS errors */
+          /* keep unsynced in outbox */
         }
       });
     });
@@ -132,35 +143,141 @@ class HubOrderLanPublisher {
 
       _serial = (_serial ?? Future<void>.value()).then((_) async {
         try {
-          await _publishMainEnvelope(hub, PosSyncEventTypes.delete, payload);
+          await _enqueueAndFlushMain(
+            hub: hub,
+            type: PosSyncEventTypes.delete,
+            payload: payload,
+          );
         } catch (_) {}
       });
     });
   }
 
-  static Future<void> _publishMainEnvelope(
-    LocalHubSettings hub,
-    String type,
-    Map<String, dynamic> payload,
-  ) async {
+  static Future<void> _enqueueAndFlushMain({
+    required LocalHubSettings hub,
+    required String type,
+    required Map<String, dynamic> payload,
+  }) async {
+    final db = _dbOrNull();
+    if (db == null) return;
+    final eventId = const Uuid().v4();
+    await db.syncQueueDao.insertOutbox(
+      SyncOutboxCompanion.insert(
+        id: eventId,
+        eventType: type,
+        payload: jsonEncode(payload),
+      ),
+    );
+    await _flushMainOutboxBestEffort(hub: hub, db: db);
+  }
+
+  static Future<int> retryUnsyncedNow() async {
+    final hub = _eligibleHubOrNull();
+    final db = _dbOrNull();
+    if (hub == null || db == null) return 0;
+    return _flushMainOutboxBestEffort(hub: hub, db: db);
+  }
+
+  /// Queue any MAIN-originated WS sync event with ACK-backed outbox semantics.
+  static Future<void> enqueueMainEventWithQueue({
+    required String type,
+    required Map<String, dynamic> payload,
+  }) async {
+    final hub = _eligibleHubOrNull();
+    if (hub == null || hub.isHubSub) return;
+    await _enqueueAndFlushMain(hub: hub, type: type, payload: payload);
+  }
+
+  static Future<int> _flushMainOutboxBestEffort({
+    required LocalHubSettings hub,
+    required AppDatabase db,
+  }) async {
+    final now = DateTime.now();
+    final rows = await db.syncQueueDao.outboxWorkQueue(now);
+    var acked = 0;
+    for (final r in rows) {
+      final ok = await _sendMainOutboxRowWithAck(hub: hub, row: r);
+      if (ok) {
+        acked++;
+        await db.syncQueueDao.patchOutbox(
+          r.id,
+          const SyncOutboxCompanion(
+            status: Value('ACKED'),
+            nextRetryAfter: Value(null),
+          ),
+        );
+      } else {
+        await db.syncQueueDao.patchOutbox(
+          r.id,
+          SyncOutboxCompanion(
+            status: const Value('FAILED'),
+            retryCount: Value(r.retryCount + 1),
+            nextRetryAfter: Value(now.add(Duration(seconds: _nextBackoffSec(r.retryCount + 1)))),
+          ),
+        );
+      }
+    }
+    return acked;
+  }
+
+  static int _nextBackoffSec(int retryCount) => (1 << retryCount.clamp(0, 8)).clamp(1, 120);
+
+  static Future<bool> _sendMainOutboxRowWithAck({
+    required LocalHubSettings hub,
+    required SyncOutboxData row,
+  }) async {
     WebSocketChannel? ch;
     try {
+      final decoded = jsonDecode(row.payload);
+      final payload = Map<String, dynamic>.from(decoded as Map);
       await hub.resolveOrAllocateDeviceId(() => const Uuid().v4());
       final deviceId = hub.requireDeviceId();
       final uri = Uri.parse(hub.publishHubWsUrlOrLoopback.trim());
       ch = WebSocketChannel.connect(uri);
       detachWebSocketSinkDone(ch);
-      final env = PosSyncEnvelope(
+
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final connect = PosSyncEnvelope(
         eventId: const Uuid().v4(),
-        type: type,
+        type: PosSyncEventTypes.connect,
+        payload: const <String, dynamic>{
+          'clientRole': 'MAIN_CLIENT',
+          'appMode': 'main',
+        },
+        timestamp: nowSec,
+        deviceId: deviceId,
+      );
+      ch.sink.add(connect.encode());
+
+      final env = PosSyncEnvelope(
+        eventId: row.id,
+        type: row.eventType,
         payload: payload,
-        timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        timestamp: nowSec,
         deviceId: deviceId,
       );
       ch.sink.add(env.encode());
-      if (kDebugMode) debugPrint('[HubOrderLanPublisher] MAIN sent $type orderId=${payload['orderId'] ?? payload['id']}');
+
+      final rawAck = await ch.stream.firstWhere((dynamic raw) {
+        try {
+          final text = raw is String ? raw : utf8.decode(raw as List<int>);
+          final ack = PosSyncEnvelope.tryDecode(text);
+          if (ack == null || ack.type != PosSyncEventTypes.ack) return false;
+          return ack.payload['forEventId']?.toString() == row.id;
+        } catch (_) {
+          return false;
+        }
+      }).timeout(const Duration(seconds: 5));
+
+      final text = rawAck is String ? rawAck : utf8.decode(rawAck as List<int>);
+      final ack = PosSyncEnvelope.tryDecode(text);
+      final ok = ack != null && (ack.payload['ok'] == true || ack.payload['duplicate'] == true);
+      return ok;
     } catch (e, st) {
-      if (kDebugMode) debugPrint('[HubOrderLanPublisher] MAIN send failed: $e\n$st');
+      if (kDebugMode) {
+        debugPrint('[HubOrderLanPublisher] MAIN send failed id=${row.id}: $e\n$st');
+      }
+      return false;
     } finally {
       try {
         await ch?.sink.close();

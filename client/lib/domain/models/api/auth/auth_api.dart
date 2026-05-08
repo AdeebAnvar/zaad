@@ -12,13 +12,23 @@ class AuthApi {
       ApiEndpoints.commonBaseUrl,
       queryParameters: {"appid": code},
     );
-    final data = response.data as Map;
+    final raw = response.data;
+    if (raw is! Map) {
+      throw FormatException(
+        'App lookup response was not a JSON object (got ${raw.runtimeType})',
+      );
+    }
+    final data = Map<String, dynamic>.from(raw);
     if (data.containsKey('message')) {
       return '${data['message']}';
     }
 
+    final url = data['url'];
+    if (url == null || '$url'.trim().isEmpty) {
+      throw const FormatException('Server response did not include tenant URL');
+    }
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setString('baseUrl', response.data['url']);
+    await prefs.setString('baseUrl', '$url');
     return null;
   }
 

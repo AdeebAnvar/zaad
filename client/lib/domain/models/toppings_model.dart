@@ -46,7 +46,9 @@ class ToppingModel {
         deleted: List<dynamic>.from(
           (json["deleted"] as List? ?? const <dynamic>[]).map((x) => x),
         ),
-        pagination: PaginationModel.fromJson(json["pagination"] as Map<String, dynamic>),
+        pagination: json["pagination"] is Map
+            ? PaginationModel.fromJson(Map<String, dynamic>.from(json["pagination"] as Map))
+            : PaginationModel.fallback(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -132,8 +134,8 @@ class ToppingCategoriesCreatedUpdated {
         minSelect: _parseIntLoose(json["min_select"] ?? json["minSelect"]),
         maxSelect: _parseIntLoose(json["max_select"] ?? json["maxSelect"]),
         status: _parseIntLoose(json["status"]) ?? 0,
-        createdAt: DateTime.parse(json["created_at"].toString()),
-        updatedAt: DateTime.parse(json["updated_at"].toString()),
+        createdAt: DateTime.tryParse(json["created_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt: DateTime.tryParse(json["updated_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         deletedAt: json["deleted_at"],
         toppingsCategoryId: _parseIntLoose(
           json["toppings_category_id"] ??

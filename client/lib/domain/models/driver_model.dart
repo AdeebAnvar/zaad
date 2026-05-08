@@ -30,13 +30,7 @@ class DriverModel {
         deleted: List<dynamic>.from((json["deleted"] as List?) ?? const <dynamic>[]),
         pagination: json["pagination"] is Map
             ? PaginationModel.fromJson(Map<String, dynamic>.from(json["pagination"] as Map))
-            : PaginationModel(
-                currentPage: 1,
-                lastPage: 1,
-                perPage: 15,
-                total: 0,
-                hasMore: false,
-              ),
+            : PaginationModel.fallback(),
       );
 
   Map<String, dynamic> toJson() => {

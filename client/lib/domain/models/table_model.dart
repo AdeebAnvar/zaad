@@ -23,9 +23,14 @@ class TablesModel {
       );
 
   factory TablesModel.fromJson(Map<String, dynamic> json) => TablesModel(
-        createdUpdated: List<TablesCreatedUpdated>.from(json["created_updated"].map((x) => TablesCreatedUpdated.fromJson(x))),
-        deleted: List<dynamic>.from(json["deleted"].map((x) => x)),
-        pagination: PaginationModel.fromJson(json["pagination"]),
+        createdUpdated: (json["created_updated"] as List?)
+                ?.map((x) => TablesCreatedUpdated.fromJson(Map<String, dynamic>.from(x as Map)))
+                .toList() ??
+            const [],
+        deleted: List<dynamic>.from(json["deleted"] as List? ?? const []),
+        pagination: json["pagination"] is Map
+            ? PaginationModel.fromJson(Map<String, dynamic>.from(json["pagination"] as Map))
+            : PaginationModel.fallback(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -86,15 +91,17 @@ class TablesCreatedUpdated {
       );
 
   factory TablesCreatedUpdated.fromJson(Map<String, dynamic> json) => TablesCreatedUpdated(
-        id: json["id"],
-        uuid: json["uuid"],
-        branchId: json["branch_id"],
-        floorId: json["floor_id"],
-        tableName: json["table_name"],
-        tableSlug: json["table_slug"],
-        orderCount: json["order_count"],
-        createdAt: DateTime.parse(json["created_at"]),
-        updatedAt: DateTime.parse(json["updated_at"]),
+        id: (json["id"] as num?)?.toInt() ?? 0,
+        uuid: json["uuid"]?.toString() ?? '',
+        branchId: (json["branch_id"] as num?)?.toInt() ?? 0,
+        floorId: (json["floor_id"] as num?)?.toInt() ?? 0,
+        tableName: json["table_name"]?.toString() ?? '',
+        tableSlug: json["table_slug"]?.toString() ?? '',
+        orderCount: (json["order_count"] as num?)?.toInt() ?? 0,
+        createdAt:
+            DateTime.tryParse(json["created_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt:
+            DateTime.tryParse(json["updated_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         deletedAt: json["deleted_at"],
       );
 

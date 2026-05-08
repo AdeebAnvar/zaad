@@ -17,10 +17,10 @@ class DiningTableModel {
     final rawFloorId = json['floorId'] ?? json['floor_id'] ?? 0;
     final rawChairs = json['chairs'] ?? json['chair_count'] ?? 4;
     return DiningTableModel(
-      id: (json['id'] as num).toInt(),
-      floorId: (rawFloorId as num).toInt(),
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      floorId: (rawFloorId as num?)?.toInt() ?? 0,
       code: (json['code'] ?? json['name'] ?? '').toString(),
-      chairs: (rawChairs as num).toInt(),
+      chairs: (rawChairs as num?)?.toInt() ?? 4,
       status: ((json['status'] ?? 'free').toString()).toLowerCase(),
     );
   }

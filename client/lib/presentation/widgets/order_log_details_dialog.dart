@@ -9,6 +9,25 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 
+double _effectiveOrderDiscountForDisplay(Order o) {
+  final t = (o.discountType ?? '').trim().toLowerCase();
+  if (o.discountAmount > 0.009) {
+    if (t == 'percentage') {
+      final pct = o.discountAmount.clamp(0, 100).toDouble();
+      final computed = (o.totalAmount * pct / 100).clamp(0, o.totalAmount).toDouble();
+      final gap = (o.totalAmount - o.finalAmount).toDouble();
+      final validGap = gap > 0.009 ? gap : 0.0;
+      if (validGap > 0 && (computed - validGap).abs() > 0.02) {
+        return validGap;
+      }
+      return computed;
+    }
+    return o.discountAmount.clamp(0, o.totalAmount).toDouble();
+  }
+  final gap = o.totalAmount - o.finalAmount;
+  return gap > 0.009 ? gap : 0.0;
+}
+
 /// Shared order line-item dialog used by Take Away Log, Dine In Log, etc.
 class OrderLogDetailsDialog extends StatelessWidget {
   const OrderLogDetailsDialog({
@@ -572,7 +591,8 @@ class _Footer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasDiscount = order.discountAmount > 0;
+    final effectiveDiscount = _effectiveOrderDiscountForDisplay(order);
+    final hasDiscount = effectiveDiscount > 0.009;
     final total = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
 
     return Container(
@@ -597,7 +617,7 @@ class _Footer extends StatelessWidget {
               const SizedBox(height: 4),
               _TotalLine(
                 label: 'Discount',
-                amount: -order.discountAmount,
+                amount: -effectiveDiscount,
                 emphasize: false,
                 discount: true,
               ),

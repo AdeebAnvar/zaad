@@ -8,12 +8,13 @@ import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
+import 'package:pos/core/util/error_diagnostics.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/local/tenant_switch_local_wipe.dart';
 import 'package:pos/data/repository/branch_repository.dart';
 import 'package:pos/data/repository/settings_repository.dart';
 import 'package:pos/domain/models/api/auth/auth_repository.dart';
-import 'package:pos/domain/models/company_Data.dart';
+import 'package:pos/domain/models/company_data.dart';
 import '../../domain/models/user_model.dart';
 import '../../data/repository/user_repository.dart';
 part 'login_screen_state.dart';
@@ -149,8 +150,14 @@ class LoginCubit extends Cubit<LoginState> {
         debugPrint('[connectToServer] failed: $e');
         debugPrint('$s');
       }
-      final detail = '$e${kDebugMode ? '\n\n$s' : ''}';
-      emit(LoginServerConnectError(detail.trim()));
+      final detail = userFacingConnectErrorMessage(e, s);
+      agentLogConnectToServerFailure(
+        hypothesisId: 'H1_stringify',
+        primaryLine: describePrimarySupportLine(e),
+        errorRuntimeType: e.runtimeType.toString(),
+        includeStack: true,
+      );
+      emit(LoginServerConnectError(detail));
     }
   }
 }

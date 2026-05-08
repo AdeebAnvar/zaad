@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
@@ -16,6 +17,8 @@ import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
+import 'package:pos/presentation/widgets/app_standard_dialog.dart';
+import 'package:pos/presentation/widgets/qty_password_guard.dart';
 
 class RecentSalesScreen extends StatelessWidget {
   const RecentSalesScreen({super.key});
@@ -242,8 +245,28 @@ class _RecentSalesDesktopTable extends StatelessWidget {
 
   final List<Order> orders;
 
+  Future<void> _handleDelete(BuildContext context, Order order) async {
+    final reason = await requireQtyPasswordWithReason(
+      context,
+      actionLabel: 'Delete',
+      reasonLabel: 'Reason for deleting',
+    );
+    if (reason == null || !context.mounted) return;
+    final ok = await showAppConfirmDialog(
+      context,
+      title: 'Delete Sale',
+      message: 'Delete sale ${order.invoiceNumber}?\n\nReason: $reason',
+      confirmText: 'Delete',
+      confirmBackgroundColor: Colors.red,
+    );
+    if (ok == true && context.mounted) {
+      await context.read<RecentSalesCubit>().deleteOrder(order.id);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final canDelete = locator<CurrentCounterSession>().access.canRecentSaleDelete;
     return LayoutBuilder(
       builder: (context, constraints) {
         return Container(
@@ -370,6 +393,13 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                                   onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
                                 ),
                               ),
+                              if (canDelete)
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, size: 20),
+                                  color: Colors.red.shade700,
+                                  tooltip: 'Delete',
+                                  onPressed: () => _handleDelete(context, order),
+                                ),
                             ],
                           ),
                         ),
@@ -409,6 +439,25 @@ class RecentSaleCard extends StatefulWidget {
 
 class _RecentSaleCardState extends State<RecentSaleCard> {
   bool _hovered = false;
+
+  Future<void> _handleDelete(BuildContext context, Order order) async {
+    final reason = await requireQtyPasswordWithReason(
+      context,
+      actionLabel: 'Delete',
+      reasonLabel: 'Reason for deleting',
+    );
+    if (reason == null || !context.mounted) return;
+    final ok = await showAppConfirmDialog(
+      context,
+      title: 'Delete Sale',
+      message: 'Delete sale ${order.invoiceNumber}?\n\nReason: $reason',
+      confirmText: 'Delete',
+      confirmBackgroundColor: Colors.red,
+    );
+    if (ok == true && context.mounted) {
+      await context.read<RecentSalesCubit>().deleteOrder(order.id);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -593,6 +642,7 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
   }
 
   Widget _actions(BuildContext context, Order order) {
+    final canDelete = locator<CurrentCounterSession>().access.canRecentSaleDelete;
     return Row(
       children: [
         _icon(
@@ -614,6 +664,13 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
             onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
           ),
         ),
+        if (canDelete)
+          _icon(
+            Icons.delete_outline,
+            tooltip: 'Delete',
+            bg: Colors.red.shade700,
+            onTap: () => _handleDelete(context, order),
+          ),
       ],
     );
   }

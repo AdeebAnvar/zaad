@@ -52,11 +52,11 @@ class UserModel {
     final List<String> permissions = _permissionsFromJson(json['permissions']);
 
     return UserModel(
-      id: json["id"],
-      branchId: json["branch_id"],
-      name: json["name"],
-      usertype: json["usertype"],
-      mobilePassword: json["mobile_password"],
+      id: (json["id"] as num?)?.toInt() ?? 0,
+      branchId: (json["branch_id"] as num?)?.toInt() ?? 0,
+      name: json["name"]?.toString() ?? '',
+      usertype: json["usertype"]?.toString() ?? '',
+      mobilePassword: json["mobile_password"]?.toString() ?? '',
       permissions: permissions,
     );
   }

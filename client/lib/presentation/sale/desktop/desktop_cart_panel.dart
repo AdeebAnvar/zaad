@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -48,6 +49,24 @@ typedef PaymentDialogOnSave = Future<void> Function(
   required bool printKot,
 });
 
+enum _OfferValueType { percentage, amount }
+
+class _AppliedOffer {
+  final String name;
+  final String toDateText;
+  final double value;
+  final _OfferValueType type;
+  final double discountAmount;
+
+  const _AppliedOffer({
+    required this.name,
+    required this.toDateText,
+    required this.value,
+    required this.type,
+    required this.discountAmount,
+  });
+}
+
 Future<void> showCartStylePaymentDialogForOrder(
   BuildContext context, {
   required Order order,
@@ -82,14 +101,43 @@ Future<void> showCartStylePaymentDialogForOrder(
         if (freshOrder == null) return;
 
         final discountAmount = (discount['value'] as double?) ?? 0.0;
-        final finalAmount = (freshOrder.totalAmount - discountAmount).clamp(0.0, double.infinity);
+        final discountType = (discount['type'] as String?) ?? 'amount';
+        final manualDiscountAmount = discountType == 'percentage'
+            ? (freshOrder.totalAmount * (discountAmount / 100)).clamp(0.0, freshOrder.totalAmount).toDouble()
+            : discountAmount.clamp(0.0, freshOrder.totalAmount).toDouble();
+        final rawOffer = discount['offer'];
+        final offer = rawOffer is Map ? Map<String, dynamic>.from(rawOffer) : null;
+        final offerDiscountAmount = (offer?['discountAmount'] as num?)?.toDouble() ??
+            (double.tryParse(offer?['discountAmount']?.toString() ?? '') ?? 0.0);
+        final totalDiscount = (manualDiscountAmount + offerDiscountAmount).clamp(0.0, freshOrder.totalAmount).toDouble();
+        final finalAmount = (freshOrder.totalAmount - totalDiscount).clamp(0.0, double.infinity);
         final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
         final updatedRef = freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : freshOrder.referenceNumber;
+        String? hubMetadataWithOffer = freshOrder.hubMetadata;
+        if (offer != null) {
+          final cleanedOffer = <String, dynamic>{
+            'name': offer['name']?.toString() ?? '',
+            'type': offer['type']?.toString() ?? '',
+            'value': (offer['value'] as num?)?.toDouble() ?? (double.tryParse(offer['value']?.toString() ?? '') ?? 0.0),
+            'discountAmount': offerDiscountAmount,
+            'toDate': offer['toDate']?.toString() ?? '',
+          };
+          try {
+            final existing = (hubMetadataWithOffer != null && hubMetadataWithOffer.trim().isNotEmpty)
+                ? jsonDecode(hubMetadataWithOffer)
+                : <String, dynamic>{};
+            final map = existing is Map ? Map<String, dynamic>.from(existing) : <String, dynamic>{};
+            map['applied_offer'] = cleanedOffer;
+            hubMetadataWithOffer = jsonEncode(map);
+          } catch (_) {
+            hubMetadataWithOffer = jsonEncode({'applied_offer': cleanedOffer});
+          }
+        }
 
         final updatedOrder = freshOrder.copyWith(
           referenceNumber: Value(updatedRef),
-          discountAmount: discountAmount,
-          discountType: Value(discount['type'] as String?),
+          discountAmount: totalDiscount,
+          discountType: Value(totalDiscount > 0 ? 'amount' : discountType),
           finalAmount: finalAmount,
           customerName: Value(customerDetails['name'] as String?),
           customerEmail: Value(customerDetails['email'] as String?),
@@ -100,6 +148,7 @@ Future<void> showCartStylePaymentDialogForOrder(
           cardAmount: payments['card'] ?? 0.0,
           onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
           status: freshOrder.orderType == 'delivery' ? freshOrder.status : 'completed',
+          hubMetadata: Value(hubMetadataWithOffer),
         );
 
         await repo.updateOrder(updatedOrder);
@@ -751,6 +800,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   String _discountType = 'amount';
   double _discountValue = 0;
   double _finalAmount = 0;
+  _AppliedOffer? _appliedOffer;
 
   final CustomerRepository _customerRepo = locator<CustomerRepository>();
   List<PosCustomer> _allCustomers = [];
@@ -780,8 +830,11 @@ class _PaymentDialogState extends State<PaymentDialog> {
       if (savedDisc > 0 && savedDiscType == 'percentage') {
         _discountType = 'percentage';
         final subtotal = widget.totalAmount;
-        final pct = subtotal > 0 ? (savedDisc / subtotal * 100) : 0.0;
-        _discountPercentController.text = pct > 0 ? pct.toStringAsFixed(2) : savedDisc.toString();
+        // Support both legacy data (stored as amount but tagged percentage) and corrected data (stored as percent).
+        final pct = (savedDisc >= 0 && savedDisc <= 100)
+            ? savedDisc
+            : (subtotal > 0 ? (savedDisc / subtotal * 100) : 0.0);
+        _discountPercentController.text = pct > 0 ? pct.toStringAsFixed(2) : '';
         _discountAmountController.clear();
       } else if (savedDisc > 0) {
         _discountType = 'amount';
@@ -791,6 +844,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     }
 
     _updateFinalAmount();
+    unawaited(_loadApplicableOffer());
 
     // New order: [getPaymentPrefillForEdit] is null — leave payment fields empty (take away, dine in, delivery).
     // Editing: prefill cash/card/credit/online from the saved order.
@@ -814,6 +868,71 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _creditFocusNode.addListener(_onPaymentFocusCredit);
     _onlineFocusNode.addListener(_onPaymentFocusOnline);
     _otherFocusNode.addListener(_onPaymentFocusOther);
+  }
+
+  Future<void> _loadApplicableOffer() async {
+    try {
+      final db = locator<AppDatabase>();
+      final session = await db.sessionDao.getActiveSession();
+      final branchId = session?.branchId ?? 1;
+      final rows = await db.pullDataDao.getOffersForBranch(branchId);
+      final today = DateUtils.dateOnly(DateTime.now());
+
+      _AppliedOffer? applied;
+      for (final row in rows) {
+        final payloadRaw = row.otherName;
+        if (payloadRaw == null || payloadRaw.trim().isEmpty) continue;
+        final decoded = jsonDecode(payloadRaw);
+        if (decoded is! Map) continue;
+        final payload = Map<String, dynamic>.from(decoded);
+
+        final activeRaw = payload['active'];
+        final active = activeRaw is num ? activeRaw.toInt() : int.tryParse(activeRaw?.toString() ?? '') ?? 0;
+        if (active != 1) continue;
+
+        final fromDate = DateTime.tryParse(payload['from_date']?.toString() ?? '');
+        final toDate = DateTime.tryParse(payload['to_date']?.toString() ?? '');
+        if (fromDate == null || toDate == null) continue;
+        final fromOnly = DateUtils.dateOnly(fromDate);
+        final toOnly = DateUtils.dateOnly(toDate);
+        if (today.isBefore(fromOnly) || today.isAfter(toOnly)) continue;
+
+        final rawType = payload['type']?.toString().trim().toLowerCase() ?? '';
+        final type = rawType == 'percentage'
+            ? _OfferValueType.percentage
+            : (rawType == 'amount' ? _OfferValueType.amount : null);
+        if (type == null) continue;
+
+        final value = double.tryParse(payload['value']?.toString() ?? '') ?? 0.0;
+        if (value <= 0) continue;
+
+        final discount = type == _OfferValueType.percentage
+            ? (widget.totalAmount * (value / 100)).clamp(0.0, widget.totalAmount).toDouble()
+            : value.clamp(0.0, widget.totalAmount).toDouble();
+        if (discount <= 0) continue;
+
+        applied = _AppliedOffer(
+          name: row.categoryName.trim().isEmpty ? 'Offer' : row.categoryName.trim(),
+          toDateText: payload['to_date']?.toString() ?? '',
+          value: value,
+          type: type,
+          discountAmount: discount,
+        );
+        break;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _appliedOffer = applied;
+        _recalculateFinalAmount();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _appliedOffer = null;
+        _recalculateFinalAmount();
+      });
+    }
   }
 
   /// When a payment field gets focus, set its value to remaining amount.
@@ -921,15 +1040,18 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   void _updateFinalAmount() {
-    setState(() {
-      if (_discountType == 'percentage') {
-        final percent = double.tryParse(_discountPercentController.text) ?? 0;
-        _discountValue = widget.totalAmount * (percent / 100);
-      } else {
-        _discountValue = double.tryParse(_discountAmountController.text) ?? 0;
-      }
-      _finalAmount = (widget.totalAmount - _discountValue).clamp(0, double.infinity);
-    });
+    setState(_recalculateFinalAmount);
+  }
+
+  void _recalculateFinalAmount() {
+    if (_discountType == 'percentage') {
+      final percent = double.tryParse(_discountPercentController.text) ?? 0;
+      _discountValue = widget.totalAmount * (percent / 100);
+    } else {
+      _discountValue = double.tryParse(_discountAmountController.text) ?? 0;
+    }
+    final offerDiscount = _appliedOffer?.discountAmount ?? 0.0;
+    _finalAmount = (widget.totalAmount - _discountValue - offerDiscount).clamp(0, double.infinity);
   }
 
   bool _validatePayments() {
@@ -1040,13 +1162,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                   Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
                 ],
               ),
-              Row(
-                children: [
-                  Icon(Icons.discount_outlined, size: 20, color: AppColors.primaryColor),
-                  const SizedBox(width: 10),
-                  Text('Discount', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
-                ],
-              ),
+              _discountSectionTitle(),
               Row(
                 children: [
                   Icon(Icons.payment, size: 20, color: AppColors.primaryColor),
@@ -1233,84 +1349,149 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Widget _discountFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Discount by Amount',
+                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
+                  ),
+                  const SizedBox(height: 6),
+                  CustomTextField(
+                    controller: _discountAmountController,
+                    labelText: '',
+                    keyBoardType: TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
+                    onTap: () {
+                      _discountType = 'amount';
+                      _discountPercentController.clear();
+                      _updateFinalAmount();
+                    },
+                    onChanged: (_) => _updateFinalAmount(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Discount by %',
+                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
+                  ),
+                  const SizedBox(height: 6),
+                  CustomTextField(
+                    controller: _discountPercentController,
+                    labelText: '',
+                    keyBoardType: TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
+                    onTap: () {
+                      _discountType = 'percentage';
+                      _discountAmountController.clear();
+                      _updateFinalAmount();
+                    },
+                    onChanged: (_) => _updateFinalAmount(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 20),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'Amount Payable',
+                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  height: 44,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$_currencyLabel ${_finalAmount.toStringAsFixed(2)}',
+                      style: AppStyles.getBoldTextStyle(fontSize: 18, color: AppColors.primaryColor),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        if (_appliedOffer != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _appliedOffer!.name.toUpperCase(),
+                  style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: Colors.green.shade900),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _appliedOffer!.type == _OfferValueType.percentage
+                      ? '${_formatOfferValue(_appliedOffer!.value)}% discount'
+                      : '$_currencyLabel ${_formatOfferValue(_appliedOffer!.value)} discount',
+                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.green.shade900),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _formatOfferValue(double value) {
+    final text = value.toStringAsFixed(2);
+    return text.endsWith('.00') ? text.substring(0, text.length - 3) : text;
+  }
+
+  Widget _discountSectionTitle() {
+    final offer = _appliedOffer;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Icon(Icons.discount_outlined, size: 20, color: AppColors.primaryColor),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Discount by Amount',
-                style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
-              ),
-              const SizedBox(height: 6),
-              CustomTextField(
-                controller: _discountAmountController,
-                labelText: '',
-                keyBoardType: TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
-                onTap: () {
-                  _discountType = 'amount';
-                  _discountPercentController.clear();
-                  _updateFinalAmount();
-                },
-                onChanged: (_) => _updateFinalAmount(),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Discount by %',
-                style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
-              ),
-              const SizedBox(height: 6),
-              CustomTextField(
-                controller: _discountPercentController,
-                labelText: '',
-                keyBoardType: TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
-                onTap: () {
-                  _discountType = 'percentage';
-                  _discountAmountController.clear();
-                  _updateFinalAmount();
-                },
-                onChanged: (_) => _updateFinalAmount(),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 20),
-        // Amount Payable (right side, like image)
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              'Amount Payable',
-              style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              height: 44,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Center(
-                child: Text(
-                  '$_currencyLabel ${_finalAmount.toStringAsFixed(2)}',
-                  style: AppStyles.getBoldTextStyle(fontSize: 18, color: AppColors.primaryColor),
+              Text('Discount', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
+              if (offer != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Offer: ${offer.name} (${offer.discountAmount.toStringAsFixed(2)} off)',
+                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.green.shade700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ),
-          ],
+              ],
+            ],
+          ),
         ),
       ],
     );
@@ -1480,6 +1661,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         setState(() => _isSubmitting = true);
                         try {
                           await _saveNewCustomerIfNeeded();
+                          final percentInput = double.tryParse(_discountPercentController.text) ?? 0.0;
+                          final discountPayloadValue =
+                              _discountType == 'percentage' ? percentInput : _discountValue;
                           await widget.onSave(
                             {
                               'name': _nameController.text,
@@ -1490,7 +1674,16 @@ class _PaymentDialogState extends State<PaymentDialog> {
                             },
                             {
                               'type': _discountType,
-                              'value': _discountValue,
+                              'value': discountPayloadValue,
+                              'offer': _appliedOffer == null
+                                  ? null
+                                  : {
+                                      'name': _appliedOffer!.name,
+                                      'type': _appliedOffer!.type == _OfferValueType.percentage ? 'percentage' : 'amount',
+                                      'value': _appliedOffer!.value,
+                                      'discountAmount': _appliedOffer!.discountAmount,
+                                      'toDate': _appliedOffer!.toDateText,
+                                    },
                             },
                             {
                               'cash': double.tryParse(_cashController.text) ?? 0,

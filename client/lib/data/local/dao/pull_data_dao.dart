@@ -121,6 +121,8 @@ class SyncPaginationStates extends Table {
 )
 class PullDataDao extends DatabaseAccessor<AppDatabase> with _$PullDataDaoMixin {
   PullDataDao(AppDatabase db) : super(db);
+  static const String _syncMetaTable = 'sync_meta_state';
+  static const String _pullLastSyncedAtKey = 'pull_last_synced_at';
 
   Future<void> upsertPullCategory(PullCategoryRowsCompanion row) async {
     await into(pullCategoryRows).insertOnConflictUpdate(row);
@@ -149,9 +151,59 @@ class PullDataDao extends DatabaseAccessor<AppDatabase> with _$PullDataDaoMixin 
     await into(syncPaginationStates).insertOnConflictUpdate(state);
   }
 
+  Future<List<PullCategoryRow>> getOffersForBranch(int branchId) {
+    return () async {
+      final scoped = await ((select(pullCategoryRows)
+            ..where((t) => t.resourceKey.equals('offers'))
+            ..where((t) => t.branchId.equals(branchId))
+            ..where((t) => t.deletedAt.isNull()))
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .get();
+      if (scoped.isNotEmpty) return scoped;
+
+      // Fallback for legacy/partial data where offer branch_id may not match active session.
+      return ((select(pullCategoryRows)
+            ..where((t) => t.resourceKey.equals('offers'))
+            ..where((t) => t.deletedAt.isNull()))
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .get();
+    }();
+  }
+
   /// Last saved pagination row for a resource (for resume / UI).
   Future<SyncPaginationState?> getPaginationState(String resourceKey) {
     return (select(syncPaginationStates)..where((s) => s.resourceKey.equals(resourceKey)))
         .getSingleOrNull();
+  }
+
+  Future<void> _ensureSyncMetaTable() async {
+    await customStatement(
+      'CREATE TABLE IF NOT EXISTS $_syncMetaTable (meta_key TEXT PRIMARY KEY, meta_value TEXT)',
+    );
+  }
+
+  Future<String?> getPullLastSyncedAt() async {
+    await _ensureSyncMetaTable();
+    final rows = await customSelect(
+      'SELECT meta_value FROM $_syncMetaTable WHERE meta_key = ? LIMIT 1',
+      variables: <Variable<Object>>[
+        const Variable<String>(_pullLastSyncedAtKey),
+      ],
+      readsFrom: {},
+    ).get();
+    if (rows.isEmpty) return null;
+    final value = rows.first.read<String>('meta_value').trim();
+    return value.isEmpty ? null : value;
+  }
+
+  Future<void> savePullLastSyncedAt(String lastSyncedAt) async {
+    final normalized = lastSyncedAt.trim();
+    if (normalized.isEmpty) return;
+    await _ensureSyncMetaTable();
+    await customStatement(
+      'INSERT INTO $_syncMetaTable(meta_key, meta_value) VALUES(?, ?) '
+      'ON CONFLICT(meta_key) DO UPDATE SET meta_value = excluded.meta_value',
+      <Object>[_pullLastSyncedAtKey, normalized],
+    );
   }
 }

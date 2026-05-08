@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/utils/item_order_channels.dart';
@@ -30,10 +34,15 @@ class ItemsCubit extends Cubit<ItemState> {
   List<Item> _allItems = [];
   List<Category> _allCategories = [];
   Set<int> _variantItemIds = {};
+  StreamSubscription<List<Item>>? _itemsSub;
+  StreamSubscription<List<Category>>? _categoriesSub;
+  StreamSubscription<List<ItemVariant>>? _variantsSub;
 
   int _selectedCategoryId = -1;
   int get selectedCategoryId => _selectedCategoryId;
   String _searchQuery = "";
+  static const String _debugLogPath = r'c:\Users\adeeb\OneDrive\Desktop\pos\pos\debug-aa2a57.log';
+  static const String _debugSessionId = 'aa2a57';
 
   /// Canonical token for `[Item.deliveryPartner]` comparison (often numeric id string).
   String? _deliveryFilterToken;
@@ -44,7 +53,58 @@ class ItemsCubit extends Cubit<ItemState> {
     final allVariants = await _repo.fetchAllVariants();
     _variantItemIds = allVariants.map((v) => v.itemId).toSet();
     await _resolveDeliveryFilterToken();
+    // #region agent log
+    await _agentLog(
+      runId: 'pre-fix',
+      hypothesisId: 'H2',
+      location: 'items_cubit.dart:49',
+      message: 'Initial catalog snapshot loaded',
+      data: {
+        'total_items': _allItems.length,
+        'nutella_ids': _allItems
+            .where((i) => i.name.trim().toLowerCase().contains('nutella'))
+            .map((i) => i.id)
+            .toList(),
+        'category_count': _allCategories.length,
+      },
+    );
+    // #endregion
     _applyFilters();
+    _startCatalogWatchers();
+  }
+
+  void _startCatalogWatchers() {
+    _itemsSub?.cancel();
+    _categoriesSub?.cancel();
+    _variantsSub?.cancel();
+
+    _itemsSub = _repo.watchItemsFromLocal().listen((items) {
+      _allItems = items;
+      // #region agent log
+      unawaited(_agentLog(
+        runId: 'pre-fix',
+        hypothesisId: 'H3',
+        location: 'items_cubit.dart:66',
+        message: 'Items watcher emitted update',
+        data: {
+          'total_items': items.length,
+          'nutella_ids': items
+              .where((i) => i.name.trim().toLowerCase().contains('nutella'))
+              .map((i) => i.id)
+              .toList(),
+        },
+      ));
+      // #endregion
+      _applyFilters();
+    });
+    _categoriesSub = _repo.watchCategoriesFromLocal().listen((categories) {
+      _allCategories = categories;
+      _applyFilters();
+    });
+    _variantsSub = _repo.watchAllVariants().listen((variants) {
+      _variantItemIds = variants.map((v) => v.itemId).toSet();
+      _applyFilters();
+    });
   }
 
   void selectCategory(int categoryId) {
@@ -124,6 +184,23 @@ class ItemsCubit extends Cubit<ItemState> {
         return i.name.toLowerCase().contains(_searchQuery) || i.barcode.contains(_searchQuery) || i.otherName.toLowerCase().contains(_searchQuery);
       }).toList();
     }
+    // #region agent log
+    unawaited(_agentLog(
+      runId: 'pre-fix',
+      hypothesisId: 'H4',
+      location: 'items_cubit.dart:142',
+      message: 'Filtered catalog emitted to UI',
+      data: {
+        'selected_category': _selectedCategoryId,
+        'search': _searchQuery,
+        'filtered_count': filtered.length,
+        'filtered_nutella_ids': filtered
+            .where((i) => i.name.trim().toLowerCase().contains('nutella'))
+            .map((i) => i.id)
+            .toList(),
+      },
+    ));
+    // #endregion
     emit(
       ItemsLoadedState(
         items: filtered,
@@ -143,6 +220,39 @@ class ItemsCubit extends Cubit<ItemState> {
 
   Future<List<ToppingGroup>> getToppingGroups(int itemId) {
     return _repo.fetchToppingGroups(itemId);
+  }
+
+  @override
+  Future<void> close() async {
+    await _itemsSub?.cancel();
+    await _categoriesSub?.cancel();
+    await _variantsSub?.cancel();
+    return super.close();
+  }
+
+  Future<void> _agentLog({
+    required String runId,
+    required String hypothesisId,
+    required String location,
+    required String message,
+    required Map<String, dynamic> data,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        'sessionId': _debugSessionId,
+        'runId': runId,
+        'hypothesisId': hypothesisId,
+        'location': location,
+        'message': message,
+        'data': data,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+      await File(_debugLogPath).writeAsString(
+        '${jsonEncode(payload)}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {}
   }
 }
 

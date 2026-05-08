@@ -23,9 +23,14 @@ class DeliveryServiceModel {
       );
 
   factory DeliveryServiceModel.fromJson(Map<String, dynamic> json) => DeliveryServiceModel(
-        createdUpdated: List<DeliveryServiceCreatedUpdated>.from(json["created_updated"].map((x) => DeliveryServiceCreatedUpdated.fromJson(x))),
-        deleted: List<dynamic>.from(json["deleted"].map((x) => x)),
-        pagination: PaginationModel.fromJson(json["pagination"]),
+        createdUpdated: (json["created_updated"] as List?)
+                ?.map((x) => DeliveryServiceCreatedUpdated.fromJson(Map<String, dynamic>.from(x as Map)))
+                .toList() ??
+            const [],
+        deleted: List<dynamic>.from(json["deleted"] as List? ?? const []),
+        pagination: json["pagination"] is Map
+            ? PaginationModel.fromJson(Map<String, dynamic>.from(json["pagination"] as Map))
+            : PaginationModel.fallback(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -82,14 +87,16 @@ class DeliveryServiceCreatedUpdated {
       );
 
   factory DeliveryServiceCreatedUpdated.fromJson(Map<String, dynamic> json) => DeliveryServiceCreatedUpdated(
-        id: json["id"],
-        uuid: json["uuid"],
-        branchId: json["branch_id"],
-        serviceName: json["service_name"],
-        serviceNameSlug: json["service_name_slug"],
+        id: (json["id"] as num?)?.toInt() ?? 0,
+        uuid: json["uuid"]?.toString() ?? '',
+        branchId: (json["branch_id"] as num?)?.toInt() ?? 0,
+        serviceName: json["service_name"]?.toString() ?? '',
+        serviceNameSlug: json["service_name_slug"]?.toString() ?? '',
         driverStatus: json["driver_status"],
-        createdAt: DateTime.parse(json["created_at"]),
-        updatedAt: DateTime.parse(json["updated_at"]),
+        createdAt:
+            DateTime.tryParse(json["created_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt:
+            DateTime.tryParse(json["updated_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         deletedAt: json["deleted_at"],
       );
 

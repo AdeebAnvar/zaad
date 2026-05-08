@@ -12,9 +12,9 @@ class DiningFloorModel {
   factory DiningFloorModel.fromJson(Map<String, dynamic> json) {
     final rawSort = json['sortOrder'] ?? json['sort_order'] ?? 0;
     return DiningFloorModel(
-      id: (json['id'] as num).toInt(),
+      id: (json['id'] as num?)?.toInt() ?? 0,
       name: (json['name'] ?? '').toString(),
-      sortOrder: (rawSort as num).toInt(),
+      sortOrder: (rawSort as num?)?.toInt() ?? 0,
     );
   }
 }

@@ -23,9 +23,14 @@ class FloorsModel {
       );
 
   factory FloorsModel.fromJson(Map<String, dynamic> json) => FloorsModel(
-        createdUpdated: List<FloorsCreatedUpdated>.from(json["created_updated"].map((x) => FloorsCreatedUpdated.fromJson(x))),
-        deleted: List<dynamic>.from(json["deleted"].map((x) => x)),
-        pagination: PaginationModel.fromJson(json["pagination"]),
+        createdUpdated: (json["created_updated"] as List?)
+                ?.map((x) => FloorsCreatedUpdated.fromJson(Map<String, dynamic>.from(x as Map)))
+                .toList() ??
+            const [],
+        deleted: List<dynamic>.from(json["deleted"] as List? ?? const []),
+        pagination: json["pagination"] is Map
+            ? PaginationModel.fromJson(Map<String, dynamic>.from(json["pagination"] as Map))
+            : PaginationModel.fallback(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -94,18 +99,20 @@ class FloorsCreatedUpdated {
       );
 
   factory FloorsCreatedUpdated.fromJson(Map<String, dynamic> json) => FloorsCreatedUpdated(
-        id: json["id"],
-        uuid: json["uuid"],
-        branchId: json["branch_id"],
-        floorName: json["floor_name"],
-        floorSlug: json["floor_slug"],
-        createdAt: DateTime.parse(json["created_at"]),
-        updatedAt: DateTime.parse(json["updated_at"]),
+        id: (json["id"] as num?)?.toInt() ?? 0,
+        uuid: json["uuid"]?.toString() ?? '',
+        branchId: (json["branch_id"] as num?)?.toInt() ?? 0,
+        floorName: json["floor_name"]?.toString(),
+        floorSlug: json["floor_slug"]?.toString(),
+        createdAt:
+            DateTime.tryParse(json["created_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt:
+            DateTime.tryParse(json["updated_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         deletedAt: json["deleted_at"],
-        paymentMethodName: json["payment_method_name"],
-        paymentMethodSlug: json["payment_method_slug"],
-        unitName: json["unit_name"],
-        unitSlug: json["unit_slug"],
+        paymentMethodName: json["payment_method_name"]?.toString(),
+        paymentMethodSlug: json["payment_method_slug"]?.toString(),
+        unitName: json["unit_name"]?.toString(),
+        unitSlug: json["unit_slug"]?.toString(),
       );
 
   Map<String, dynamic> toJson() => {

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
@@ -17,6 +19,7 @@ import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_ui.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
+
 class CounterHome extends StatefulWidget {
   const CounterHome({super.key, required this.sessionUser});
   final UserModel? sessionUser;
@@ -158,19 +161,18 @@ class _CounterHomeState extends State<CounterHome> {
           }
 
           final width = constraints.maxWidth;
-          final crossAxisCount = width >= 1200
-              ? 3
-              : width >= 760
-                  ? 2
-                  : 1;
+          final maxColsByWidth = width >= 1200 ? 3 : (width >= 760 ? 2 : 1);
+          // Fewer tiles than columns left empty trailing cells — looks left-heavy on wide dashboards.
+          final crossAxisCount = math.max(1, math.min(maxColsByWidth, tiles.length));
           final maxWidth = width >= 1400 ? 1120.0 : (width >= 760 ? 980.0 : width);
+          final contentWidth = math.min(maxWidth, width);
           final gap = width >= 760 ? 12.0 : 10.0;
           final horizontalPad = width >= 760 ? 200.0 : 10.0;
           final verticalPad = width >= 760 ? 29.0 : 12.0;
 
           return Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
+            child: SizedBox(
+              width: contentWidth,
               child: Padding(
                 padding: EdgeInsets.fromLTRB(horizontalPad, verticalPad, horizontalPad, 12),
                 child: GridView.builder(

@@ -24,9 +24,14 @@ class VariationOptionsModel {
       );
 
   factory VariationOptionsModel.fromJson(Map<String, dynamic> json) => VariationOptionsModel(
-        createdUpdated: List<VariationOptionsCreatedUpdated>.from(json["created_updated"].map((x) => VariationOptionsCreatedUpdated.fromJson(x))),
-        deleted: List<dynamic>.from(json["deleted"].map((x) => x)),
-        pagination: PaginationModel.fromJson(json["pagination"]),
+        createdUpdated: (json["created_updated"] as List?)
+                ?.map((x) => VariationOptionsCreatedUpdated.fromJson(Map<String, dynamic>.from(x as Map)))
+                .toList() ??
+            const [],
+        deleted: List<dynamic>.from(json["deleted"] as List? ?? const []),
+        pagination: json["pagination"] is Map
+            ? PaginationModel.fromJson(Map<String, dynamic>.from(json["pagination"] as Map))
+            : PaginationModel.fallback(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -83,14 +88,16 @@ class VariationOptionsCreatedUpdated {
       );
 
   factory VariationOptionsCreatedUpdated.fromJson(Map<String, dynamic> json) => VariationOptionsCreatedUpdated(
-        id: json["id"],
-        uuid: json["uuid"],
-        branchId: json["branch_id"],
-        variationId: json["variation_id"],
-        option: json["option"],
-        optionSlug: json["option_slug"],
-        createdAt: DateTime.parse(json["created_at"]),
-        updatedAt: DateTime.parse(json["updated_at"]),
+        id: (json["id"] as num?)?.toInt() ?? 0,
+        uuid: json["uuid"]?.toString() ?? '',
+        branchId: (json["branch_id"] as num?)?.toInt() ?? 0,
+        variationId: (json["variation_id"] as num?)?.toInt() ?? 0,
+        option: json["option"]?.toString() ?? '',
+        optionSlug: json["option_slug"]?.toString() ?? '',
+        createdAt:
+            DateTime.tryParse(json["created_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt:
+            DateTime.tryParse(json["updated_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         deletedAt: json["deleted_at"],
       );
 
@@ -130,9 +137,14 @@ class VariationsModel {
       );
 
   factory VariationsModel.fromJson(Map<String, dynamic> json) => VariationsModel(
-        createdUpdated: List<VariationsCreatedUpdated>.from(json["created_updated"].map((x) => VariationsCreatedUpdated.fromJson(x))),
-        deleted: List<dynamic>.from(json["deleted"].map((x) => x)),
-        pagination: PaginationModel.fromJson(json["pagination"]),
+        createdUpdated: (json["created_updated"] as List?)
+                ?.map((x) => VariationsCreatedUpdated.fromJson(Map<String, dynamic>.from(x as Map)))
+                .toList() ??
+            const [],
+        deleted: List<dynamic>.from(json["deleted"] as List? ?? const []),
+        pagination: json["pagination"] is Map
+            ? PaginationModel.fromJson(Map<String, dynamic>.from(json["pagination"] as Map))
+            : PaginationModel.fallback(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -189,14 +201,16 @@ class VariationsCreatedUpdated {
       );
 
   factory VariationsCreatedUpdated.fromJson(Map<String, dynamic> json) => VariationsCreatedUpdated(
-        id: json["id"],
-        uuid: json["uuid"],
-        branchId: json["branch_id"],
-        name: json["name"],
-        variationSlug: json["variation_slug"],
+        id: (json["id"] as num?)?.toInt() ?? 0,
+        uuid: json["uuid"]?.toString() ?? '',
+        branchId: (json["branch_id"] as num?)?.toInt() ?? 0,
+        name: json["name"]?.toString() ?? '',
+        variationSlug: json["variation_slug"]?.toString() ?? '',
         active: json["active"] == 'yes' ? YesOrNo.yes : YesOrNo.no,
-        createdAt: DateTime.parse(json["created_at"]),
-        updatedAt: DateTime.parse(json["updated_at"]),
+        createdAt:
+            DateTime.tryParse(json["created_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt:
+            DateTime.tryParse(json["updated_at"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         deletedAt: json["deleted_at"],
       );
 

@@ -481,6 +481,11 @@ class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
             ],
           ],
           SizedBox(height: sectionSpacing),
+          _PrinterTargetPreview(
+            row: row,
+            discoveredPrinters: _discoveredPrinters,
+          ),
+          SizedBox(height: sectionSpacing),
           Align(
             alignment: Alignment.centerRight,
             child: CustomButton(
@@ -491,6 +496,95 @@ class _KitchenRowWidgetState extends State<_KitchenRowWidget> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PrinterTargetPreview extends StatelessWidget {
+  const _PrinterTargetPreview({
+    required this.row,
+    required this.discoveredPrinters,
+  });
+
+  final _KitchenRow row;
+  final List<Printer> discoveredPrinters;
+
+  String _connectionLabel(_ConnectionType type) {
+    switch (type) {
+      case _ConnectionType.network:
+        return 'Network';
+      case _ConnectionType.usb:
+        return 'USB';
+      case _ConnectionType.ble:
+        return 'Bluetooth';
+    }
+  }
+
+  String _selectedPrinterName() {
+    final selected = row.selectedAddress;
+    if (selected == null || selected.isEmpty) return 'Not selected';
+    for (final p in discoveredPrinters) {
+      final encoded = _KitchenRowWidgetState._encodePrinter(p);
+      if (encoded == selected) {
+        return (p.name != null && p.name!.trim().isNotEmpty) ? p.name!.trim() : selected;
+      }
+    }
+    return selected;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: row.ipController,
+      builder: (context, _, __) {
+        return ValueListenableBuilder<TextEditingValue>(
+          valueListenable: row.portController,
+          builder: (context, __, ___) {
+            final isNetwork = row.connectionType == _ConnectionType.network;
+            final ip = row.ipController.text.trim();
+            final port = row.portController.text.trim();
+            final parsedPort = int.tryParse(port);
+            final target = isNetwork ? '${ip.isEmpty ? 'Not set' : ip}:${port.isEmpty ? '9100' : port}' : _selectedPrinterName();
+            final hasConfig = isNetwork ? ip.isNotEmpty && parsedPort != null : (row.selectedAddress != null && row.selectedAddress!.isNotEmpty);
+
+            return Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Preview',
+                    style: AppStyles.getBoldTextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Connection: ${_connectionLabel(row.connectionType)}',
+                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Target: $target',
+                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  ),
+                  if (!hasConfig) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      isNetwork ? 'Enter valid IP and port to save/print.' : 'Scan and select a printer to save/print.',
+                      style: AppStyles.getRegularTextStyle(fontSize: 11, color: Colors.orange.shade800),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
