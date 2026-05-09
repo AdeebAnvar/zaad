@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
+import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/models/pos_customer.dart';
 import 'package:pos/data/repository/customer_repository.dart';
@@ -136,7 +137,7 @@ class CrmCubit extends Cubit<CrmState> {
 
     final allOrders = await _ordersForActiveBranch();
     final list = allOrders.where((order) => _orderMatchesCustomer(order, customer)).toList();
-    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    sortOrdersNewestFirst(list);
     return list;
   }
 }

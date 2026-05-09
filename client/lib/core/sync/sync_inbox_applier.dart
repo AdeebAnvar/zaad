@@ -8,6 +8,7 @@ import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/cloud_order_push_queue.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/core/utils/app_directories.dart';
+import 'package:pos/core/utils/order_owner_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/branch_repository.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
@@ -22,6 +23,66 @@ import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/features/orders/data/order_push_status.dart';
 import 'package:uuid/uuid.dart';
+
+String? _nonEmptyDynamic(dynamic v) {
+  if (v == null) return null;
+  final s = v.toString().trim();
+  return s.isEmpty ? null : s;
+}
+
+dynamic _snapshotPick(Map<String, dynamic> snap, Map<String, dynamic>? flutter, String snakeKey,
+    [String? camelKey]) {
+  dynamic v = snap[snakeKey];
+  if (v == null && camelKey != null) v = snap[camelKey];
+  if (v == null && flutter != null) {
+    v = flutter[snakeKey];
+    if (v == null && camelKey != null) v = flutter[camelKey];
+  }
+  return v;
+}
+
+Value<String?> _mirrorOptStr(Map<String, dynamic> snap, Map<String, dynamic>? flutter, String snakeKey,
+    [String? camelKey]) {
+  final v = _nonEmptyDynamic(_snapshotPick(snap, flutter, snakeKey, camelKey));
+  return v != null ? Value<String?>(v) : const Value.absent();
+}
+
+Value<double> _mirrorOptDouble(Map<String, dynamic> snap, Map<String, dynamic>? flutter, String snakeKey,
+    [String? camelKey]) {
+  final raw = _snapshotPick(snap, flutter, snakeKey, camelKey);
+  if (raw == null) return const Value.absent();
+  final d = raw is num ? raw.toDouble() : double.tryParse(raw.toString());
+  if (d == null) return const Value.absent();
+  return Value(d);
+}
+
+Value<int?> _mirrorOptInt(Map<String, dynamic> snap, Map<String, dynamic>? flutter, String snakeKey,
+    [String? camelKey]) {
+  final raw = _snapshotPick(snap, flutter, snakeKey, camelKey);
+  if (raw == null) return const Value.absent();
+  final i = raw is int ? raw : (raw is num ? raw.toInt() : int.tryParse(raw.toString()));
+  if (i == null) return const Value.absent();
+  return Value<int?>(i);
+}
+
+OrdersCompanion _mirroredCustomerPaymentCompanion(Map<String, dynamic> snap, Map<String, dynamic>? flutterSnap) {
+  final xf = flutterSnap;
+  return OrdersCompanion(
+    customerName: _mirrorOptStr(snap, xf, 'customer_name', 'customerName'),
+    customerEmail: _mirrorOptStr(snap, xf, 'customer_email', 'customerEmail'),
+    customerPhone: _mirrorOptStr(snap, xf, 'customer_phone', 'customerPhone'),
+    customerGender: _mirrorOptStr(snap, xf, 'customer_gender', 'customerGender'),
+    discountAmount: _mirrorOptDouble(snap, xf, 'discount_amount', 'discountAmount'),
+    discountType: _mirrorOptStr(snap, xf, 'discount_type', 'discountType'),
+    cashAmount: _mirrorOptDouble(snap, xf, 'cash_amount', 'cashAmount'),
+    creditAmount: _mirrorOptDouble(snap, xf, 'credit_amount', 'creditAmount'),
+    cardAmount: _mirrorOptDouble(snap, xf, 'card_amount', 'cardAmount'),
+    onlineAmount: _mirrorOptDouble(snap, xf, 'online_amount', 'onlineAmount'),
+    deliveryPartner: _mirrorOptStr(snap, xf, 'delivery_partner', 'deliveryPartner'),
+    driverId: _mirrorOptInt(snap, xf, 'driver_id', 'driverId'),
+    driverName: _mirrorOptStr(snap, xf, 'driver_name', 'driverName'),
+  );
+}
 
 /// Projects validated inbound hub events into Drift after [SyncInbox] persistence.
 class SyncInboxApplier {
@@ -334,15 +395,21 @@ class SyncInboxApplier {
     final ref =
         (flutterSnap?['reference_number'] ?? snap['reference_number'])?.toString();
 
+    final mirroredUserId = coerceUserId(snap['user_id']) ??
+        coerceUserId(flutterSnap?['user_id']);
+
+    final mirroredExtra = _mirroredCustomerPaymentCompanion(snap, flutterSnap);
+
     if (existing != null) {
       await (db.update(db.orders)..where((o) => o.serverOrderId.equals(sid))).write(
-        OrdersCompanion(
+        mirroredExtra.copyWith(
           invoiceNumber: Value(invoice),
           totalAmount: Value(totalAmt),
           finalAmount: Value(finalAmt),
           status: Value(status),
-          orderType: orderTypeRaw != null ? Value(orderTypeRaw) : const Value.absent(),
-          referenceNumber: ref != null && ref.isNotEmpty ? Value(ref) : const Value.absent(),
+          orderType: orderTypeRaw != null ? Value(orderTypeRaw) : null,
+          referenceNumber: ref != null && ref.isNotEmpty ? Value(ref) : null,
+          userId: mirroredUserId != null ? Value(mirroredUserId) : null,
           hubMetadata: Value(hubMeta),
         ),
       );
@@ -362,8 +429,22 @@ class SyncInboxApplier {
               createdAt: created,
               status: Value(status),
               orderType: orderTypeRaw != null ? Value(orderTypeRaw) : const Value.absent(),
+              userId: Value(mirroredUserId),
               serverOrderId: Value(sid),
               hubMetadata: Value(hubMeta),
+              customerName: mirroredExtra.customerName,
+              customerEmail: mirroredExtra.customerEmail,
+              customerPhone: mirroredExtra.customerPhone,
+              customerGender: mirroredExtra.customerGender,
+              discountAmount: mirroredExtra.discountAmount,
+              discountType: mirroredExtra.discountType,
+              cashAmount: mirroredExtra.cashAmount,
+              creditAmount: mirroredExtra.creditAmount,
+              cardAmount: mirroredExtra.cardAmount,
+              onlineAmount: mirroredExtra.onlineAmount,
+              deliveryPartner: mirroredExtra.deliveryPartner,
+              driverId: mirroredExtra.driverId,
+              driverName: mirroredExtra.driverName,
             ),
           );
     }
@@ -385,7 +466,21 @@ class SyncInboxApplier {
     final idStr = payload['id']?.toString();
     if (idStr == null || idStr.isEmpty) return;
     if (entity.contains('order')) {
-      final o = await db.ordersDao.getOrderByServerId(idStr);
+      final trimmed = idStr.trim();
+      if (trimmed.isEmpty) return;
+
+      Order? o = await db.ordersDao.getOrderByServerId(trimmed);
+      if (o == null) {
+        // SUB-created rows often omit [server_order_id]; hub delete key is then the local SQLite id string.
+        final asLocalId = int.tryParse(trimmed);
+        if (asLocalId != null && asLocalId > 0) {
+          final candidate = await db.ordersDao.getOrderById(asLocalId);
+          final sid = (candidate?.serverOrderId ?? '').trim();
+          if (candidate != null && sid.isEmpty) {
+            o = candidate;
+          }
+        }
+      }
       if (o != null) {
         await db.ordersDao.deleteOrderLogsForLocalOrderId(o.id);
         await db.ordersDao.deleteOrder(o.id);

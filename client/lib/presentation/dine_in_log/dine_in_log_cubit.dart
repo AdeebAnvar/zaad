@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -47,7 +48,8 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     try {
       final orders = await orderRepo.filterOrders(orderType: 'dine_in');
       // Show KOT + paid + other active; exclude cancelled (same idea as floor + history).
-      final visible = orders.where((o) => o.status != 'cancelled').toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final visible = orders.where((o) => o.status != 'cancelled').toList();
+      sortOrdersNewestFirst(visible);
       final cartIds = visible.map((o) => o.cartId).toSet().toList();
       final counts = await cartRepo.countCartItemsByCartIds(cartIds);
       emit(DineInLogLoaded(visible, counts));
@@ -82,7 +84,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
       } else {
         orders = orders.where((o) => o.status == status).toList();
       }
-      orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      sortOrdersNewestFirst(orders);
       final cartIds = orders.map((o) => o.cartId).toSet().toList();
       final counts = await cartRepo.countCartItemsByCartIds(cartIds);
       emit(DineInLogLoaded(orders, counts));

@@ -24,8 +24,16 @@ class HubOrderLanPublisher {
 
   static Future<void>? _serial;
 
-  static Map<String, dynamic> _snapshotMap(Order order, List<CartItem> cartItems) {
+  static Future<Map<String, dynamic>> _snapshotMap(Order order, List<CartItem> cartItems) async {
     final flutter = HubOrdersPayloadBuilder.flutterBlockFromDraft(order);
+    String? cashierName;
+    final uid = order.userId;
+    final db = _dbOrNull();
+    if (db != null && uid != null) {
+      final u = await db.usersDao.findUserById(uid);
+      final n = u?.name.trim() ?? '';
+      if (n.isNotEmpty) cashierName = n;
+    }
     return <String, dynamic>{
       'order_id': order.id,
       'cart_id': order.cartId,
@@ -33,6 +41,7 @@ class HubOrderLanPublisher {
       'created_at': order.createdAt.toIso8601String(),
       'status': order.status,
       ...flutter,
+      if (cashierName != null) 'cashier_name': cashierName,
       'items': HubOrdersPayloadBuilder.cartLinesToJson(cartItems),
     };
   }
@@ -73,11 +82,11 @@ class HubOrderLanPublisher {
   }) {
     if (order.id <= 0) return;
 
-    Future.microtask(() {
+    Future.microtask(() async {
       final hub = _eligibleHubOrNull();
       if (hub == null) return;
 
-      final snapshot = _snapshotMap(order, cartItems);
+      final snapshot = await _snapshotMap(order, cartItems);
       final payload = <String, dynamic>{
         'orderId': hubOrderCorrelationId(order, order.id),
         'snapshot': snapshot,

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
+import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
@@ -40,6 +41,7 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
       // Recent Sales = paid orders only (completed). Exclude kot (unpaid, in Take Away Log)
       final allOrders = await orderRepo.getAllOrders();
       final filteredOrders = allOrders.where((order) => order.status == 'completed').toList();
+      sortOrdersNewestFirst(filteredOrders);
       emit(RecentSalesLoaded(filteredOrders));
     } catch (e) {
       emit(RecentSalesError(e.toString()));
@@ -100,6 +102,7 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
         }).toList();
       }
 
+      sortOrdersNewestFirst(orders);
       emit(RecentSalesLoaded(orders));
     } catch (e) {
       emit(RecentSalesError(e.toString()));

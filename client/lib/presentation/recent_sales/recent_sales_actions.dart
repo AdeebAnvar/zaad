@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
+import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
@@ -13,31 +14,17 @@ Future<void> showRecentSaleOrderDetails(BuildContext context, Order order) async
   final cartRepo = locator<CartRepository>();
   final itemRepo = locator<ItemRepository>();
 
-  final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
-  if (cartItems == null || cartItems.isEmpty) {
+  final itemsWithDetails = await OrderLogCartFallback.buildItemsWithDetailsForOrderLog(
+    order: order,
+    db: locator<AppDatabase>(),
+    cartRepo: cartRepo,
+    itemRepo: itemRepo,
+  );
+  if (itemsWithDetails.isEmpty) {
     if (context.mounted) {
       showAppSnackBar(context, 'No items found for this order', isWarning: true);
     }
     return;
-  }
-
-  final List<Map<String, dynamic>> itemsWithDetails = [];
-  for (final cartItem in cartItems) {
-    final item = await itemRepo.fetchItemByIdFromLocal(cartItem.itemId);
-    ItemVariant? variant;
-    if (cartItem.itemVariantId != null) {
-      variant = await itemRepo.fetchVariantById(cartItem.itemVariantId!);
-    }
-    ItemTopping? topping;
-    if (cartItem.itemToppingId != null) {
-      topping = await itemRepo.fetchToppingById(cartItem.itemToppingId!);
-    }
-    itemsWithDetails.add({
-      'cartItem': cartItem,
-      'item': item,
-      'variant': variant,
-      'topping': topping,
-    });
   }
 
   if (!context.mounted) return;
@@ -53,8 +40,12 @@ Future<void> showRecentSaleOrderDetails(BuildContext context, Order order) async
 Future<void> printRecentSaleBill(BuildContext context, Order order) async {
   final cartRepo = locator<CartRepository>();
   final printService = locator<PrintService>();
-  final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
-  if (cartItems == null || cartItems.isEmpty) {
+  final cartItems = await OrderLogCartFallback.resolve(
+    order: order,
+    db: locator<AppDatabase>(),
+    cartRepo: cartRepo,
+  );
+  if (cartItems.isEmpty) {
     if (context.mounted) {
       showAppSnackBar(context, 'No items to print', isWarning: true);
     }

@@ -1,4 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 
@@ -39,6 +40,7 @@ class CreditSalesCubit extends Cubit<CreditSalesState> {
             final phone = (o.customerPhone ?? '').toLowerCase();
             return name.contains(q) || phone.contains(q);
           }).toList();
+    sortOrdersNewestFirst(filtered);
     emit(CreditSalesLoaded(filteredOrders: filtered, filterQuery: _filterQuery));
   }
 

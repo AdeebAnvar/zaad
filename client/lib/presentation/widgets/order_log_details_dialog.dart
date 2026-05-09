@@ -447,6 +447,10 @@ class _ItemCard extends StatelessWidget {
     final variant = data['variant'] as ItemVariant?;
     final topping = data['topping'] as ItemTopping?;
 
+    final catalogName = (item?.name ?? '').trim();
+    final snapName = cartItem.itemName.trim();
+    final displayName = catalogName.isNotEmpty ? catalogName : (snapName.isNotEmpty ? snapName : 'Unknown item');
+
     final unitPrice = variant?.price ?? item?.price ?? 0;
     final hasDiscount = cartItem.discount > 0;
     final toppingsData = _decodeToppings(cartItem.notes);
@@ -479,7 +483,7 @@ class _ItemCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  item?.name ?? 'Unknown item',
+                  displayName,
                   style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: AppColors.textColor),
                 ),
               ),
