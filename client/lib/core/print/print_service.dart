@@ -200,6 +200,24 @@ class PrintService {
     return (netBeforeVat: net, vatAmount: totalInclusive - net);
   }
 
+  /// Per cart line for receipt/KOT plumbing; includes optional display of markdown vs catalog [unitPrice].
+  static String _receiptLineDiscountCaption(CartItem ci, double listUnitPrice, double lineTotal) {
+    final gross = listUnitPrice * ci.quantity;
+    final savingUnclamped = gross - lineTotal;
+    final saving = savingUnclamped > 0.009 ? savingUnclamped : 0.0;
+    final dt = (ci.discountType ?? '').trim().toLowerCase();
+    if (dt == 'percentage' && ci.discount > 0.001) {
+      return 'Discount (${ci.discount % 1 == 0 ? ci.discount.round().toString() : ci.discount.toStringAsFixed(2)}%): -${_fmtMoney(saving)}';
+    }
+    if ((dt == 'amount' || dt.isEmpty) && ci.discount > 0.001 && saving <= 0.009) {
+      return 'Discount: -${_fmtMoney(ci.discount.clamp(0.0, gross))}';
+    }
+    if (saving > 0.009) {
+      return 'Discount: -${_fmtMoney(saving)}';
+    }
+    return '';
+  }
+
   static ({String label, double amount}) _discountLineForReceipt(Order order) {
     final type = (order.discountType ?? '').trim().toLowerCase();
     final raw = order.discountAmount;
@@ -664,7 +682,42 @@ class PrintService {
       var name = '${m['item_name'] ?? m['itemName'] ?? m['name'] ?? ''}'.trim();
       if (name.isEmpty) name = 'Item';
 
-      final unit = total / qty;
+      final discRaw = m['discount'] ?? m['discountAmount'];
+      final dt = '${m['discount_type'] ?? m['discountType'] ?? ''}'.trim().toLowerCase();
+      final effUnit = qty > 0 ? total / qty : 0.0;
+      final double unitList;
+      if (discRaw is num && discRaw.toDouble() > 0.001 && qty > 0) {
+        final d = discRaw.toDouble();
+        if (dt == 'percentage') {
+          final denom = 1.0 - d / 100.0;
+          unitList = denom > 0.01 ? effUnit / denom : effUnit;
+        } else {
+          unitList = (total + d) / qty;
+        }
+      } else {
+        final up = m['unit_price'] ?? m['price'];
+        if (up is num && up.toDouble() > 0.001) {
+          unitList = up.toDouble();
+        } else {
+          final centsList = m['unit_price_list_cents'];
+          final c = centsList is num ? centsList.round() : int.tryParse('$centsList');
+          unitList = c != null && c > 0 ? c / 100.0 : effUnit;
+        }
+      }
+
+      final lineDisc = qty > 0 ? (unitList * qty - total).clamp(0.0, double.infinity) : 0.0;
+      String? caption;
+      if (discRaw is num && discRaw.toDouble() > 0.001 && lineDisc > 0.009) {
+        final d = discRaw.toDouble();
+        if (dt == 'percentage') {
+          caption =
+              'Discount (${d % 1 == 0 ? d.round().toString() : d.toStringAsFixed(2)}%): -${_fmtMoney(lineDisc)}';
+        } else {
+          caption = 'Discount: -${_fmtMoney(lineDisc)}';
+        }
+      } else if (lineDisc > 0.009) {
+        caption = 'Discount: -${_fmtMoney(lineDisc)}';
+      }
 
       String? toppingInfo;
       List<(String name, num qty)>? kotToppings;
@@ -692,11 +745,13 @@ class PrintService {
         toppingInfo: toppingInfo?.isNotEmpty == true ? _sanitize(toppingInfo!) : null,
         kotToppings: kotToppings,
         quantity: qty,
-        unitPrice: unit,
+        unitPrice: unitList,
         total: total,
         notes: notesStr,
         kitchenId: null,
         kitchenName: null,
+        lineDiscountAmount: lineDisc,
+        receiptDiscountCaption: caption,
       ));
     }
     return out;
@@ -888,6 +943,8 @@ class PrintService {
               quantity: l.quantity,
               unitPrice: l.unitPrice,
               total: l.total,
+              lineDiscountAmount: l.lineDiscountAmount,
+              receiptDiscountCaption: l.receiptDiscountCaption,
             ),
           )
           .toList(),
@@ -1142,6 +1199,12 @@ class PrintService {
         kotToppings = tn.isNotEmpty ? [(tn, ci.quantity)] : null;
       }
 
+      final listUnit = (variant?.price ?? item?.price ?? 0).toDouble();
+      final caption = _receiptLineDiscountCaption(ci, listUnit, ci.total);
+      final lineDisc = caption.isEmpty
+          ? 0.0
+          : (listUnit * ci.quantity - ci.total).clamp(0.0, double.infinity);
+
       lines.add(_PrintLine(
         itemName: _sanitize(
           ci.itemName.isNotEmpty ? ci.itemName : (item?.name ?? 'Unknown'),
@@ -1150,11 +1213,13 @@ class PrintService {
         toppingInfo: toppingInfo?.isNotEmpty == true ? _sanitize(toppingInfo!) : null,
         kotToppings: kotToppings,
         quantity: ci.quantity,
-        unitPrice: (variant?.price ?? item?.price ?? 0),
+        unitPrice: listUnit,
         total: ci.total,
         notes: ci.notes,
         kitchenId: item?.kitchenId,
         kitchenName: item?.kitchenName,
+        lineDiscountAmount: lineDisc,
+        receiptDiscountCaption: caption.isEmpty ? null : caption,
       ));
     }
     return lines;
@@ -1288,6 +1353,14 @@ class PrintService {
 
   /// Item / qty columns; qty is printed only on the first continuation line when the name wraps.
   /// Receipt line items: **Item | Qty | Price | Total** (80mm row widths sum to 12).
+  void _billEmitReceiptLineDiscountCaption(Generator generator, List<int> bytes, String caption) {
+    final t = caption.trim();
+    if (t.isEmpty) return;
+    for (final w in _wrapReceiptLine('    ${_sanitize(t)}', 42)) {
+      bytes.addAll(generator.text(w));
+    }
+  }
+
   void _billEmitItemTableRow(
     Generator generator,
     List<int> bytes,
@@ -1683,15 +1756,29 @@ class PrintService {
         _fmtMoney(line.unitPrice),
         _fmtMoney(line.total),
       );
+      if (line.receiptDiscountCaption != null && line.receiptDiscountCaption!.trim().isNotEmpty) {
+        _billEmitReceiptLineDiscountCaption(generator, bytes, line.receiptDiscountCaption!);
+      }
     }
 
     bytes += generator.hr(ch: '-');
+
+    final aggregateLineDiscount = lines.fold<double>(0, (a, e) => a + e.lineDiscountAmount);
 
     final vatParts = _vatBreakdown(totalPayable, branch);
     final vatMode = branch?.vat.trim().toLowerCase();
     final vatPctDyn = branch?.vatPercent;
     final vatPct = vatPctDyn is num ? vatPctDyn.toDouble() : double.tryParse('$vatPctDyn') ?? 0.0;
     final hasVat = vatMode != null && vatMode != 'no_vat' && vatPct > 0 && vatParts.vatAmount > 0.0001;
+
+    if (aggregateLineDiscount > 0.009) {
+      _billEmitAmountRow(
+        generator,
+        bytes,
+        label: 'Total item discounts:',
+        amount: '-${_fmtMoney(aggregateLineDiscount)}',
+      );
+    }
 
     if (order.discountAmount > 0) {
       final offerLine = _offerLineForReceipt(order);
@@ -1731,7 +1818,7 @@ class PrintService {
       _billEmitAmountRow(
         generator,
         bytes,
-        label: 'VAT Amount:',
+        label: 'VAT Amount (${vatPct.toStringAsFixed(2)}% incl.):',
         amount: _fmtMoney(vatParts.vatAmount),
       );
       _billEmitAmountRow(
@@ -1795,12 +1882,6 @@ class PrintService {
         bytes,
         label: 'Credit',
         amount: _fmtMoney(order.creditAmount),
-      );
-    }
-    if (hasVat) {
-      bytes += generator.text(
-        '${vatPct.toStringAsFixed(2)}% (inclusive)',
-        styles: center,
       );
     }
 
@@ -1998,6 +2079,9 @@ class _PrintLine {
   final String? notes;
   final int? kitchenId;
   final String? kitchenName;
+  /// Sum saved vs [unitPrice] × quantity on the receipt (for optional totals row).
+  final double lineDiscountAmount;
+  final String? receiptDiscountCaption;
 
   _PrintLine({
     required this.itemName,
@@ -2010,5 +2094,7 @@ class _PrintLine {
     this.notes,
     this.kitchenId,
     this.kitchenName,
+    this.lineDiscountAmount = 0,
+    this.receiptDiscountCaption,
   });
 }
