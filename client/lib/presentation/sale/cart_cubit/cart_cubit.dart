@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
@@ -14,6 +15,7 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
+import 'package:pos/core/update/updater_manager.dart';
 
 part 'cart_state.dart';
 
@@ -70,6 +72,18 @@ class CartCubit extends Cubit<CartState> {
 
   /// True when this screen was opened for editing an order (e.g. from Take Away Log). Hide reference/KOT popup.
   bool get isOpenedForEdit => _openedForEdit;
+
+  @override
+  void emit(CartState state) {
+    super.emit(state);
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.windows &&
+        locator.isRegistered<UpdaterManager>()) {
+      locator<UpdaterManager>().reportBillingGate(
+        state.orderSubmitPending || state.totalItems > 0,
+      );
+    }
+  }
 
   Future<Map<String, dynamic>?> getPaymentPrefillForEdit() async {
     if (!_openedForEdit || _editingOrderId == null) {
