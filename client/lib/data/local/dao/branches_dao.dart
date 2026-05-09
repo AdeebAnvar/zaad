@@ -97,6 +97,9 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
     } else {
       localImage = b.localImage;
     }
+    final existingBranch = await (select(branches)..where((tbl) => tbl.id.equals(b.id))).getSingleOrNull();
+    final resolvedOpeningCash = b.openingCash ?? existingBranch?.openingCash ?? 0;
+
     return BranchesCompanion(
       id: Value(b.id),
       branchName: Value(b.branchName),
@@ -114,7 +117,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
       image: Value(b.image),
       installationDate: Value(b.installationDate),
       expiryDate: Value(b.expiryDate),
-      openingCash: Value(b.openingCash ?? 0),
+      openingCash: Value(resolvedOpeningCash),
       localImage: Value(localImage),
     );
   }

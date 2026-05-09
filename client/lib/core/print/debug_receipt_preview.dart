@@ -487,9 +487,25 @@ class _ReceiptPaper extends StatelessWidget {
         final totalCell = (i == 0 ? t : '').padLeft(10);
         children.add(Text('$qtyCell$productCell$unitCell$totalCell', style: mono));
       }
+      final cap = line.receiptDiscountCaption?.trim();
+      if (cap != null && cap.isNotEmpty) {
+        for (final w in _wrapReceiptLine('    ${_sanitize(cap)}', 42)) {
+          children.add(Text(w, style: mono));
+        }
+      }
     }
 
     children.add(Text('-' * 42, style: mono));
+
+    final aggregateLineDiscount = lines.fold<double>(0, (a, e) => a + e.lineDiscountAmount);
+    if (aggregateLineDiscount > 0.009) {
+      children.add(
+        Text(
+          _previewAmountRow(label: 'Total item discounts:', amount: '-${_fmtMoney(aggregateLineDiscount)}'),
+          style: mono,
+        ),
+      );
+    }
 
     if (order.discountAmount > 0) {
       final discountLine = _discountLineForPreview(order);
@@ -516,7 +532,9 @@ class _ReceiptPaper extends StatelessWidget {
       );
       children.add(
         Text(
-          _previewAmountRow(label: 'VAT Amount:', amount: _fmtMoney(vatParts.vatAmount)),
+          _previewAmountRow(
+              label: 'VAT Amount (${vatPct.toStringAsFixed(2)}% incl.):',
+              amount: _fmtMoney(vatParts.vatAmount)),
           style: mono,
         ),
       );
@@ -559,19 +577,7 @@ class _ReceiptPaper extends StatelessWidget {
     if (order.creditAmount > 0.004) {
       children.add(Text(_previewAmountRow(label: 'Credit', amount: _fmtMoney(order.creditAmount)), style: mono));
     }
-    children.add(const SizedBox(height: 8));
-    children.add(Text('-' * 42, style: mono));
-    if (hasVat) {
-      children.add(
-        Text(
-          '${vatPct.toStringAsFixed(2)}% (inclusive)',
-          style: mono,
-          textAlign: TextAlign.center,
-        ),
-      );
-    }
 
-    children.add(Text('-' * 42, style: mono));
     children.add(const SizedBox(height: 8));
     children.add(const Text('Sip, smile, Repeat!', style: mono, textAlign: TextAlign.center));
     final brand = branch?.branchName.trim() ?? '';

@@ -53,6 +53,8 @@ class ReceiptPreviewLine {
     required this.quantity,
     required this.unitPrice,
     required this.total,
+    this.lineDiscountAmount = 0,
+    this.receiptDiscountCaption,
   });
 
   final String itemName;
@@ -61,4 +63,6 @@ class ReceiptPreviewLine {
   final int quantity;
   final double unitPrice;
   final double total;
+  final double lineDiscountAmount;
+  final String? receiptDiscountCaption;
 }
