@@ -7,8 +7,8 @@ import 'package:http/http.dart' as http;
 import 'update_model.dart';
 
 /// Central URL for POS update metadata (hosted on GitHub).
-const String kDefaultVersionManifestUrl =
-    'https://raw.githubusercontent.com/AdeebAnvar/zaad-updates/main/version.json';
+const String kDefaultVersionManifestUrl = 'https://raw.githubusercontent.com/AdeebAnvar/zaad/refs/heads/master/version.json';
+final s = 'ds';
 
 /// Installs update bundles under `C:\\zaad\\updates\\` (fixed path per rollout policy).
 const String kWindowsUpdatesDirectory = r'C:\zaad\updates';

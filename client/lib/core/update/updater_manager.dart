@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
+import 'package:pos/app/navigation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:pos/app/di.dart';
@@ -17,7 +18,6 @@ import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/core/utils/network_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 
-import 'idle_monitor_service.dart';
 import 'update_model.dart';
 import 'update_service.dart';
 
@@ -34,12 +34,14 @@ class UpdaterBannerState {
 
   final UpdaterBannerPhase phase;
   final String? message;
+
   /// 0–1 download progress (`null` = indeterminate banner text only).
   final double? progress;
   final bool foregroundBusy;
 
   bool get visible =>
       foregroundBusy ||
+      phase == UpdaterBannerPhase.available ||
       phase == UpdaterBannerPhase.downloading ||
       phase == UpdaterBannerPhase.ready ||
       phase == UpdaterBannerPhase.installing ||
@@ -48,7 +50,8 @@ class UpdaterBannerState {
   const UpdaterBannerState.idle({String? message})
       : this(phase: UpdaterBannerPhase.idle, message: message);
 
-  factory UpdaterBannerState.downloading({required String message, double? progress}) {
+  factory UpdaterBannerState.downloading(
+      {required String message, double? progress}) {
     return UpdaterBannerState(
       phase: UpdaterBannerPhase.downloading,
       message: message,
@@ -60,11 +63,21 @@ class UpdaterBannerState {
   factory UpdaterBannerState.ready(String msg) =>
       UpdaterBannerState(phase: UpdaterBannerPhase.ready, message: msg);
 
+  factory UpdaterBannerState.available(String msg) =>
+      UpdaterBannerState(phase: UpdaterBannerPhase.available, message: msg);
+
   factory UpdaterBannerState.error(String msg) =>
       UpdaterBannerState(phase: UpdaterBannerPhase.error, message: msg);
 }
 
-enum UpdaterBannerPhase { idle, downloading, ready, installing, error }
+enum UpdaterBannerPhase {
+  idle,
+  available,
+  downloading,
+  ready,
+  installing,
+  error
+}
 
 class UpdateCheckOutcome {
   const UpdateCheckOutcome({
@@ -109,7 +122,6 @@ class UpdaterManager {
   final AppDatabase _db;
   final UpdateService _updateService;
 
-  IdleMonitorService? _idleMonitor;
   CancelToken? _downloadCancelToken;
 
   RemoteUpdateManifest? _pendingManifest;
@@ -121,6 +133,8 @@ class UpdaterManager {
 
   bool _billingLikelyBusy = false;
   bool _installLifecycleActive = false;
+  bool _didPromptForPendingUpdate = false;
+  bool _promptDialogOpen = false;
 
   static bool _didScheduleColdStartCheck = false;
 
@@ -143,7 +157,6 @@ class UpdaterManager {
     if (!Platform.isWindows) return;
     if (_billingLikelyBusy == billingOrSaleInFlight) return;
     _billingLikelyBusy = billingOrSaleInFlight;
-    if (billingOrSaleInFlight) _idleMonitor?.resetTimer();
   }
 
   Widget wrapAppWithUpdateLayers(Widget child) {
@@ -151,11 +164,16 @@ class UpdaterManager {
     return ValueListenableBuilder<UpdaterBannerState>(
       valueListenable: bannerNotifier,
       builder: (context, banner, _) {
-        final stack = Listener(
-          behavior: HitTestBehavior.translucent,
-          onPointerDown: (_) => _idleMonitor?.bump(),
-          child: child,
-        );
+        if (banner.phase == UpdaterBannerPhase.available) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final navigatorContext =
+                AppNavigator.navigatorKey.currentState?.context;
+            if (navigatorContext != null && navigatorContext.mounted) {
+              unawaited(promptForUpdate(navigatorContext, automatic: true));
+            }
+          });
+        }
+        final stack = child;
         if (!banner.visible) return stack;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -179,7 +197,8 @@ class UpdaterManager {
 
     try {
       if (!await NetworkUtils.hasInternetConnection()) {
-        _emitBanner(const UpdaterBannerState.idle(message: 'Offline — skipping update check'));
+        _emitBanner(const UpdaterBannerState.idle(
+            message: 'Offline — skipping update check'));
         return;
       }
 
@@ -192,40 +211,115 @@ class UpdaterManager {
       }
 
       _pendingManifest = outcome.manifest!;
-      await downloadUpdate(outcome.manifest!);
-
-      _ensureIdleMonitor();
-      _idleMonitor?.bump();
+      _emitBanner(
+        UpdaterBannerState.available(
+          'Update ${outcome.manifest!.version} available — tap the update icon to install.',
+        ),
+      );
     } catch (e, st) {
       _log('startup workflow failed: $e\n$st');
       _emitBanner(UpdaterBannerState.error(e.toString()));
     }
   }
 
-  void _ensureIdleMonitor() {
-    if (_idleMonitor != null) return;
-    _idleMonitor = IdleMonitorService(
-      idleAfter: IdleMonitorService.defaultPosIdle,
-      onIdle: () => unawaited(_onIdleEligible()),
-    )
-      ..attachKeyboardListener()
-      ..bump();
+  Future<void> promptForUpdate(BuildContext context,
+      {bool automatic = false}) async {
+    if (!Platform.isWindows) return;
+    final manifest = _pendingManifest;
+    if (manifest == null || _installLifecycleActive) return;
+    if (automatic && _didPromptForPendingUpdate) return;
+    if (_promptDialogOpen) return;
+
+    _promptDialogOpen = true;
+    if (automatic) _didPromptForPendingUpdate = true;
+
+    try {
+      if ((_downloadedInstallerPath ?? '').isNotEmpty) {
+        final installNow = await _confirmInstallNow(context, manifest);
+        if (installNow == true) {
+          await installUpdate(reason: InstallReason.manual);
+        }
+        return;
+      }
+
+      final shouldUpdate = await _confirmDownloadUpdate(context, manifest);
+      if (shouldUpdate != true) {
+        _emitBanner(
+          UpdaterBannerState.available(
+            'Update ${manifest.version} available — tap the update icon to install.',
+          ),
+        );
+        return;
+      }
+
+      await downloadUpdate(manifest);
+      if (!context.mounted) return;
+      final installNow = await _confirmInstallNow(context, manifest);
+      if (installNow == true) {
+        await installUpdate(reason: InstallReason.manual);
+      }
+    } catch (e, st) {
+      _log('user update flow failed: $e\n$st');
+      _emitBanner(UpdaterBannerState.error(e.toString()));
+    } finally {
+      _promptDialogOpen = false;
+    }
   }
 
-  Future<void> _onIdleEligible() async {
-    if (!Platform.isWindows || _installLifecycleActive) return;
-    final eligibility = await canInstallUpdate();
-    if (!eligibility.isOk) {
-      _log('idle install deferred: ${eligibility.blockReason ?? 'unknown'}');
-      _idleMonitor?.bump();
-      return;
-    }
-    try {
-      await installUpdate(reason: InstallReason.idleTimer);
-    } catch (e, st) {
-      _log('automatic install aborted: $e\n$st');
-      _idleMonitor?.bump();
-    }
+  Future<bool?> _confirmDownloadUpdate(
+    BuildContext context,
+    RemoteUpdateManifest manifest,
+  ) {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Update available'),
+          content: Text(
+            'Version ${manifest.version} is available. Do you want to download and update now?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Later'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Update Now'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<bool?> _confirmInstallNow(
+    BuildContext context,
+    RemoteUpdateManifest manifest,
+  ) {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Install update?'),
+          content: Text(
+            'Update ${manifest.version} is downloaded. POS will close while the installer runs.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Install Later'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Install Now'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<InstallEligibility> canInstallUpdate() async {
@@ -240,7 +334,8 @@ class UpdaterManager {
     }
     final exe = File(_downloadedInstallerPath!);
     if (!await exe.exists()) {
-      return InstallEligibility.blocked('Installer file missing — redownload needed');
+      return InstallEligibility.blocked(
+          'Installer file missing — redownload needed');
     }
 
     try {
@@ -250,19 +345,23 @@ class UpdaterManager {
 
       final lanOutstanding = await _db.syncQueueDao.unsyncedOutboxCount();
       if (lanOutstanding > 0) {
-        return InstallEligibility.blocked('LAN hub sync pending ($lanOutstanding)');
+        return InstallEligibility.blocked(
+            'LAN hub sync pending ($lanOutstanding)');
       }
 
       final unappliedCount = await _countUnappliedInbox();
       if (unappliedCount > 0) {
-        return InstallEligibility.blocked('Inbound hub events awaiting apply ($unappliedCount)');
+        return InstallEligibility.blocked(
+            'Inbound hub events awaiting apply ($unappliedCount)');
       }
 
       if ((await _db.ordersDao.getUnsyncedOrderLogs()).isNotEmpty) {
         return InstallEligibility.blocked('Queued cloud sales uploads');
       }
 
-      final settles = await (_db.select(_db.settleSalesOutbox)..where((t) => t.synced.equals(false))).get();
+      final settles = await (_db.select(_db.settleSalesOutbox)
+            ..where((t) => t.synced.equals(false)))
+          .get();
       if (settles.isNotEmpty) {
         return InstallEligibility.blocked('Unsettled cashier batches syncing');
       }
@@ -272,7 +371,8 @@ class UpdaterManager {
       }
 
       final hub = locator<LocalHubSettings>();
-      if (!hub.blocksTenantCloudRest && locator.isRegistered<OutboundPushCoordinator>()) {
+      if (!hub.blocksTenantCloudRest &&
+          locator.isRegistered<OutboundPushCoordinator>()) {
         if (locator<OutboundPushCoordinator>().isFlushWorkInFlight) {
           return InstallEligibility.blocked('Active cloud push flush');
         }
@@ -285,7 +385,9 @@ class UpdaterManager {
   }
 
   Future<int> _countUnappliedInbox() async =>
-      (await (_db.select(_db.syncInbox)..where((t) => t.applied.equals(false))).get()).length;
+      (await (_db.select(_db.syncInbox)..where((t) => t.applied.equals(false)))
+              .get())
+          .length;
 
   Future<void> pauseRealtimeChannels() async {
     if (!Platform.isWindows) return;
@@ -303,13 +405,15 @@ class UpdaterManager {
     await locator<LocalHubSyncCoordinator>().startIfEnabled();
     await locator<LocalHubPrimaryInboundCoordinator>().startIfEnabled();
     final hub = locator<LocalHubSettings>();
-    if (!hub.blocksTenantCloudRest && locator.isRegistered<OutboundPushCoordinator>()) {
+    if (!hub.blocksTenantCloudRest &&
+        locator.isRegistered<OutboundPushCoordinator>()) {
       locator<OutboundPushCoordinator>().resumeAfterMaintenance();
       locator<OutboundPushCoordinator>().scheduleFlush();
     }
   }
 
-  Future<UpdateCheckOutcome> checkForUpdates({String manifestUrl = kDefaultVersionManifestUrl}) async {
+  Future<UpdateCheckOutcome> checkForUpdates(
+      {String manifestUrl = kDefaultVersionManifestUrl}) async {
     if (!Platform.isWindows) {
       return const UpdateCheckOutcome(
         updateAvailable: false,
@@ -333,7 +437,8 @@ class UpdaterManager {
     try {
       final manifest = await _updateService.fetchManifest(url: manifestUrl);
       final remote = VersionCompare.normalize(manifest.version);
-      final newer = VersionCompare.isNewerThan(remote: remote, current: current);
+      final newer =
+          VersionCompare.isNewerThan(remote: remote, current: current);
       return UpdateCheckOutcome(
         updateAvailable: newer,
         manifest: manifest,
@@ -350,8 +455,10 @@ class UpdaterManager {
     }
   }
 
-  Future<String> downloadUpdate(RemoteUpdateManifest manifest, {CancelToken? cancelToken}) async {
-    if (!Platform.isWindows) throw UpdateServiceException('Windows-only download');
+  Future<String> downloadUpdate(RemoteUpdateManifest manifest,
+      {CancelToken? cancelToken}) async {
+    if (!Platform.isWindows)
+      throw UpdateServiceException('Windows-only download');
 
     final token = cancelToken ?? (_downloadCancelToken = CancelToken());
 
@@ -381,7 +488,8 @@ class UpdaterManager {
           downloadProgressNotifier.value = ratio.clamp(0.0, 1.0);
           _emitBanner(
             UpdaterBannerState.downloading(
-              message: 'Downloading POS update ${manifest.version} (${(ratio * 100).floor()}%)',
+              message:
+                  'Downloading POS update ${manifest.version} (${(ratio * 100).floor()}%)',
               progress: ratio.clamp(0.0, 1.0),
             ),
           );
@@ -397,7 +505,7 @@ class UpdaterManager {
     downloadProgressNotifier.value = 1;
     _emitBanner(
       UpdaterBannerState.ready(
-        'Update ${manifest.version} ready — installs automatically once the terminal is idle for 5 minutes with no queued sync work.',
+        'Update ${manifest.version} downloaded — tap the update icon to install.',
       ),
     );
     return target;
@@ -415,18 +523,21 @@ class UpdaterManager {
     final dbPath = File(p.join(localDir.path, 'pos.sqlite'));
     if (!await dbPath.exists()) return null;
     final stamped = DateTime.now().toIso8601String().replaceAll(':', '-');
-    final backupFile = File(p.join(kWindowsUpdatesDirectory, 'pre_update_$stamped.db'));
+    final backupFile =
+        File(p.join(kWindowsUpdatesDirectory, 'pre_update_$stamped.db'));
     await dbPath.copy(backupFile.path);
     _log('pre-update SQLite copy → ${backupFile.path}');
     return backupFile.path;
   }
 
   /// Runs `zaad_pos_setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART` after teardown.
-  Future<void> installUpdate({InstallReason reason = InstallReason.manual}) async {
+  Future<void> installUpdate(
+      {InstallReason reason = InstallReason.manual}) async {
     if (!Platform.isWindows) return;
     final eligibility = await canInstallUpdate();
     if (!eligibility.isOk) {
-      throw UpdateServiceException(eligibility.blockReason ?? 'Install blocked');
+      throw UpdateServiceException(
+          eligibility.blockReason ?? 'Install blocked');
     }
 
     final path = _downloadedInstallerPath;
@@ -434,7 +545,8 @@ class UpdaterManager {
       throw UpdateServiceException('Installer unavailable');
     }
 
-    final validated = await UpdateService.validateWindowsInstallerFile(path, expectedContentLength: await File(path).length());
+    final validated = await UpdateService.validateWindowsInstallerFile(path,
+        expectedContentLength: await File(path).length());
     if (validated != UpdateInstallerValidation.ok) {
       throw UpdateServiceException('Installer corrupted ($validated)');
     }
@@ -443,7 +555,8 @@ class UpdaterManager {
     await pauseRealtimeChannels();
 
     final hub = locator<LocalHubSettings>();
-    if (!hub.blocksTenantCloudRest && locator.isRegistered<OutboundPushCoordinator>()) {
+    if (!hub.blocksTenantCloudRest &&
+        locator.isRegistered<OutboundPushCoordinator>()) {
       try {
         await locator<OutboundPushCoordinator>().flushPendingIfOnline();
       } catch (_) {
@@ -462,11 +575,13 @@ class UpdaterManager {
       await backupDatabase();
     } on FileSystemException catch (e) {
       _installLifecycleActive = false;
-      if (!hub.blocksTenantCloudRest && locator.isRegistered<OutboundPushCoordinator>()) {
+      if (!hub.blocksTenantCloudRest &&
+          locator.isRegistered<OutboundPushCoordinator>()) {
         locator<OutboundPushCoordinator>().resumeAfterMaintenance();
       }
       await resumeRealtimeChannels();
-      throw UpdateServiceException('Could not duplicate SQLite before install (${e.osError?.message ?? e.message})');
+      throw UpdateServiceException(
+          'Could not duplicate SQLite before install (${e.osError?.message ?? e.message})');
     }
 
     try {
@@ -474,7 +589,8 @@ class UpdaterManager {
       await _db.customStatement('PRAGMA wal_checkpoint(TRUNCATE);');
     } catch (e, st) {
       _installLifecycleActive = false;
-      if (!hub.blocksTenantCloudRest && locator.isRegistered<OutboundPushCoordinator>()) {
+      if (!hub.blocksTenantCloudRest &&
+          locator.isRegistered<OutboundPushCoordinator>()) {
         locator<OutboundPushCoordinator>().resumeAfterMaintenance();
       }
       await resumeRealtimeChannels();
@@ -496,7 +612,8 @@ class UpdaterManager {
       await _spawnInnoDetached(path);
     } catch (e, st) {
       _log('installer spawn failed after DB close: $e\n$st');
-      _emitBanner(UpdaterBannerState.error('CRITICAL: DB closed but installer failed — relaunch POS manually.'));
+      _emitBanner(UpdaterBannerState.error(
+          'CRITICAL: DB closed but installer failed — relaunch POS manually.'));
       unawaited(
         Future<void>.delayed(const Duration(seconds: 2), () => exit(1)),
       );
@@ -526,7 +643,8 @@ class UpdaterManager {
   ///
   /// Prefer Inno `[Run]` to relaunch after `/VERYSILENT` installs; supply [forceExitWithoutRelaunch] to exit cleanly
   /// so the Inno process can supersede the outdated binary immediately.
-  Future<void> restartApplication({bool forceExitWithoutRelaunch = false}) async {
+  Future<void> restartApplication(
+      {bool forceExitWithoutRelaunch = false}) async {
     if (!Platform.isWindows) return;
     if (!forceExitWithoutRelaunch) {
       final launcher = Platform.resolvedExecutable;
@@ -535,12 +653,8 @@ class UpdaterManager {
     exit(0);
   }
 
-  void disposeIdleMonitorOnly() {
-    _idleMonitor?.dispose();
-    _idleMonitor = null;
-  }
+  void disposeIdleMonitorOnly() {}
 }
-
 
 class _UpdateBanner extends StatelessWidget {
   const _UpdateBanner({required this.state});
@@ -582,7 +696,8 @@ class _UpdateBanner extends StatelessWidget {
                   Expanded(
                     child: Text(
                       state.message ?? '',
-                      style: theme.textTheme.bodyMedium?.copyWith(color: fg, fontWeight: FontWeight.w600),
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: fg, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ],

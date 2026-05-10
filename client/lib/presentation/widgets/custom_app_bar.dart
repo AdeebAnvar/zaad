@@ -6,6 +6,7 @@ import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/update/updater_manager.dart';
 import 'package:pos/data/local/drift_database.dart';
 import '../../core/constants/colors.dart';
 
@@ -18,7 +19,8 @@ class CustomAppBar extends StatefulWidget implements PreferredSizeWidget {
   /// Back arrow (e.g. return to Dine In floor plan from counter).
   final VoidCallback? onBack;
 
-  const CustomAppBar({super.key, required this.title, this.screen, this.onBack});
+  const CustomAppBar(
+      {super.key, required this.title, this.screen, this.onBack});
 
   @override
   Size get preferredSize => const Size.fromHeight(60);
@@ -79,8 +81,11 @@ class _CustomAppBarState extends State<CustomAppBar> {
     if (days == null || days < 0 || days > 10) return null;
     final isCritical = days <= 5;
     final bg = isCritical ? const Color(0xFFFFEBEE) : const Color(0xFFFFF8E1);
-    final border = isCritical ? const Color(0xFFE53935) : const Color(0xFFF9A825);
-    final text = days == 0 ? 'Expires today' : 'Expires in $days day${days == 1 ? '' : 's'}';
+    final border =
+        isCritical ? const Color(0xFFE53935) : const Color(0xFFF9A825);
+    final text = days == 0
+        ? 'Expires today'
+        : 'Expires in $days day${days == 1 ? '' : 's'}';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -102,6 +107,60 @@ class _CustomAppBarState extends State<CustomAppBar> {
     );
   }
 
+  Widget _buildUpdateIndicator({required bool compact}) {
+    if (!locator.isRegistered<UpdaterManager>()) return const SizedBox.shrink();
+    final updater = locator<UpdaterManager>();
+    return ValueListenableBuilder<UpdaterBannerState>(
+      valueListenable: updater.bannerNotifier,
+      builder: (context, state, _) {
+        final hasUpdate = state.phase == UpdaterBannerPhase.available ||
+            state.phase == UpdaterBannerPhase.ready;
+        if (!hasUpdate) return const SizedBox.shrink();
+
+        final isReady = state.phase == UpdaterBannerPhase.ready;
+        final color =
+            isReady ? const Color(0xFF2E7D32) : const Color(0xFFE65100);
+        return Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: Tooltip(
+            message:
+                isReady ? 'Update downloaded. Install now' : 'Update available',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () => updater.promptForUpdate(context),
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 7 : 9,
+                  vertical: compact ? 5 : 6,
+                ),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  border: Border.all(color: color),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.system_update_alt,
+                        size: compact ? 16 : 18, color: color),
+                    if (!compact) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        'Update',
+                        style: AppStyles.getSemiBoldTextStyle(
+                            fontSize: 12, color: color),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDashboard = widget.screen == 'dashboard';
@@ -110,7 +169,9 @@ class _CustomAppBarState extends State<CustomAppBar> {
     final showSyncText = w >= 760;
     final iconPad = compact ? 5.0 : 6.0;
     final iconSize = compact ? 20.0 : 22.0;
-    final leftWidth = widget.onBack != null ? (compact ? 136.0 : 168.0) : (compact ? 84.0 : 95.0);
+    final leftWidth = widget.onBack != null
+        ? (compact ? 136.0 : 168.0)
+        : (compact ? 84.0 : 95.0);
     final expiryBadge = _buildExpiryBadge();
     final hubCashierNoCloud = locator<LocalHubSettings>().blocksTenantCloudRest;
 
@@ -127,18 +188,25 @@ class _CustomAppBarState extends State<CustomAppBar> {
             GestureDetector(
               onTap: widget.onBack,
               child: Container(
-                margin: EdgeInsets.fromLTRB(10, compact ? 12 : 10, 4, compact ? 12 : 10),
+                margin: EdgeInsets.fromLTRB(
+                    10, compact ? 12 : 10, 4, compact ? 12 : 10),
                 padding: EdgeInsets.all(iconPad),
-                decoration: BoxDecoration(color: AppColors.primaryColor, borderRadius: BorderRadius.circular(6)),
-                child: Icon(Icons.arrow_back, color: Colors.white, size: iconSize),
+                decoration: BoxDecoration(
+                    color: AppColors.primaryColor,
+                    borderRadius: BorderRadius.circular(6)),
+                child:
+                    Icon(Icons.arrow_back, color: Colors.white, size: iconSize),
               ),
             ),
           GestureDetector(
             onTap: () => Scaffold.of(context).openDrawer(),
             child: Container(
-              margin: EdgeInsets.all(widget.onBack != null ? 4 : (compact ? 9 : 10)),
+              margin: EdgeInsets.all(
+                  widget.onBack != null ? 4 : (compact ? 9 : 10)),
               padding: EdgeInsets.all(iconPad),
-              decoration: BoxDecoration(color: AppColors.primaryColor, borderRadius: BorderRadius.circular(6)),
+              decoration: BoxDecoration(
+                  color: AppColors.primaryColor,
+                  borderRadius: BorderRadius.circular(6)),
               child: Icon(Icons.menu, color: Colors.white, size: iconSize),
             ),
           ),
@@ -147,8 +215,11 @@ class _CustomAppBarState extends State<CustomAppBar> {
               onTap: () => AppNavigator.pushReplacementNamed(Routes.dashboard),
               child: Container(
                 padding: EdgeInsets.all(iconPad),
-                decoration: BoxDecoration(color: AppColors.primaryColor, borderRadius: BorderRadius.circular(6)),
-                child: Icon(Icons.home_filled, color: Colors.white, size: iconSize),
+                decoration: BoxDecoration(
+                    color: AppColors.primaryColor,
+                    borderRadius: BorderRadius.circular(6)),
+                child: Icon(Icons.home_filled,
+                    color: Colors.white, size: iconSize),
               ),
             ),
         ],
@@ -161,6 +232,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
         style: AppStyles.getSemiBoldTextStyle(fontSize: compact ? 16 : 18),
       ),
       actions: [
+        _buildUpdateIndicator(compact: compact),
         if (expiryBadge != null) ...[
           expiryBadge,
           const SizedBox(width: 8),
@@ -186,11 +258,16 @@ class _CustomAppBarState extends State<CustomAppBar> {
           ),
           const SizedBox(width: 6),
           IconButton(
-            tooltip: hubCashierNoCloud ? 'Cloud sync runs on Primary POS only. This device is updated via the LAN hub.' : 'Sync now',
+            tooltip: hubCashierNoCloud
+                ? 'Cloud sync runs on Primary POS only. This device is updated via the LAN hub.'
+                : 'Sync now',
             onPressed: hubCashierNoCloud ? null : _runManualSync,
             icon: const Icon(Icons.sync),
-            color: hubCashierNoCloud ? AppColors.hintFontColor : AppColors.primaryColor,
-            visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+            color: hubCashierNoCloud
+                ? AppColors.hintFontColor
+                : AppColors.primaryColor,
+            visualDensity:
+                compact ? VisualDensity.compact : VisualDensity.standard,
           ),
         ],
         SizedBox(width: compact ? 4 : 8),
