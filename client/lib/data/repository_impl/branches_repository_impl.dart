@@ -7,9 +7,24 @@ class BranchRepositoryImpl implements BranchRepository {
   final AppDatabase db;
   BranchRepositoryImpl(this.db);
   @override
-  Future<void> saveBranchesToLocal(List<BranchModel> brancModelList, {bool downloadRemoteImages = true}) async {
+  Future<void> saveBranchesToLocal(List<BranchModel> brancModelList,
+      {bool downloadRemoteImages = true}) async {
+    final existingOpeningCashByBranch = {
+      for (final branch in await db.branchesDao.getAllBranches())
+        branch.id: branch.openingCash,
+    };
+    final branchesToSave = brancModelList
+        .map(
+          (branch) => branch.copyWith(
+            openingCash:
+                existingOpeningCashByBranch[branch.id] ?? branch.openingCash,
+          ),
+        )
+        .toList();
+
     await db.delete(db.branches).go();
 
-    await db.branchesDao.insertBranches(brancModelList, downloadRemoteImages: downloadRemoteImages);
+    await db.branchesDao.insertBranches(branchesToSave,
+        downloadRemoteImages: downloadRemoteImages);
   }
 }

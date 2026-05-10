@@ -8,6 +8,9 @@ import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/auth/login_credentials_prefs.dart';
+import 'package:pos/core/network/pos_server_settings.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/core/util/error_diagnostics.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -35,7 +38,11 @@ class LoginCubit extends Cubit<LoginState> {
     return b.difference(a).inDays;
   }
 
-  Future<void> login(String username, String password) async {
+  Future<void> login(
+    String username,
+    String password, {
+    bool saveCredentials = false,
+  }) async {
     emit(LoginLoading());
 
     if (username.isEmpty || password.isEmpty) {
@@ -90,6 +97,13 @@ class LoginCubit extends Cubit<LoginState> {
       user.branchId,
     );
 
+    final prefs = locator<SharedPreferences>();
+    if (saveCredentials) {
+      await LoginCredentialsPrefs.save(prefs, username, password);
+    } else {
+      await LoginCredentialsPrefs.clear(prefs);
+    }
+
     // #region agent log
     agentDebugLog(
       hypothesisId: 'H4',
@@ -132,6 +146,10 @@ class LoginCubit extends Cubit<LoginState> {
       emit(LoginLoading());
       if (kDebugMode) {
         debugPrint('[connectToServer] started, appId="${code.trim()}"');
+      }
+      final trimmedCode = code.trim();
+      if (trimmedCode.isNotEmpty && locator.isRegistered<PosServerSettings>()) {
+        unawaited(locator<PosServerSettings>().setLastTenantConnectAppId(trimmedCode));
       }
       final priorBaseUrl = normalizedTenantBaseUrl(await authRepo.getSavedBaseUrl());
       CompanyDataModel companyDataModel = await authRepo.connectToServer(code);
