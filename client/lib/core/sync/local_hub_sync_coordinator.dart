@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart' show Value;
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/core/sync/ws_detach_done_errors.dart';
@@ -58,6 +59,18 @@ class LocalHubSyncCoordinator {
 
   /// Start background reconnect loop when SUB mode + hub URL are configured.
   Future<void> startIfEnabled() async {
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H2',
+      location: 'local_hub_sync_coordinator.dart:startIfEnabled',
+      message: 'sub_coordinator_start_check',
+      data: <String, Object?>{
+        'isHubSub': _settings.isHubSub,
+        'hubWsUrlLen': _settings.hubWsUrl?.length ?? 0,
+        'enabled': _enabled,
+      },
+    );
+    // #endregion
     if (!_enabled) return;
     await _settings.resolveOrAllocateDeviceId(_uuid.v4);
     _stopDesired = false;
@@ -115,6 +128,18 @@ class LocalHubSyncCoordinator {
         _channel = ch;
         _backoffSec = 1;
         detachWebSocketSinkDone(ch);
+        // #region agent log
+        agentDebugLog(
+          hypothesisId: 'H2',
+          location: 'local_hub_sync_coordinator.dart:_connectionLoop',
+          message: 'sub_ws_socket_connected',
+          data: <String, Object?>{
+            'host': uri.host,
+            'port': uri.port,
+            'path': uri.path,
+          },
+        );
+        // #endregion
 
         await _handshakeAndFlush(ch);
 
@@ -172,6 +197,16 @@ class LocalHubSyncCoordinator {
       deviceId: deviceId,
     );
     ch.sink.add(syncReq.encode());
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H5',
+      location: 'local_hub_sync_coordinator.dart:_handshakeAndFlush',
+      message: 'sub_sync_request_sent',
+      data: <String, Object?>{
+        'lastJournalMs': _settings.lastJournalMs,
+      },
+    );
+    // #endregion
 
     await _flushOutboxOver(ch);
   }
@@ -289,6 +324,18 @@ class LocalHubSyncCoordinator {
       return;
     }
 
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H3',
+      location: 'local_hub_sync_coordinator.dart:_onRawMessage',
+      message: 'sub_inbound_envelope',
+      data: <String, Object?>{
+        'type': env.type,
+        'eventIdLen': env.eventId.length,
+      },
+    );
+    // #endregion
+
     await _persistInboxAndApply(env, raw);
     final st = payloadTimestampMs(env.payload, fallbackSec: env.timestamp);
     await _maybeAdvanceWatermark(st);
@@ -310,7 +357,39 @@ class LocalHubSyncCoordinator {
     final p = env.payload;
 
     final list = p['events'];
-    if (list is! List<dynamic>) return;
+    if (list is! List<dynamic>) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H5',
+        location: 'local_hub_sync_coordinator.dart:_ingestSyncResponse',
+        message: 'sync_response_missing_events_list',
+        data: const <String, Object?>{},
+      );
+      // #endregion
+      return;
+    }
+
+    final types = <String>[];
+    for (final item in list) {
+      if (item is Map) {
+        final envMap = item['envelope'];
+        if (envMap is Map && envMap['type'] != null) {
+          types.add(envMap['type'].toString());
+        }
+      }
+    }
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H5',
+      location: 'local_hub_sync_coordinator.dart:_ingestSyncResponse',
+      message: 'sync_response_ingest_start',
+      data: <String, Object?>{
+        'eventCount': list.length,
+        'types': types.join(','),
+        'syncTimestamp': p['syncTimestamp'],
+      },
+    );
+    // #endregion
 
     for (final item in list) {
       final inner = PosSyncJournalReplay.envelopeFromItem(item);

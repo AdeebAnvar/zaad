@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 
 /// Parsed `GET /health` subset from the MAIN Node hub (`server/src/app.js`).
@@ -87,12 +88,54 @@ class LanHeavyMirrorGate {
   LanHeavyMirrorGate._();
 
   static Future<bool> shouldSkipForSolitaryWsHub(LocalHubSettings hub) async {
-    if (!hub.skipHeavyLanMirrorUnlessExtraWsPeers) return false;
+    if (!hub.skipHeavyLanMirrorUnlessExtraWsPeers) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'lan_hub_health.dart:shouldSkipForSolitaryWsHub',
+        message: 'solitary_gate_off_pref',
+        data: const <String, Object?>{'skip': false},
+      );
+      // #endregion
+      return false;
+    }
     final wsUrl = hub.publishHubWsUrlOrLoopback;
     final healthUri = lanHubHealthUriFromStoredWsUrl(wsUrl);
-    if (healthUri == null) return false;
+    if (healthUri == null) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'lan_hub_health.dart:shouldSkipForSolitaryWsHub',
+        message: 'solitary_gate_no_health_uri',
+        data: const <String, Object?>{},
+      );
+      // #endregion
+      return false;
+    }
     final summary = await fetchLanHubWsHealthSummary(healthUri);
-    if (summary == null) return false;
-    return summary.openSockets <= 1;
+    if (summary == null) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'lan_hub_health.dart:shouldSkipForSolitaryWsHub',
+        message: 'solitary_gate_health_fetch_null',
+        data: const <String, Object?>{},
+      );
+      // #endregion
+      return false;
+    }
+    final skip = summary.openSockets <= 1;
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H1',
+      location: 'lan_hub_health.dart:shouldSkipForSolitaryWsHub',
+      message: 'solitary_gate_evaluated',
+      data: <String, Object?>{
+        'openSockets': summary.openSockets,
+        'skipMirror': skip,
+      },
+    );
+    // #endregion
+    return skip;
   }
 }

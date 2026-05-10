@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/cloud_order_push_queue.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
@@ -185,6 +186,18 @@ class SyncInboxApplier {
     }
 
     await pullData.upsertLanHubItemSnapshot(item, localImagePath: localPath);
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H_ITEMS_SUB',
+      location: 'sync_inbox_applier.dart:_applyItemUpsert',
+      message: 'lan_item_upsert_applied',
+      data: <String, Object?>{
+        'itemId': item.id,
+        'branchId': item.branchId,
+        'hadInlineImage': localPath != null,
+      },
+    );
+    // #endregion
   }
 
   Future<void> _applyCompanySnapshot(Map<String, dynamic> payload) async {
@@ -193,6 +206,18 @@ class SyncInboxApplier {
     final settingsRaw = payload['settings'];
     if (usersRaw is! List || branchesRaw is! List || settingsRaw is! Map) {
       if (kDebugMode) debugPrint('[SyncInbox] COMPANY_SNAPSHOT missing users/branches/settings');
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H3',
+        location: 'sync_inbox_applier.dart:_applyCompanySnapshot',
+        message: 'company_snapshot_payload_incomplete',
+        data: <String, Object?>{
+          'usersIsList': usersRaw is List,
+          'branchesIsList': branchesRaw is List,
+          'settingsIsMap': settingsRaw is Map,
+        },
+      );
+      // #endregion
       return;
     }
 
@@ -215,6 +240,17 @@ class SyncInboxApplier {
     });
 
     ordersLiveSync.notifyHubOrdersChanged();
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H3',
+      location: 'sync_inbox_applier.dart:_applyCompanySnapshot',
+      message: 'company_snapshot_applied_ok',
+      data: <String, Object?>{
+        'savedUserCount': users.length,
+        'savedBranchCount': branches.length,
+      },
+    );
+    // #endregion
   }
 
   Future<List<BranchModel>> _branchesWithInlineLogos(List<BranchModel> bare, Map<dynamic, dynamic> inline) async {

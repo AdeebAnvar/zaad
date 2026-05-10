@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/enums.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/auth/counter_access.dart';
@@ -45,6 +46,17 @@ class LoginCubit extends Cubit<LoginState> {
     final user = await userRepo.findLocalUser(username, password);
 
     if (user == null) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H4',
+        location: 'login_screen_cubit.dart:login',
+        message: 'local_login_user_not_found',
+        data: <String, Object?>{
+          'usernameLen': username.length,
+          'isHubSub': locator.isRegistered<LocalHubSettings>() ? locator<LocalHubSettings>().isHubSub : null,
+        },
+      );
+      // #endregion
       emit(LoginError("User does not exist"));
       return;
     }
@@ -52,6 +64,17 @@ class LoginCubit extends Cubit<LoginState> {
     final db = locator<AppDatabase>();
     final branch = await db.branchesDao.getBranchById(user.branchId);
     if (branch == null) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H4',
+        location: 'login_screen_cubit.dart:login',
+        message: 'local_login_branch_missing',
+        data: <String, Object?>{
+          'userId': user.id,
+          'branchId': user.branchId,
+        },
+      );
+      // #endregion
       emit(LoginError("Branch setup not found for this user"));
       return;
     }
@@ -66,6 +89,19 @@ class LoginCubit extends Cubit<LoginState> {
       user.type == UserType.admin ? "admin" : "counter",
       user.branchId,
     );
+
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H4',
+      location: 'login_screen_cubit.dart:login',
+      message: 'local_login_success',
+      data: <String, Object?>{
+        'userId': user.id,
+        'branchId': user.branchId,
+        'isHubSub': locator.isRegistered<LocalHubSettings>() ? locator<LocalHubSettings>().isHubSub : null,
+      },
+    );
+    // #endregion
 
     final critical = daysLeft <= 5;
     final warning = daysLeft <= 10 ? (daysLeft == 0 ? 'Subscription expires today.' : 'Subscription expires in $daysLeft day${daysLeft == 1 ? '' : 's'}.') : null;
