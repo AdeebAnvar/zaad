@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pos/app/di.dart';
 import 'package:pos/app/navigation.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/enums.dart';
+import 'package:pos/core/update/updater_manager.dart';
 import 'routes.dart';
 
 class ZaadPOSApp extends StatelessWidget {
@@ -28,7 +30,11 @@ class ZaadPOSApp extends StatelessWidget {
       initialRoute: _resolveHome(),
       routes: Routes.map,
       builder: (context, child) {
+        UpdaterManager.scheduleColdStartCheckOnce();
         var subtree = child ?? const SizedBox.shrink();
+        if (locator.isRegistered<UpdaterManager>()) {
+          subtree = locator<UpdaterManager>().wrapAppWithUpdateLayers(subtree);
+        }
         // Dismiss IME on scroll (browse lists/items with keyboard open).
         subtree = NotificationListener<UserScrollNotification>(
           onNotification: (_) {

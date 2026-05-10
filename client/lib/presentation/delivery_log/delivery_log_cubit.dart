@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:drift/drift.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/driver_repository.dart';
@@ -151,6 +152,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         statusAnyOf: statusAny,
       );
       orders = _filterDeliveryLogList(orders);
+      sortOrdersNewestFirst(orders);
       _normalSelection.removeWhere((id) => !orders.any((o) => o.id == id));
       emit(DeliveryLogLoaded(
         orders,
@@ -204,6 +206,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         userId: userId,
       );
       orders = _filterDeliveryLogList(orders);
+      sortOrdersNewestFirst(orders);
       _normalSelection.removeWhere((id) => !orders.any((o) => o.id == id));
       emit(DeliveryLogLoaded(
         orders,

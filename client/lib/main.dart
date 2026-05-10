@@ -23,6 +23,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await AppDirectories.migrateLegacyLayoutIfNeeded();
+  await AppDirectories.migrateAndroidInternalToPublicDocumentsIfNeeded();
 
   // ✅ Initialize DI ONCE
   await ZaadDI.initialize();

@@ -844,7 +844,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
     }
 
     _updateFinalAmount();
-    unawaited(_loadApplicableOffer());
+    // Auto-pick a branch offer only for new settlements; edit flow uses order discount / prefill (mirrored orders would double-apply).
+    if (prefill == null) {
+      unawaited(_loadApplicableOffer());
+    }
 
     // New order: [getPaymentPrefillForEdit] is null — leave payment fields empty (take away, dine in, delivery).
     // Editing: prefill cash/card/credit/online from the saved order.
@@ -1436,25 +1439,44 @@ class _PaymentDialogState extends State<PaymentDialog> {
           const SizedBox(height: 12),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: Colors.green.shade50,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: Colors.green.shade200),
             ),
-            child: Column(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  _appliedOffer!.name.toUpperCase(),
-                  style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: Colors.green.shade900),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _appliedOffer!.name.toUpperCase(),
+                        style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: Colors.green.shade900),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _appliedOffer!.type == _OfferValueType.percentage
+                            ? '${_formatOfferValue(_appliedOffer!.value)}% discount'
+                            : '$_currencyLabel ${_formatOfferValue(_appliedOffer!.value)} discount',
+                        style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.green.shade900),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  _appliedOffer!.type == _OfferValueType.percentage
-                      ? '${_formatOfferValue(_appliedOffer!.value)}% discount'
-                      : '$_currencyLabel ${_formatOfferValue(_appliedOffer!.value)} discount',
-                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.green.shade900),
+                IconButton(
+                  tooltip: 'Remove offer',
+                  icon: Icon(Icons.close_rounded, size: 20, color: Colors.green.shade800),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: () {
+                    setState(() {
+                      _appliedOffer = null;
+                      _recalculateFinalAmount();
+                    });
+                  },
                 ),
               ],
             ),
@@ -1628,6 +1650,19 @@ class _PaymentDialogState extends State<PaymentDialog> {
                             );
                           }
                           return;
+                        }
+                        final creditAmt = double.tryParse(_creditController.text) ?? 0;
+                        if (creditAmt > 0.005) {
+                          final nameOk = _nameController.text.trim().isNotEmpty;
+                          final phoneOk = _phoneController.text.trim().isNotEmpty;
+                          if (!nameOk || !phoneOk) {
+                            if (mounted) {
+                              CustomSnackBar.showError(
+                                message: 'Customer name and phone are required for credit sales.',
+                              );
+                            }
+                            return;
+                          }
                         }
                         if (!_validatePayments()) {
                           final cash = double.tryParse(_cashController.text) ?? 0;

@@ -1,18 +1,21 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/utils/kot_reference_recents.dart';
+import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/print/kot_kitchen_update_diff.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
+import 'package:pos/core/update/updater_manager.dart';
 
 part 'cart_state.dart';
 
@@ -69,6 +72,18 @@ class CartCubit extends Cubit<CartState> {
 
   /// True when this screen was opened for editing an order (e.g. from Take Away Log). Hide reference/KOT popup.
   bool get isOpenedForEdit => _openedForEdit;
+
+  @override
+  void emit(CartState state) {
+    super.emit(state);
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.windows &&
+        locator.isRegistered<UpdaterManager>()) {
+      locator<UpdaterManager>().reportBillingGate(
+        state.orderSubmitPending || state.totalItems > 0,
+      );
+    }
+  }
 
   Future<Map<String, dynamic>?> getPaymentPrefillForEdit() async {
     if (!_openedForEdit || _editingOrderId == null) {
@@ -578,8 +593,36 @@ class CartCubit extends Cubit<CartState> {
     // Editing an order is not "new item" flow — clear session's active cart so we don't restore this later
     await _clearPersistedCartId();
 
-    // Load cart items first
-    final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
+    // Load cart items first (mirrored SUB→MAIN orders often have a shadow cart_id with no rows yet).
+    List<CartItem> resolvedLines = await cartRepo.getCartItemsByCartId(order.cartId) ?? [];
+    if (resolvedLines.isEmpty) {
+      final hydrated = await OrderLogCartFallback.resolve(
+        order: order,
+        db: locator<AppDatabase>(),
+        cartRepo: cartRepo,
+      );
+      if (hydrated.isNotEmpty) {
+        for (final line in hydrated) {
+          await cartRepo.addItemToCart(
+            order.cartId,
+            CartItem(
+              id: 0,
+              cartId: order.cartId,
+              itemId: line.itemId,
+              itemName: line.itemName,
+              itemVariantId: line.itemVariantId,
+              itemToppingId: line.itemToppingId,
+              quantity: line.quantity,
+              total: line.total,
+              discount: line.discount,
+              discountType: line.discountType,
+              notes: line.notes,
+            ),
+          );
+        }
+        resolvedLines = await cartRepo.getCartItemsByCartId(order.cartId) ?? [];
+      }
+    }
 
     // Clear any existing cart state first - do this AFTER loading to avoid race conditions
     _activeCartId = null;
@@ -611,15 +654,15 @@ class CartCubit extends Cubit<CartState> {
     }
 
     // Lines already on an open KOT ticket are treated as printed to kitchen.
-    if (order.status == 'kot' && cartItems != null) {
-      for (final ci in cartItems) {
+    if (order.status == 'kot' && resolvedLines.isNotEmpty) {
+      for (final ci in resolvedLines) {
         _kotPrintedCartItemIds.add(ci.id);
       }
-      _kotKitchenBaselineForDiff = _kotSnapshotCart(cartItems);
+      _kotKitchenBaselineForDiff = _kotSnapshotCart(resolvedLines);
     }
 
     // Emit the loaded cart items - this will trigger widget rebuilds
-    emit(CartState(cartItems ?? []));
+    emit(CartState(resolvedLines));
   }
 
   Future<List<String>> placeOrderWithPayment({

@@ -19,10 +19,27 @@ class OutboundPushCoordinator {
   StreamSubscription<ConnectivityResult>? _connectivitySub;
   Timer? _debounce;
   bool _flushInProgress = false;
+  bool _maintenancePaused = false;
+
+  /// Pauses scheduled + connectivity-triggered flushes (used by [UpdaterManager] teardown).
+  void suspendForMaintenance() {
+    _maintenancePaused = true;
+    _debounce?.cancel();
+    _debounce = null;
+  }
+
+  void resumeAfterMaintenance() {
+    _maintenancePaused = false;
+  }
+
+  /// Hot path for updater / maintenance: defer shutdown until cloud push completes.
+  bool get isFlushWorkInFlight => _flushInProgress;
 
   void ensureListening() {
     _connectivitySub ??= NetworkUtils.connectivityStream.listen((_) {
-      scheduleFlush();
+      if (!_maintenancePaused) {
+        scheduleFlush();
+      }
     });
   }
 
@@ -34,6 +51,7 @@ class OutboundPushCoordinator {
 
   /// Coalesces bursts (multiple KOT lines, rapid sales, connectivity flaps).
   void scheduleFlush() {
+    if (_maintenancePaused) return;
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 400), () {
       unawaited(flushPendingIfOnline());
@@ -41,6 +59,7 @@ class OutboundPushCoordinator {
   }
 
   Future<void> flushPendingIfOnline() async {
+    if (_maintenancePaused) return;
     if (_flushInProgress) return;
     final g = GetIt.instance;
     if (g.isRegistered<LocalHubSettings>() && g<LocalHubSettings>().blocksTenantCloudRest) {

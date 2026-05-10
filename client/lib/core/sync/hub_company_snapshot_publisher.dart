@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/lan_hub_health.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
@@ -22,22 +23,61 @@ class HubCompanySnapshotPublisher {
 
   static Future<void> broadcastAfterTenantLink(AppDatabase db) async {
     final g = GetIt.instance;
-    if (!g.isRegistered<LocalHubSettings>()) return;
+    if (!g.isRegistered<LocalHubSettings>()) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'hub_company_snapshot_publisher.dart:broadcastAfterTenantLink',
+        message: 'early_return_no_LocalHubSettings',
+        data: const <String, Object?>{},
+      );
+      // #endregion
+      return;
+    }
 
     final hub = g<LocalHubSettings>();
     final resolvedUrl = hub.publishHubWsUrlOrLoopback;
 
-    if (hub.blocksTenantCloudRest) return;
+    if (hub.blocksTenantCloudRest) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'hub_company_snapshot_publisher.dart:broadcastAfterTenantLink',
+        message: 'skip_blocksTenantCloudRest_MAIN_is_SUB',
+        data: const <String, Object?>{},
+      );
+      // #endregion
+      return;
+    }
     if (resolvedUrl.isEmpty) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'hub_company_snapshot_publisher.dart:broadcastAfterTenantLink',
+        message: 'skip_empty_resolvedUrl',
+        data: const <String, Object?>{},
+      );
+      // #endregion
       return;
     }
 
-    if (await LanHeavyMirrorGate.shouldSkipForSolitaryWsHub(hub)) {
+    final solitarySkip = await LanHeavyMirrorGate.shouldSkipForSolitaryWsHub(hub);
+    if (solitarySkip) {
       if (kDebugMode) {
         debugPrint(
           '[HubCompanySnapshotPublisher] skip: hub reports ≤1 open WS client (solitary MAIN — toggle in LAN hub settings)',
         );
       }
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'hub_company_snapshot_publisher.dart:broadcastAfterTenantLink',
+        message: 'skip_solitary_ws_gate',
+        data: <String, Object?>{
+          'skipHeavyLanMirrorUnlessExtraWsPeers': hub.skipHeavyLanMirrorUnlessExtraWsPeers,
+        },
+      );
+      // #endregion
       return;
     }
 
@@ -50,6 +90,18 @@ class HubCompanySnapshotPublisher {
           '[HubCompanySnapshotPublisher] skip: incomplete local data users=${users.length} branches=${branches.length} settings=${settings != null}',
         );
       }
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'hub_company_snapshot_publisher.dart:broadcastAfterTenantLink',
+        message: 'skip_incomplete_local_company_data',
+        data: <String, Object?>{
+          'userCount': users.length,
+          'branchCount': branches.length,
+          'hasSettings': settings != null,
+        },
+      );
+      // #endregion
       return;
     }
 
@@ -76,8 +128,30 @@ class HubCompanySnapshotPublisher {
           '[HubCompanySnapshotPublisher] queued COMPANY_SNAPSHOT (${users.length} users, ${branches.length} branches, ${branchImageInline.length} branch images)',
         );
       }
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'hub_company_snapshot_publisher.dart:broadcastAfterTenantLink',
+        message: 'company_snapshot_queued_ok',
+        data: <String, Object?>{
+          'userCount': users.length,
+          'branchCount': branches.length,
+          'branchInlineKeys': branchImageInline.length,
+        },
+      );
+      // #endregion
     } catch (e, st) {
       if (kDebugMode) debugPrint('[HubCompanySnapshotPublisher] failed: $e\n$st');
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'hub_company_snapshot_publisher.dart:broadcastAfterTenantLink',
+        message: 'company_snapshot_enqueue_exception',
+        data: <String, Object?>{
+          'errorType': e.runtimeType.toString(),
+        },
+      );
+      // #endregion
     }
   }
 

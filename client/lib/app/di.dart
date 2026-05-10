@@ -9,6 +9,7 @@ import 'package:pos/core/sync/local_hub_primary_inbound_coordinator.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/services/backup_service.dart';
+import 'package:pos/core/update/updater_manager.dart';
 import 'package:pos/data/repository/branch_repository.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
@@ -71,6 +72,9 @@ class ZaadDI {
       final db = AppDatabase();
       locator.registerSingleton<AppDatabase>(db);
       BackupService.instance.startAutoBackup(db);
+    }
+    if (!locator.isRegistered<UpdaterManager>()) {
+      locator.registerSingleton<UpdaterManager>(UpdaterManager(database: locator<AppDatabase>()));
     }
     if (!locator.isRegistered<CurrentCounterSession>()) {
       locator.registerSingleton<CurrentCounterSession>(CurrentCounterSession());

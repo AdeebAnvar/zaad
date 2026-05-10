@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite;
@@ -13,22 +12,12 @@ class BackupService {
 
   static const int _orderThreshold = 10;
   static const Duration _timeThreshold = Duration(minutes: 2);
-  static const String _rootFolder = 'ZaadPOS';
-  static const String _backupFolder = 'backup';
-
   int _pendingOrderMutations = 0;
   DateTime _lastBackupAt = DateTime.fromMillisecondsSinceEpoch(0);
   Future<void> _queue = Future<void>.value();
   Timer? _periodicTimer;
 
-  Future<Directory> _backupDir() async {
-    final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(docs.path, _rootFolder, _backupFolder));
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return dir;
-  }
+  Future<Directory> _backupDir() => AppDirectories.backupDir();
 
   String _fileName(DateTime now) {
     String two(int v) => v.toString().padLeft(2, '0');

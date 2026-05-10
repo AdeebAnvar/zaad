@@ -7,6 +7,7 @@ import 'package:pos/core/sync/cloud_order_push_queue.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/outbound_push_coordinator.dart';
 import 'package:pos/core/utils/invoice_number_utils.dart';
+import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/core/utils/sales_csv_backup.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -31,8 +32,15 @@ class OrderRepositoryImpl implements OrderRepository {
     await BackupService.instance.recordOrderMutation(db);
   }
 
-  Map<String, dynamic> _orderSnapshotMap(Order order, List<CartItem> cartItems) {
+  Future<Map<String, dynamic>> _orderSnapshotMap(Order order, List<CartItem> cartItems) async {
     final flutter = HubOrdersPayloadBuilder.flutterBlockFromDraft(order);
+    String? cashierName;
+    final uid = order.userId;
+    if (uid != null) {
+      final u = await db.usersDao.findUserById(uid);
+      final n = u?.name.trim() ?? '';
+      if (n.isNotEmpty) cashierName = n;
+    }
     return <String, dynamic>{
       'order_id': order.id,
       'cart_id': order.cartId,
@@ -40,19 +48,20 @@ class OrderRepositoryImpl implements OrderRepository {
       'created_at': order.createdAt.toIso8601String(),
       'status': order.status,
       ...flutter,
+      if (cashierName != null) 'cashier_name': cashierName,
       'items': HubOrdersPayloadBuilder.cartLinesToJson(cartItems),
     };
   }
 
-  String _orderSnapshotJson(Order order, List<CartItem> cartItems) =>
-      jsonEncode(_orderSnapshotMap(order, cartItems));
+  Future<String> _orderSnapshotJson(Order order, List<CartItem> cartItems) async =>
+      jsonEncode(await _orderSnapshotMap(order, cartItems));
 
   Future<void> _enqueueOutboundOrderSnapshot(Order order) async {
     final cartItems = await db.cartsDao.getItemsByCart(order.cartId);
     await enqueueOrderLogSnapshotForCloudPush(
       db: db,
       order: order,
-      snapshotPayload: _orderSnapshotMap(order, cartItems),
+      snapshotPayload: await _orderSnapshotMap(order, cartItems),
     );
   }
 
@@ -92,10 +101,15 @@ class OrderRepositoryImpl implements OrderRepository {
       throw StateError('createOrder failed to read row $newId');
     }
     final cartItems = await db.cartsDao.getItemsByCart(saved.cartId);
-    await db.ordersDao.insertOrderLog(_orderSnapshotJson(saved, cartItems));
+    await db.ordersDao.insertOrderLog(await _orderSnapshotJson(saved, cartItems));
     await _afterMutation();
     scheduleOutboundPushAfterLocalOrder();
-    HubOrderLanPublisher.scheduleOrderUpsert(order: saved, cartItems: cartItems, isCreate: true);
+    await db.ordersDao.setHubCorrelationIfUnset(
+      orderId: newId,
+      correlationId: HubOrderLanPublisher.hubOrderCorrelationId(saved, saved.id),
+    );
+    final forHub = await db.ordersDao.getOrderById(newId) ?? saved;
+    HubOrderLanPublisher.scheduleOrderUpsert(order: forHub, cartItems: cartItems, isCreate: true);
     return newId;
   }
 
@@ -121,9 +135,14 @@ class OrderRepositoryImpl implements OrderRepository {
     await db.ordersDao.updateOrderStatus(orderId, status);
     final row = await db.ordersDao.getOrderById(orderId);
     if (row != null) {
-      await _enqueueOutboundOrderSnapshot(row);
-      final cartItems = await db.cartsDao.getItemsByCart(row.cartId);
-      HubOrderLanPublisher.scheduleOrderUpsert(order: row, cartItems: cartItems, isCreate: false);
+      await db.ordersDao.setHubCorrelationIfUnset(
+        orderId: row.id,
+        correlationId: HubOrderLanPublisher.hubOrderCorrelationId(row, row.id),
+      );
+      final patched = await db.ordersDao.getOrderById(row.id) ?? row;
+      await _enqueueOutboundOrderSnapshot(patched);
+      final cartItems = await db.cartsDao.getItemsByCart(patched.cartId);
+      HubOrderLanPublisher.scheduleOrderUpsert(order: patched, cartItems: cartItems, isCreate: false);
     }
     await _afterMutation();
   }
@@ -149,9 +168,14 @@ class OrderRepositoryImpl implements OrderRepository {
     await db.ordersDao.updateOrder(order.toCompanion(false));
     final row = await db.ordersDao.getOrderById(order.id);
     if (row != null) {
-      await _enqueueOutboundOrderSnapshot(row);
-      final cartItems = await db.cartsDao.getItemsByCart(row.cartId);
-      HubOrderLanPublisher.scheduleOrderUpsert(order: row, cartItems: cartItems, isCreate: false);
+      await db.ordersDao.setHubCorrelationIfUnset(
+        orderId: row.id,
+        correlationId: HubOrderLanPublisher.hubOrderCorrelationId(row, row.id),
+      );
+      final patched = await db.ordersDao.getOrderById(row.id) ?? row;
+      await _enqueueOutboundOrderSnapshot(patched);
+      final cartItems = await db.cartsDao.getItemsByCart(patched.cartId);
+      HubOrderLanPublisher.scheduleOrderUpsert(order: patched, cartItems: cartItems, isCreate: false);
     }
     await _afterMutation();
   }
@@ -197,9 +221,9 @@ class OrderRepositoryImpl implements OrderRepository {
   Future<List<Order>> getCreditSales() async {
     final bid = await _activeBranchId();
     final all = await db.ordersDao.getAllOrders(branchId: bid);
-    return all
-        .where((o) => o.creditAmount > 0.004 && o.status != 'cancelled')
-        .toList();
+    final list = all.where((o) => o.creditAmount > 0.004 && o.status != 'cancelled').toList();
+    sortOrdersNewestFirst(list);
+    return list;
   }
 
   Future<String> _allocateNextInvoiceNumber(String orderType, {int? branchIdOverride}) async {
@@ -212,7 +236,7 @@ class OrderRepositoryImpl implements OrderRepository {
     final oMax = await db.ordersDao.maxInvoiceNumericSuffixForPrefix(prefix, branchId: bid);
     final cMax = await db.cartsDao.maxInvoiceNumericSuffixForPrefix(prefix, branchId: bid);
     final next = (oMax > cMax ? oMax : cMax) + 1;
-    return formatShortInvoice(prefix, next);
+    return formatShortInvoice(prefix, bid, next);
   }
 
   @override

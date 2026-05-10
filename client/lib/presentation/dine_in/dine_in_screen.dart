@@ -7,6 +7,7 @@ import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
+import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
@@ -99,6 +100,7 @@ class _DineInScreenState extends State<DineInScreen> {
       final s = o.status.toLowerCase();
       return s != 'completed' && s != 'cancelled';
     }).toList();
+    sortOrdersNewestFirst(active);
 
     final codeToFloors = <String, Set<int>>{};
     for (final t in allTables) {

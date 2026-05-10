@@ -71,6 +71,10 @@ class PullDataRepositoryImpl implements PullDataRepository {
   static const String _pageQuery = 'page';
   static const String _branchQuery = 'branch_id';
   static const String _lastSyncedAtQuery = 'last_synced_at';
+
+  /// When `false`, [pullAndPersist] omits `last_synced_at` — server returns non-incremental page data.
+  /// **Temporary workaround** until incremental cursor issue is diagnosed.
+  static const bool _includeLastSyncedAtOnPullQueries = false;
   static final DateFormat _apiDateTime = DateFormat('yyyy-MM-dd HH:mm:ss');
   static const int _kMaxPagesPerResource = 500;
 
@@ -107,7 +111,8 @@ class PullDataRepositoryImpl implements PullDataRepository {
     final allItemForImages = <ItemCreatedUpdated>[];
     PullData? lastPull;
     var page = 1;
-    final cycleLastSyncedAt = await _db.pullDataDao.getPullLastSyncedAt();
+    final cycleLastSyncedAt =
+        _includeLastSyncedAtOnPullQueries ? await _db.pullDataDao.getPullLastSyncedAt() : null;
     String? nextPullLastSyncedAt;
     _emitProgress('Starting sync...', 0, _kMaxPagesPerResource);
     while (page <= _kMaxPagesPerResource) {
@@ -130,9 +135,11 @@ class PullDataRepositoryImpl implements PullDataRepository {
           _pageQuery: page,
           _branchQuery: activeBranchId,
         };
-        final normalizedLastSyncedAt = _normalizeLastSyncedAtForQuery(cycleLastSyncedAt);
-        if (normalizedLastSyncedAt != null) {
-          queryParams[_lastSyncedAtQuery] = normalizedLastSyncedAt;
+        if (_includeLastSyncedAtOnPullQueries) {
+          final normalizedLastSyncedAt = _normalizeLastSyncedAtForQuery(cycleLastSyncedAt);
+          if (normalizedLastSyncedAt != null) {
+            queryParams[_lastSyncedAtQuery] = normalizedLastSyncedAt;
+          }
         }
         response = await _api.pullData(queryParams);
       } on DioException catch (e) {

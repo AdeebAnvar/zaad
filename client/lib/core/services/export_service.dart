@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:syncfusion_flutter_xlsio/xlsio.dart';
 
@@ -10,17 +10,7 @@ class ExportService {
   ExportService._();
   static final ExportService instance = ExportService._();
 
-  static const String _rootFolder = 'ZaadPOS';
-  static const String _exportFolder = 'exports';
-
-  Future<Directory> _exportDir() async {
-    final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(docs.path, _rootFolder, _exportFolder));
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return dir;
-  }
+  Future<Directory> _exportDir() => AppDirectories.exportsDir();
 
   String _fileName(DateTime now) {
     String two(int v) => v.toString().padLeft(2, '0');
