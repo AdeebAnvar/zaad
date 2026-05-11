@@ -297,7 +297,6 @@ Future<DayClosingSummary> computeDayClosingSummary(
   final unpaidVisible =
       unpaidBranchList.where((o) => _unsettledMatchesUserLogAccess(o, counterAccess)).toList();
   final linesByCartId = <int, List<CartItem>>{};
-  final cartLineDiscountByCartId = <int, double>{};
   if (settled.isNotEmpty) {
     final cartIds = settled.map((o) => o.cartId).toSet().toList();
     // Chunked parallel reads — faster than strictly sequential awaits on large histories.
@@ -312,14 +311,11 @@ Future<DayClosingSummary> computeDayClosingSummary(
         linesByCartId[slice[j]] = batch[j];
       }
     }
-    for (final entry in linesByCartId.entries) {
-      final lineDiscount = entry.value.fold<double>(0, (s, l) => s + l.discount);
-      cartLineDiscountByCartId[entry.key] = lineDiscount;
-    }
   }
+  // [Order.totalAmount] is the sum of line totals; each line total already excludes [CartItem.discount].
+  // Only order-level discount must be subtracted here — line discounts must not be applied again.
   double effectiveOrderDiscount(Order o) =>
-      (_orderLevelDiscount(o) + (cartLineDiscountByCartId[o.cartId] ?? 0.0))
-          .clamp(0, o.totalAmount);
+      _orderLevelDiscount(o).clamp(0, o.totalAmount);
   double effectiveOrderNet(Order o) =>
       (o.totalAmount - effectiveOrderDiscount(o)).clamp(0.0, o.totalAmount).toDouble();
 

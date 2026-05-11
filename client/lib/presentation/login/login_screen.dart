@@ -9,6 +9,7 @@ import 'package:pos/core/auth/login_credentials_prefs.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/network/pos_server_settings.dart';
+import 'package:pos/domain/models/api/auth/auth_repository.dart';
 import 'package:pos/presentation/login/login_screen_cubit.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_dialogue.dart';
@@ -36,11 +37,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
   late final LoginCubit cubit;
   bool _saveCredentials = false;
+  bool _tenantLinked = false;
 
   @override
   void initState() {
     super.initState();
     cubit = locator<LoginCubit>();
+    unawaited(_refreshTenantLinked());
 
     final prefs = locator<SharedPreferences>();
     if (LoginCredentialsPrefs.hasSaved(prefs)) {
@@ -51,6 +54,13 @@ class _LoginScreenState extends State<LoginScreen> {
       userNameController.text = "counter";
       passWordController.text = "12345";
     }
+  }
+
+  Future<void> _refreshTenantLinked() async {
+    final url = await locator<AuthRepository>().getSavedBaseUrl();
+    if (!mounted) return;
+    final linked = url != null && url.trim().isNotEmpty;
+    if (_tenantLinked != linked) setState(() => _tenantLinked = linked);
   }
 
   @override
@@ -97,13 +107,12 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     if (state is LoginServerConnected) {
       LoaderOverlay.hide();
-    }
-
-    if (state is LoginServerConnected) {
-      LoaderOverlay.hide();
-      CustomSnackBar.showSuccess(
-        message: "Server connected successfully",
-      );
+      // Show after loader overlay is removed so the toast isn't lost under another overlay.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        CustomSnackBar.showSuccess(message: 'Connected to server');
+        unawaited(_refreshTenantLinked());
+      });
     }
 
     if (state is LoginSuccess) {
@@ -253,21 +262,39 @@ class _LoginScreenState extends State<LoginScreen> {
               style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.grey.shade700),
             )
           else
-            GestureDetector(
-              onTap: _openServerDialog,
-              child: Text(
-                'Connect to server',
-                style: AppStyles.getRegularTextStyle(
-                  fontSize: 14,
-                  color: AppColors.primaryColor,
+            Column(
+              children: [
+                if (_tenantLinked) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.cloud_done_rounded, size: 18, color: Colors.green.shade700),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Connected to server',
+                        style: AppStyles.getMediumTextStyle(fontSize: 14, color: Colors.green.shade700),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                GestureDetector(
+                  onTap: _openServerDialog,
+                  child: Text(
+                    _tenantLinked ? 'Change server…' : 'Connect to server',
+                    style: AppStyles.getRegularTextStyle(
+                      fontSize: 14,
+                      color: AppColors.primaryColor,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           const SizedBox(height: 12),
           TextButton(
             onPressed: () async {
               await AppNavigator.pushNamed(Routes.lanHubSettings);
-              if (mounted) setState(() {});
+              if (mounted) unawaited(_refreshTenantLinked());
             },
             child: Text(
               'LAN hub (MAIN / SUB)',

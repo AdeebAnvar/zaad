@@ -6,6 +6,7 @@ import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/diagnostics/day_closing_reconcile_log.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
@@ -64,6 +65,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         CustomSnackBar.showWarning(message: 'Could not load day closing data.');
       }
     } finally {
+      await appendDayClosingReconcileLogIfNeeded(summary);
       if (mounted) {
         setState(() {
           _summary = summary;

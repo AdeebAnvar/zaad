@@ -95,6 +95,17 @@ class CartCubit extends Cubit<CartState> {
       return null;
     }
 
+    Map<String, dynamic>? appliedOffer;
+    try {
+      final raw = order.hubMetadata;
+      if (raw != null && raw.trim().isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map && decoded['applied_offer'] is Map) {
+          appliedOffer = Map<String, dynamic>.from(decoded['applied_offer'] as Map<dynamic, dynamic>);
+        }
+      }
+    } catch (_) {}
+
     return <String, dynamic>{
       "name": order.customerName,
       "phone": order.customerPhone,
@@ -107,6 +118,7 @@ class CartCubit extends Cubit<CartState> {
       "online": order.onlineAmount,
       "discountAmount": order.discountAmount,
       "discountType": order.discountType,
+      if (appliedOffer != null) "appliedOffer": appliedOffer,
     };
   }
 

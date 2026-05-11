@@ -72,6 +72,17 @@ Future<void> showCartStylePaymentDialogForOrder(
   required Order order,
   VoidCallback? onPaymentRecorded,
 }) async {
+  Map<String, dynamic>? appliedOffer;
+  try {
+    final raw = order.hubMetadata;
+    if (raw != null && raw.trim().isNotEmpty) {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map && decoded['applied_offer'] is Map) {
+        appliedOffer = Map<String, dynamic>.from(decoded['applied_offer'] as Map<dynamic, dynamic>);
+      }
+    }
+  } catch (_) {}
+
   final prefill = <String, dynamic>{
     'name': order.customerName,
     'phone': order.customerPhone,
@@ -84,6 +95,7 @@ Future<void> showCartStylePaymentDialogForOrder(
     'online': order.onlineAmount,
     'discountAmount': order.discountAmount,
     'discountType': order.discountType,
+    if (appliedOffer != null) 'appliedOffer': appliedOffer,
   };
 
   await showDialog<bool>(
@@ -781,9 +793,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
   final _emailController = TextEditingController();
   final _genderController = TextEditingController();
 
-  final _discountAmountController = TextEditingController();
-  final _discountPercentController = TextEditingController();
-
   final _cashController = TextEditingController();
   final _creditController = TextEditingController();
   final _cardController = TextEditingController();
@@ -797,10 +806,14 @@ class _PaymentDialogState extends State<PaymentDialog> {
   final _onlineFocusNode = FocusNode();
   final _otherFocusNode = FocusNode();
 
-  String _discountType = 'amount';
-  double _discountValue = 0;
+  /// Manual discount (amount or %) — only set from cart/order prefill when editing; new sales use offer dropdown only.
+  String _manualDiscountMode = 'amount';
+  double _manualRawValue = 0;
+
+  List<_AppliedOffer> _offerChoices = [];
+  int? _selectedOfferIndex;
+  bool _loadingOffers = true;
   double _finalAmount = 0;
-  _AppliedOffer? _appliedOffer;
 
   final CustomerRepository _customerRepo = locator<CustomerRepository>();
   List<PosCustomer> _allCustomers = [];
@@ -824,30 +837,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
       _emailController.text = (prefill['email'] as String?)?.trim() ?? '';
       _genderController.text = (prefill['gender'] as String?)?.trim() ?? '';
       _onlineOrderNumberController.text = (prefill['onlineOrderNumber'] as String?)?.trim() ?? '';
-
-      final savedDisc = (prefill['discountAmount'] as num?)?.toDouble() ?? 0.0;
-      final savedDiscType = prefill['discountType'] as String?;
-      if (savedDisc > 0 && savedDiscType == 'percentage') {
-        _discountType = 'percentage';
-        final subtotal = widget.totalAmount;
-        // Support both legacy data (stored as amount but tagged percentage) and corrected data (stored as percent).
-        final pct = (savedDisc >= 0 && savedDisc <= 100)
-            ? savedDisc
-            : (subtotal > 0 ? (savedDisc / subtotal * 100) : 0.0);
-        _discountPercentController.text = pct > 0 ? pct.toStringAsFixed(2) : '';
-        _discountAmountController.clear();
-      } else if (savedDisc > 0) {
-        _discountType = 'amount';
-        _discountAmountController.text = savedDisc.toString();
-        _discountPercentController.clear();
-      }
     }
 
     _updateFinalAmount();
-    // Auto-pick a branch offer only for new settlements; edit flow uses order discount / prefill (mirrored orders would double-apply).
-    if (prefill == null) {
-      unawaited(_loadApplicableOffer());
-    }
+    unawaited(_loadOfferChoices());
 
     // New order: [getPaymentPrefillForEdit] is null — leave payment fields empty (take away, dine in, delivery).
     // Editing: prefill cash/card/credit/online from the saved order.
@@ -873,7 +866,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _otherFocusNode.addListener(_onPaymentFocusOther);
   }
 
-  Future<void> _loadApplicableOffer() async {
+  Future<void> _loadOfferChoices() async {
+    setState(() => _loadingOffers = true);
     try {
       final db = locator<AppDatabase>();
       final session = await db.sessionDao.getActiveSession();
@@ -881,7 +875,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
       final rows = await db.pullDataDao.getOffersForBranch(branchId);
       final today = DateUtils.dateOnly(DateTime.now());
 
-      _AppliedOffer? applied;
+      final choices = <_AppliedOffer>[];
       for (final row in rows) {
         final payloadRaw = row.otherName;
         if (payloadRaw == null || payloadRaw.trim().isEmpty) continue;
@@ -914,27 +908,82 @@ class _PaymentDialogState extends State<PaymentDialog> {
             : value.clamp(0.0, widget.totalAmount).toDouble();
         if (discount <= 0) continue;
 
-        applied = _AppliedOffer(
-          name: row.categoryName.trim().isEmpty ? 'Offer' : row.categoryName.trim(),
-          toDateText: payload['to_date']?.toString() ?? '',
-          value: value,
-          type: type,
-          discountAmount: discount,
+        choices.add(
+          _AppliedOffer(
+            name: row.categoryName.trim().isEmpty ? 'Offer' : row.categoryName.trim(),
+            toDateText: payload['to_date']?.toString() ?? '',
+            value: value,
+            type: type,
+            discountAmount: discount,
+          ),
         );
-        break;
       }
 
       if (!mounted) return;
       setState(() {
-        _appliedOffer = applied;
+        _offerChoices = choices;
+        _applyPrefillDiscountAfterOffersLoaded();
+        _loadingOffers = false;
         _recalculateFinalAmount();
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _appliedOffer = null;
+        _offerChoices = [];
+        _selectedOfferIndex = null;
+        _applyPrefillDiscountAfterOffersLoaded();
+        _loadingOffers = false;
         _recalculateFinalAmount();
       });
+    }
+  }
+
+  /// Maps cart/order prefill to manual + optional matched offer once offers are loaded.
+  void _applyPrefillDiscountAfterOffersLoaded() {
+    final prefill = widget.prefill;
+    if (prefill == null) {
+      _manualDiscountMode = 'amount';
+      _manualRawValue = 0;
+      _selectedOfferIndex = null;
+      return;
+    }
+
+    final savedDisc = (prefill['discountAmount'] as num?)?.toDouble() ?? 0.0;
+    final appliedRaw = prefill['appliedOffer'];
+    int? matchedIdx;
+    if (appliedRaw is Map && _offerChoices.isNotEmpty) {
+      final want = (appliedRaw['name'] ?? '').toString().trim().toLowerCase();
+      if (want.isNotEmpty) {
+        for (var i = 0; i < _offerChoices.length; i++) {
+          if (_offerChoices[i].name.trim().toLowerCase() == want) {
+            matchedIdx = i;
+            break;
+          }
+        }
+      }
+    }
+
+    _selectedOfferIndex = matchedIdx;
+    final offerDisc = matchedIdx != null ? _offerChoices[matchedIdx].discountAmount : 0.0;
+    var residual = savedDisc - offerDisc;
+    if (residual < 0.009) residual = 0;
+
+    if (matchedIdx == null && savedDisc > 0) {
+      final savedDiscType = prefill['discountType'] as String?;
+      if (savedDiscType == 'percentage') {
+        _manualDiscountMode = 'percentage';
+        final subtotal = widget.totalAmount;
+        final pct = (savedDisc >= 0 && savedDisc <= 100)
+            ? savedDisc
+            : (subtotal > 0 ? (savedDisc / subtotal * 100) : 0.0);
+        _manualRawValue = pct;
+      } else {
+        _manualDiscountMode = 'amount';
+        _manualRawValue = savedDisc;
+      }
+    } else {
+      _manualDiscountMode = 'amount';
+      _manualRawValue = residual;
     }
   }
 
@@ -1046,15 +1095,20 @@ class _PaymentDialogState extends State<PaymentDialog> {
     setState(_recalculateFinalAmount);
   }
 
-  void _recalculateFinalAmount() {
-    if (_discountType == 'percentage') {
-      final percent = double.tryParse(_discountPercentController.text) ?? 0;
-      _discountValue = widget.totalAmount * (percent / 100);
-    } else {
-      _discountValue = double.tryParse(_discountAmountController.text) ?? 0;
+  double _manualDiscountAmountComputed() {
+    if (_manualDiscountMode == 'percentage') {
+      return (widget.totalAmount * (_manualRawValue / 100)).clamp(0.0, widget.totalAmount).toDouble();
     }
-    final offerDiscount = _appliedOffer?.discountAmount ?? 0.0;
-    _finalAmount = (widget.totalAmount - _discountValue - offerDiscount).clamp(0, double.infinity);
+    return _manualRawValue.clamp(0.0, widget.totalAmount).toDouble();
+  }
+
+  void _recalculateFinalAmount() {
+    final manualDisc = _manualDiscountAmountComputed();
+    final offerDiscount =
+        _selectedOfferIndex != null && _selectedOfferIndex! >= 0 && _selectedOfferIndex! < _offerChoices.length
+            ? _offerChoices[_selectedOfferIndex!].discountAmount
+            : 0.0;
+    _finalAmount = (widget.totalAmount - manualDisc - offerDiscount).clamp(0, double.infinity);
   }
 
   bool _validatePayments() {
@@ -1363,47 +1417,104 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Discount by Amount',
+                    'Offer',
                     style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
                   ),
                   const SizedBox(height: 6),
-                  CustomTextField(
-                    controller: _discountAmountController,
-                    labelText: '',
-                    keyBoardType: TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
-                    onTap: () {
-                      _discountType = 'amount';
-                      _discountPercentController.clear();
-                      _updateFinalAmount();
-                    },
-                    onChanged: (_) => _updateFinalAmount(),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Discount by %',
-                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
-                  ),
-                  const SizedBox(height: 6),
-                  CustomTextField(
-                    controller: _discountPercentController,
-                    labelText: '',
-                    keyBoardType: TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
-                    onTap: () {
-                      _discountType = 'percentage';
-                      _discountAmountController.clear();
-                      _updateFinalAmount();
-                    },
-                    onChanged: (_) => _updateFinalAmount(),
-                  ),
+                  if (_loadingOffers)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryColor),
+                          ),
+                          const SizedBox(width: 10),
+                          Text('Loading offers…', style: AppStyles.getRegularTextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    )
+                  else
+                    InputDecorator(
+                      decoration: InputDecoration(
+                        labelStyle: TextStyle(
+                          color: AppColors.hintFontColor,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w400,
+                        ),
+                        filled: false,
+                        hintText: 'Select offer',
+                        fillColor: Colors.white,
+                        hintStyle: TextStyle(
+                          color: AppColors.hintFontColor,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w400,
+                        ),
+                        isDense: true,
+                        isCollapsed: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 13,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int?>(
+                          value: _selectedOfferIndex,
+                          isExpanded: true,
+                          hint: Text(
+                            'Select offer',
+                            style: AppStyles.getRegularTextStyle(fontSize: 14, color: AppColors.hintFontColor),
+                          ),
+                          items: [
+                            DropdownMenuItem<int?>(
+                              value: null,
+                              child: Text(
+                                _offerChoices.isEmpty ? 'No offers available' : 'No offer',
+                                style: AppStyles.getRegularTextStyle(fontSize: 14),
+                              ),
+                            ),
+                            for (var i = 0; i < _offerChoices.length; i++)
+                              DropdownMenuItem<int?>(
+                                value: i,
+                                child: Text(
+                                  _offerDropdownLabel(_offerChoices[i]),
+                                  style: AppStyles.getRegularTextStyle(fontSize: 14),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: _offerChoices.isEmpty
+                              ? null
+                              : (v) {
+                                  setState(() {
+                                    _selectedOfferIndex = v;
+                                    _recalculateFinalAmount();
+                                  });
+                                },
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1435,55 +1546,15 @@ class _PaymentDialogState extends State<PaymentDialog> {
             ),
           ],
         ),
-        if (_appliedOffer != null) ...[
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.green.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.green.shade200),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _appliedOffer!.name.toUpperCase(),
-                        style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: Colors.green.shade900),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _appliedOffer!.type == _OfferValueType.percentage
-                            ? '${_formatOfferValue(_appliedOffer!.value)}% discount'
-                            : '$_currencyLabel ${_formatOfferValue(_appliedOffer!.value)} discount',
-                        style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.green.shade900),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Remove offer',
-                  icon: Icon(Icons.close_rounded, size: 20, color: Colors.green.shade800),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  onPressed: () {
-                    setState(() {
-                      _appliedOffer = null;
-                      _recalculateFinalAmount();
-                    });
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
       ],
     );
+  }
+
+  String _offerDropdownLabel(_AppliedOffer o) {
+    final valuePart = o.type == _OfferValueType.percentage
+        ? '${_formatOfferValue(o.value)}%'
+        : '$_currencyLabel ${_formatOfferValue(o.value)}';
+    return '${o.name} ($valuePart) — ${o.discountAmount.toStringAsFixed(2)} off';
   }
 
   String _formatOfferValue(double value) {
@@ -1492,29 +1563,12 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Widget _discountSectionTitle() {
-    final offer = _appliedOffer;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(Icons.discount_outlined, size: 20, color: AppColors.primaryColor),
         const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Discount', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
-              if (offer != null) ...[
-                const SizedBox(height: 2),
-                Text(
-                  'Offer: ${offer.name} (${offer.discountAmount.toStringAsFixed(2)} off)',
-                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.green.shade700),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ],
-          ),
-        ),
+        Text('Discount', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
       ],
     );
   }
@@ -1696,9 +1750,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         setState(() => _isSubmitting = true);
                         try {
                           await _saveNewCustomerIfNeeded();
-                          final percentInput = double.tryParse(_discountPercentController.text) ?? 0.0;
-                          final discountPayloadValue =
-                              _discountType == 'percentage' ? percentInput : _discountValue;
+                          final sel = _selectedOfferIndex;
+                          final applied = sel != null && sel >= 0 && sel < _offerChoices.length ? _offerChoices[sel] : null;
                           await widget.onSave(
                             {
                               'name': _nameController.text,
@@ -1708,16 +1761,16 @@ class _PaymentDialogState extends State<PaymentDialog> {
                               'onlineOrderNumber': _onlineOrderNumberController.text.trim().isEmpty ? null : _onlineOrderNumberController.text.trim(),
                             },
                             {
-                              'type': _discountType,
-                              'value': discountPayloadValue,
-                              'offer': _appliedOffer == null
+                              'type': _manualDiscountMode,
+                              'value': _manualRawValue,
+                              'offer': applied == null
                                   ? null
                                   : {
-                                      'name': _appliedOffer!.name,
-                                      'type': _appliedOffer!.type == _OfferValueType.percentage ? 'percentage' : 'amount',
-                                      'value': _appliedOffer!.value,
-                                      'discountAmount': _appliedOffer!.discountAmount,
-                                      'toDate': _appliedOffer!.toDateText,
+                                      'name': applied.name,
+                                      'type': applied.type == _OfferValueType.percentage ? 'percentage' : 'amount',
+                                      'value': applied.value,
+                                      'discountAmount': applied.discountAmount,
+                                      'toDate': applied.toDateText,
                                     },
                             },
                             {
@@ -1820,8 +1873,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _phoneController.dispose();
     _emailController.dispose();
     _genderController.dispose();
-    _discountAmountController.dispose();
-    _discountPercentController.dispose();
     _cashController.dispose();
     _creditController.dispose();
     _cardController.dispose();
