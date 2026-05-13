@@ -3,12 +3,11 @@ String invoicePrefixForOrderType(String orderType) {
   return 'INV';
 }
 
-/// Formats `TA01`, `DL12`; expands past 99 without padding (`TA100`).
-String formatShortInvoice(String prefix, int n) {
-  if (n < 100) {
-    return '$prefix${n.toString().padLeft(2, '0')}';
-  }
-  return '$prefix$n';
+/// Formats branch-scoped invoices like `INV-1-002`.
+String formatShortInvoice(String prefix, int branchId, int n) {
+  final normalizedBranchId = branchId > 0 ? branchId : 1;
+  final suffix = n.toString().padLeft(3, '0');
+  return '$prefix-$normalizedBranchId-$suffix';
 }
 
 /// Legacy fallback (should not be used for new carts when [OrderRepository.getNextInvoiceNumber] is available).

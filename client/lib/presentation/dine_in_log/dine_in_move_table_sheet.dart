@@ -2,6 +2,9 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/constants/styles.dart';
@@ -75,8 +78,9 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
         });
         return;
       }
-      final currentTableCode = DineInRefParser.extractTableCode(widget.order.referenceNumber);
-      final lead = DineInRefParser.extractLeadingFloorId(widget.order.referenceNumber);
+      final anchor = DineInRefParser.dineInAnchorForMatching(widget.order);
+      final currentTableCode = DineInRefParser.extractTableCode(anchor);
+      final lead = DineInRefParser.extractLeadingFloorId(anchor);
 
       var startFloor = floors.first;
       if (lead != null) {
@@ -135,9 +139,16 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       return;
     }
 
-    final pax = DineInRefParser.extractPaxFromReference(widget.order.referenceNumber);
+    final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInAnchorForMatching(widget.order));
     final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
-    final active = await _orderRepo.filterOrders(orderType: 'dine_in');
+    final active = await _orderRepo.filterOrders(
+      orderType: 'dine_in',
+      userId: HubLogOrderUserScope.effectiveFilterUserId(
+        hub: locator<LocalHubSettings>(),
+        sessionUser: locator<CurrentCounterSession>().user,
+        uiSelectedUserId: null,
+      ),
+    );
     final activeList = active.where((o) {
       final s = o.status.toLowerCase();
       return s != 'completed' && s != 'cancelled';
@@ -196,7 +207,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       );
     }
 
-    final pax = DineInRefParser.extractPaxFromReference(widget.order.referenceNumber);
+    final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInAnchorForMatching(widget.order));
     final seatHandling = _seatHandlingEnabled ?? true;
 
     return Padding(

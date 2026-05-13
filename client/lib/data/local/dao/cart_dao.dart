@@ -140,18 +140,33 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
     return map;
   }
 
-  /// Highest numeric suffix for cart invoices starting with [prefix] (pairs with [OrdersDao.maxInvoiceNumericSuffixForPrefix]).
+  /// Highest numeric suffix for cart invoices in [branchId] and [prefix].
+  ///
+  /// Supports:
+  /// - Current format: `PREFIX-branchId-###` (e.g. `INV-1-002`)
+  /// - Legacy format: `PREFIX##` (e.g. `INV02`)
   Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) async {
     final rows = await (select(carts)
           ..where((c) => c.invoiceNumber.like('$prefix%'))
           ..where((c) => c.branchId.equals(branchId)))
         .get();
     var max = 0;
+    final escapedPrefix = RegExp.escape(prefix);
+    final currentFormat = RegExp('^$escapedPrefix-$branchId-(\\d+)\$');
+    final legacyFormat = RegExp('^$escapedPrefix(\\d+)\$');
+
     for (final c in rows) {
       final inv = c.invoiceNumber;
-      if (!inv.startsWith(prefix)) continue;
-      final tail = inv.substring(prefix.length);
-      final v = int.tryParse(tail);
+      int? v;
+      final currentMatch = currentFormat.firstMatch(inv);
+      if (currentMatch != null) {
+        v = int.tryParse(currentMatch.group(1)!);
+      } else {
+        final legacyMatch = legacyFormat.firstMatch(inv);
+        if (legacyMatch != null) {
+          v = int.tryParse(legacyMatch.group(1)!);
+        }
+      }
       if (v != null && v > max) max = v;
     }
     return max;

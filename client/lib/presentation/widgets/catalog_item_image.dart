@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:pos/core/utils/image_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -37,6 +36,7 @@ class CatalogItemImage extends StatelessWidget {
         return Image.file(
           file,
           fit: fit,
+          gaplessPlayback: true,
           errorBuilder: (_, __, ___) => _RemoteOrPlaceholder(item: item, fit: fit),
         );
       }
@@ -58,6 +58,8 @@ class _RemoteOrPlaceholder extends StatelessWidget {
       return Image.network(
         s,
         fit: fit,
+        gaplessPlayback: true,
+        key: ValueKey<String>('net|$s'),
         errorBuilder: (_, __, ___) => CatalogItemImage._placeholder(),
       );
     }
@@ -68,7 +70,8 @@ class _RemoteOrPlaceholder extends StatelessWidget {
   }
 }
 
-/// One-shot resolve relative image URLs (same as sync download) then [Image.network].
+/// Resolves relative paths once [TenantImageUrlCache] has base URL; avoids placeholder
+/// flicker on every GridView rebuild when switching categories.
 class _ResolvedUrlImage extends StatefulWidget {
   const _ResolvedUrlImage({required this.relativeOrAbsolute, required this.fit});
 
@@ -86,21 +89,44 @@ class _ResolvedUrlImageState extends State<_ResolvedUrlImage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    final immediate = TenantImageUrlCache.resolveWhenBaseReady(widget.relativeOrAbsolute);
+    if (immediate != null) {
+      _url = immediate;
+      _done = true;
+    } else {
+      TenantImageUrlCache.ensureBaseUrlLoaded().then((_) {
+        if (!mounted) return;
+        setState(() {
+          _url = TenantImageUrlCache.resolveWhenBaseReady(widget.relativeOrAbsolute);
+          _done = true;
+        });
+      });
+    }
   }
 
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final base = prefs.getString('baseUrl') ?? '';
-    final u = ImageUtils.resolveToAbsoluteImageUrl(
-      widget.relativeOrAbsolute,
-      baseUrlOverride: base,
-    );
-    if (!mounted) return;
-    setState(() {
-      _url = u;
-      _done = true;
-    });
+  @override
+  void didUpdateWidget(_ResolvedUrlImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.relativeOrAbsolute != widget.relativeOrAbsolute) {
+      final immediate = TenantImageUrlCache.resolveWhenBaseReady(widget.relativeOrAbsolute);
+      if (immediate != null) {
+        setState(() {
+          _url = immediate;
+          _done = true;
+        });
+      } else {
+        setState(() {
+          _done = false;
+        });
+        TenantImageUrlCache.ensureBaseUrlLoaded().then((_) {
+          if (!mounted) return;
+          setState(() {
+            _url = TenantImageUrlCache.resolveWhenBaseReady(widget.relativeOrAbsolute);
+            _done = true;
+          });
+        });
+      }
+    }
   }
 
   @override
@@ -114,6 +140,8 @@ class _ResolvedUrlImageState extends State<_ResolvedUrlImage> {
     return Image.network(
       _url!,
       fit: widget.fit,
+      gaplessPlayback: true,
+      key: ValueKey<String>('net|$_url'),
       errorBuilder: (_, __, ___) => CatalogItemImage._placeholder(),
     );
   }

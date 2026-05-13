@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/constants/enums.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
+import 'package:pos/core/utils/image_utils.dart';
 import 'package:pos/core/utils/item_order_channels.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
@@ -38,34 +38,32 @@ class ItemsCubit extends Cubit<ItemState> {
   StreamSubscription<List<Category>>? _categoriesSub;
   StreamSubscription<List<ItemVariant>>? _variantsSub;
 
+  /// Avoid spamming debug log on every keystroke/category tap.
+  String? _lastFilterLogSignature;
+
   int _selectedCategoryId = -1;
   int get selectedCategoryId => _selectedCategoryId;
   String _searchQuery = "";
-  static const String _debugLogPath = r'c:\Users\adeeb\OneDrive\Desktop\pos\pos\debug-aa2a57.log';
-  static const String _debugSessionId = 'aa2a57';
 
   /// Canonical token for `[Item.deliveryPartner]` comparison (often numeric id string).
   String? _deliveryFilterToken;
 
   Future<void> fetchItemsAndCategories() async {
+    unawaited(TenantImageUrlCache.ensureBaseUrlLoaded());
     _allItems = await _repo.fetchItemsFromLocal();
     _allCategories = await _repo.fetchCategoriesFromLocal();
     final allVariants = await _repo.fetchAllVariants();
     _variantItemIds = allVariants.map((v) => v.itemId).toSet();
     await _resolveDeliveryFilterToken();
     // #region agent log
-    await _agentLog(
-      runId: 'pre-fix',
-      hypothesisId: 'H2',
-      location: 'items_cubit.dart:49',
-      message: 'Initial catalog snapshot loaded',
-      data: {
-        'total_items': _allItems.length,
-        'nutella_ids': _allItems
-            .where((i) => i.name.trim().toLowerCase().contains('nutella'))
-            .map((i) => i.id)
-            .toList(),
-        'category_count': _allCategories.length,
+    agentDebugLog(
+      hypothesisId: 'H_ITEMS_2',
+      location: 'items_cubit.dart:fetchItemsAndCategories',
+      message: 'catalog_snapshot_loaded',
+      data: <String, Object?>{
+        'rawItemCount': _allItems.length,
+        'categoryCount': _allCategories.length,
+        'saleOrderType': saleOrderType.name,
       },
     );
     // #endregion
@@ -80,21 +78,6 @@ class ItemsCubit extends Cubit<ItemState> {
 
     _itemsSub = _repo.watchItemsFromLocal().listen((items) {
       _allItems = items;
-      // #region agent log
-      unawaited(_agentLog(
-        runId: 'pre-fix',
-        hypothesisId: 'H3',
-        location: 'items_cubit.dart:66',
-        message: 'Items watcher emitted update',
-        data: {
-          'total_items': items.length,
-          'nutella_ids': items
-              .where((i) => i.name.trim().toLowerCase().contains('nutella'))
-              .map((i) => i.id)
-              .toList(),
-        },
-      ));
-      // #endregion
       _applyFilters();
     });
     _categoriesSub = _repo.watchCategoriesFromLocal().listen((categories) {
@@ -167,13 +150,16 @@ class ItemsCubit extends Cubit<ItemState> {
 
   void _applyFilters() {
     List<Item> filtered = _allItems;
+    final rawCount = filtered.length;
 
     final token = _deliveryFilterToken;
     if (saleOrderType == OrderType.delivery && token != null && token.isNotEmpty) {
       filtered = filtered.where((i) => _itemMatchesDeliveryService(i, token)).toList();
     }
+    final afterDeliveryCount = filtered.length;
 
     filtered = filtered.where((i) => i.supportsCurrentSale(saleOrderType)).toList();
+    final afterChannelCount = filtered.length;
 
     if (_selectedCategoryId != -1) {
       filtered = filtered.where((i) => i.categoryId == _selectedCategoryId).toList();
@@ -184,23 +170,29 @@ class ItemsCubit extends Cubit<ItemState> {
         return i.name.toLowerCase().contains(_searchQuery) || i.barcode.contains(_searchQuery) || i.otherName.toLowerCase().contains(_searchQuery);
       }).toList();
     }
-    // #region agent log
-    unawaited(_agentLog(
-      runId: 'pre-fix',
-      hypothesisId: 'H4',
-      location: 'items_cubit.dart:142',
-      message: 'Filtered catalog emitted to UI',
-      data: {
-        'selected_category': _selectedCategoryId,
-        'search': _searchQuery,
-        'filtered_count': filtered.length,
-        'filtered_nutella_ids': filtered
-            .where((i) => i.name.trim().toLowerCase().contains('nutella'))
-            .map((i) => i.id)
-            .toList(),
-      },
-    ));
-    // #endregion
+    final sig =
+        '${rawCount}_${afterDeliveryCount}_${afterChannelCount}_${filtered.length}_${_selectedCategoryId}_${saleOrderType.name}_${_searchQuery.isNotEmpty}';
+    final shouldLogFilter = rawCount == 0 || _lastFilterLogSignature != sig;
+    _lastFilterLogSignature = sig;
+    if (shouldLogFilter) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H_ITEMS_3',
+        location: 'items_cubit.dart:_applyFilters',
+        message: 'filtered_catalog_emit',
+        data: <String, Object?>{
+          'saleOrderType': saleOrderType.name,
+          'deliveryTokenSet': token != null && token.isNotEmpty,
+          'rawCount': rawCount,
+          'afterDeliveryFilter': afterDeliveryCount,
+          'afterChannelFilter': afterChannelCount,
+          'selectedCategoryId': _selectedCategoryId,
+          'hasSearchQuery': _searchQuery.isNotEmpty,
+          'finalFilteredCount': filtered.length,
+        },
+      );
+      // #endregion
+    }
     emit(
       ItemsLoadedState(
         items: filtered,
@@ -228,31 +220,6 @@ class ItemsCubit extends Cubit<ItemState> {
     await _categoriesSub?.cancel();
     await _variantsSub?.cancel();
     return super.close();
-  }
-
-  Future<void> _agentLog({
-    required String runId,
-    required String hypothesisId,
-    required String location,
-    required String message,
-    required Map<String, dynamic> data,
-  }) async {
-    try {
-      final payload = <String, dynamic>{
-        'sessionId': _debugSessionId,
-        'runId': runId,
-        'hypothesisId': hypothesisId,
-        'location': location,
-        'message': message,
-        'data': data,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      };
-      await File(_debugLogPath).writeAsString(
-        '${jsonEncode(payload)}\n',
-        mode: FileMode.append,
-        flush: true,
-      );
-    } catch (_) {}
   }
 }
 

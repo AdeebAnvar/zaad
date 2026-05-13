@@ -30,8 +30,7 @@ class CounterPermissions {
 /// `delivery_sale`, `take_away`, `take_away_pay`, `dine_in`, `dine_in_pay`,
 /// `dine_in_log`, `dine_in_log_move`, `dine_in_log_delete`, `dine_in_log_edit`, `dine_in_log_split`.
 class CounterAccess {
-  const CounterAccess._({required this.isAdmin, required Set<String> grantedNormalized})
-      : _granted = grantedNormalized;
+  const CounterAccess._({required this.isAdmin, required Set<String> grantedNormalized}) : _granted = grantedNormalized;
 
   /// Full access (desktop admin role).
   const CounterAccess.admin() : this._(isAdmin: true, grantedNormalized: const {});
@@ -71,6 +70,7 @@ class CounterAccess {
   /// --- Dashboard (counter home) ---
   bool get canTakeAway => _hasAny(const ['take away', 'take_away']);
   bool get canCounterSale => _hasAny(const ['counter sale', 'counter_sale']);
+
   /// Either explicit take-away permission or legacy "counter sale" also opens take-away counter.
   bool get canTakeAwayCounter => canTakeAway || canCounterSale;
 
@@ -107,7 +107,7 @@ class CounterAccess {
   bool get canOpenDrawer => _hasAny(const ['open drawer', 'open_drawer']);
 
   /// Printer Settings + ESC/POS cash drawer pulse share this gate.
-  bool get canPrinterSettings => canOpenDrawer;
+  bool get canPrinterSettings => _hasAny(const ["printer_settings", 'printer settings']);
 
   /// Day Closing screen (admin label on server likely "Settle sale" or synonym).
   bool get canDayClosing => _hasAny(const ['day closing', 'day_closing', 'settle sale', 'settle_sale']);

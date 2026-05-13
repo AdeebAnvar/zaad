@@ -2,19 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/routes.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
+import 'package:pos/core/utils/order_log_cart_fallback.dart';
+import 'package:pos/core/utils/order_owner_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
-import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_log_cubit.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_move_table_sheet.dart';
+import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_split_merge_dialogs.dart';
 import 'package:pos/presentation/widgets/app_snackbar.dart';
 import 'package:pos/presentation/widgets/order_log_user_filter_autocomplete.dart';
@@ -29,6 +33,13 @@ import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
 import 'package:pos/presentation/widgets/qty_password_guard.dart';
 
+/// Optional KOT / staff reference only (not floor–table routing from hub metadata).
+String _dineInLogReferenceLabel(Order order) {
+  final raw = (order.referenceNumber ?? '').trim();
+  if (raw.isEmpty) return '';
+  return DineInRefParser.stripLeadingFloorId(raw);
+}
+
 class DineInLogScreen extends StatelessWidget {
   const DineInLogScreen({super.key});
 
@@ -38,6 +49,8 @@ class DineInLogScreen extends StatelessWidget {
       create: (_) => DineInLogCubit(
         locator<OrderRepository>(),
         locator<CartRepository>(),
+        locator<LocalHubSettings>(),
+        locator<CurrentCounterSession>(),
         hubOrdersLive: locator<HubOrdersLiveSync>(),
       ),
       child: CustomScaffold(
@@ -280,31 +293,27 @@ class _DineInLogCardState extends State<DineInLogCard> {
   }
 
   Future<void> _loadOrderUserName() async {
-    final order = widget.order;
     final db = locator<AppDatabase>();
-    final uid = order.userId;
-    UserModel? u;
-    if (uid != null) {
-      u = await db.usersDao.findUserById(uid);
-    } else {
-      final session = await db.sessionDao.getActiveSession();
-      if (session == null) return;
-      u = await db.usersDao.findUserById(session.userId);
-    }
+    final name = await resolveOrderOwnerDisplayName(
+      db: db,
+      order: widget.order,
+      currentSessionUserId: () async => (await db.sessionDao.getActiveSession())?.userId,
+    );
     if (!mounted) return;
     setState(() {
-      _orderUserName = u?.name;
+      _orderUserName = name;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final order = widget.order;
+    final canPay = locator<CurrentCounterSession>().access.canDineInPay;
     return CommonLogCard(
       tag: 'DI',
       amount: RuntimeAppSettings.money(order.totalAmount),
       invoiceNumber: order.invoiceNumber,
-      referenceNumber: order.referenceNumber ?? '',
+      referenceNumber: _dineInLogReferenceLabel(order),
       createdAt: order.createdAt,
       orderTakerName: _orderUserName,
       onDelete: () => _handleDelete(context, order),
@@ -314,11 +323,12 @@ class _DineInLogCardState extends State<DineInLogCard> {
           tooltip: 'View',
           onTap: () => _handleView(context, order),
         ),
-        LogCardAction(
-          icon: Icons.payments_outlined,
-          tooltip: 'Pay',
-          onTap: () => _handlePay(context, order),
-        ),
+        if (canPay)
+          LogCardAction(
+            icon: Icons.payments_outlined,
+            tooltip: 'Pay',
+            onTap: () => _handlePay(context, order),
+          ),
         LogCardAction(
           icon: Icons.print_outlined,
           tooltip: 'Print',
@@ -367,18 +377,18 @@ class _DineInLogCardState extends State<DineInLogCard> {
   void _handleMerge(BuildContext context, Order order) {
     final state = context.read<DineInLogCubit>().state;
     if (state is! DineInLogLoaded) return;
-    final ref = order.referenceNumber?.trim();
+    final ref = DineInRefParser.dineInAnchorForMatching(order)?.trim();
     if (ref == null || ref.isEmpty) {
       showAppMessageDialog(
         context,
         title: 'Merge bill',
-        message: 'Set a table reference (Floor) before merging bills.',
+        message: 'Table assignment is missing for this bill. Use Floor to assign a table, then try again.',
       );
       return;
     }
     final others = state.orders.where((o) {
       if (o.id == order.id) return false;
-      if (o.referenceNumber?.trim() != ref) return false;
+      if (DineInRefParser.dineInAnchorForMatching(o)?.trim() != ref) return false;
       return dineInBillIsSplittable(o);
     }).toList();
     showDineInMergeBillUi(context, order, others);
@@ -414,8 +424,12 @@ class _DineInLogCardState extends State<DineInLogCard> {
   Future<void> _handlePrint(BuildContext context, Order order) async {
     final cartRepo = locator<CartRepository>();
     final printService = locator<PrintService>();
-    final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
-    if (cartItems == null || cartItems.isEmpty) {
+    final cartItems = await OrderLogCartFallback.resolve(
+      order: order,
+      db: locator<AppDatabase>(),
+      cartRepo: cartRepo,
+    );
+    if (cartItems.isEmpty) {
       if (context.mounted) {
         showAppSnackBar(context, 'No items to print', isWarning: true);
       }
@@ -464,8 +478,13 @@ class _DineInLogCardState extends State<DineInLogCard> {
     final cartRepo = locator<CartRepository>();
     final itemRepo = locator<ItemRepository>();
 
-    final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
-    if (cartItems == null || cartItems.isEmpty) {
+    final itemsWithDetails = await OrderLogCartFallback.buildItemsWithDetailsForOrderLog(
+      order: order,
+      db: locator<AppDatabase>(),
+      cartRepo: cartRepo,
+      itemRepo: itemRepo,
+    );
+    if (itemsWithDetails.isEmpty) {
       if (!context.mounted) return;
       await showAppMessageDialog(
         context,
@@ -473,20 +492,6 @@ class _DineInLogCardState extends State<DineInLogCard> {
         message: 'No items found in this order.',
       );
       return;
-    }
-
-    final List<Map<String, dynamic>> itemsWithDetails = [];
-    for (final cartItem in cartItems) {
-      final item = await itemRepo.fetchItemByIdFromLocal(cartItem.itemId);
-      final variant = cartItem.itemVariantId != null ? await itemRepo.fetchVariantById(cartItem.itemVariantId!) : null;
-      final topping = cartItem.itemToppingId != null ? await itemRepo.fetchToppingById(cartItem.itemToppingId!) : null;
-
-      itemsWithDetails.add({
-        'cartItem': cartItem,
-        'item': item,
-        'variant': variant,
-        'topping': topping,
-      });
     }
 
     if (context.mounted) {

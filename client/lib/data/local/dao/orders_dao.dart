@@ -73,7 +73,12 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     if (branchId != null) {
       q = q..where((o) => o.branchId.equals(branchId));
     }
-    return (q..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();
+    return (q
+          ..orderBy([
+            (o) => OrderingTerm.desc(o.createdAt),
+            (o) => OrderingTerm.desc(o.id),
+          ]))
+        .get();
   }
 
   Future<Order?> getOrderById(int orderId) {
@@ -84,6 +89,21 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     return (select(orders)..where((o) => o.serverOrderId.equals(serverId))).getSingleOrNull();
   }
 
+  /// When still null, set [Orders.serverOrderId] to the LAN hub correlation (`orderId` in payloads) so DELETE / upserts match.
+  Future<void> setHubCorrelationIfUnset({
+    required int orderId,
+    required String correlationId,
+  }) async {
+    final key = correlationId.trim();
+    if (key.isEmpty) return;
+    final row = await getOrderById(orderId);
+    if (row == null) return;
+    if ((row.serverOrderId ?? '').trim().isNotEmpty) return;
+    await (update(orders)..where((o) => o.id.equals(orderId))).write(
+      OrdersCompanion(serverOrderId: Value(key)),
+    );
+  }
+
   Future<List<Order>> getOrdersByDateRange(DateTime start, DateTime end, {int? branchId}) {
     var q = select(orders)
       ..where((o) => o.createdAt.isBiggerOrEqualValue(start))
@@ -91,7 +111,12 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     if (branchId != null) {
       q = q..where((o) => o.branchId.equals(branchId));
     }
-    return (q..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();
+    return (q
+          ..orderBy([
+            (o) => OrderingTerm.desc(o.createdAt),
+            (o) => OrderingTerm.desc(o.id),
+          ]))
+        .get();
   }
 
   Future<void> updateOrderStatus(int orderId, String status) {
@@ -122,7 +147,10 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     final rows = await (select(orders)
           ..where((o) => o.referenceNumber.isNotNull())
           ..where((o) => o.branchId.equals(branchId))
-          ..orderBy([(o) => OrderingTerm.desc(o.createdAt)])
+          ..orderBy([
+            (o) => OrderingTerm.desc(o.createdAt),
+            (o) => OrderingTerm.desc(o.id),
+          ])
           ..limit(400))
         .get();
 
@@ -252,7 +280,12 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     if (branchId != null) {
       q = q..where((o) => o.branchId.equals(branchId));
     }
-    return (q..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();
+    return (q
+          ..orderBy([
+            (o) => OrderingTerm.desc(o.createdAt),
+            (o) => OrderingTerm.desc(o.id),
+          ]))
+        .get();
   }
 
   Future<List<Order>> filterOrders({
@@ -323,21 +356,41 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       query = query..where((o) => o.userId.equals(userId));
     }
 
-    return (query..orderBy([(o) => OrderingTerm.desc(o.createdAt)])).get();
+    return (query
+          ..orderBy([
+            (o) => OrderingTerm.desc(o.createdAt),
+            (o) => OrderingTerm.desc(o.id),
+          ]))
+        .get();
   }
 
-  /// Highest numeric suffix for invoices starting with [prefix] (e.g. `TA` → `TA01` → 1).
+  /// Highest numeric suffix for invoices in [branchId] and [prefix].
+  ///
+  /// Supports:
+  /// - Current format: `PREFIX-branchId-###` (e.g. `INV-1-002`)
+  /// - Legacy format: `PREFIX##` (e.g. `INV02`)
   Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) async {
     final rows = await (select(orders)
           ..where((o) => o.invoiceNumber.like('$prefix%'))
           ..where((o) => o.branchId.equals(branchId)))
         .get();
     var max = 0;
+    final escapedPrefix = RegExp.escape(prefix);
+    final currentFormat = RegExp('^$escapedPrefix-$branchId-(\\d+)\$');
+    final legacyFormat = RegExp('^$escapedPrefix(\\d+)\$');
+
     for (final o in rows) {
       final inv = o.invoiceNumber;
-      if (!inv.startsWith(prefix)) continue;
-      final tail = inv.substring(prefix.length);
-      final v = int.tryParse(tail);
+      int? v;
+      final currentMatch = currentFormat.firstMatch(inv);
+      if (currentMatch != null) {
+        v = int.tryParse(currentMatch.group(1)!);
+      } else {
+        final legacyMatch = legacyFormat.firstMatch(inv);
+        if (legacyMatch != null) {
+          v = int.tryParse(legacyMatch.group(1)!);
+        }
+      }
       if (v != null && v > max) max = v;
     }
     return max;

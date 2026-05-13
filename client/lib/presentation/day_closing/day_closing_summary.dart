@@ -45,6 +45,16 @@ double _orderLevelDiscount(Order o) {
   return gap > 0.009 ? gap : 0.0;
 }
 
+/// Sum of saved line-level discount amounts (already excluded from each line's [CartItem.total]).
+double _lineDiscountSum(Iterable<CartItem> lines) {
+  var sum = 0.0;
+  for (final line in lines) {
+    final d = line.discount;
+    if (d > 0.009) sum += d;
+  }
+  return sum;
+}
+
 String _categoryLabelForLine(CartItem line, Item? item, Map<int, String> categoryNameByCatId) {
   var cn = (item?.categoryName ?? '').trim();
   if (cn.isEmpty && item != null) {
@@ -55,6 +65,11 @@ String _categoryLabelForLine(CartItem line, Item? item, Map<int, String> categor
     return name.isNotEmpty ? name.toUpperCase() : 'UNCATEGORIZED';
   }
   return cn.toUpperCase();
+}
+
+String _itemLabelForLine(CartItem line, Item? item) {
+  final n = (item?.name ?? line.itemName).trim();
+  return n.isNotEmpty ? n.toUpperCase() : 'UNKNOWN';
 }
 
 /// Completed / cancelled excluded; dine-in `kot` excluded (kitchen-only).
@@ -96,7 +111,8 @@ bool _unsettledMatchesUserLogAccess(Order o, CounterAccess access) {
   return access.canTakeAwayLog || access.canDineInLog || access.canDeliveryLog;
 }
 
-/// Shared aggregates for day closing UI and `settle_sales` push payload.
+/// Shared aggregates for day closing UI, thermal print, and `settle_sales` push payload
+/// ([SettleSalePushMapper]).
 class DayClosingSummary {
   final DateTime generatedAt;
   final DateTime? lastClosingAt;
@@ -132,6 +148,7 @@ class DayClosingSummary {
   final double shortAmount;
   final List<DayClosingTypeSummaryRow> typeRows;
   final List<DayClosingCategoryRow> categoryRows;
+  final List<DayClosingItemRow> itemRows;
   final List<DayClosingCancelledRow> cancelledRows;
   /// Open bills the user may review (same log permissions as [unsettledFromAccessibleLogs]).
   final List<DayClosingOpenBill> openBills;
@@ -167,6 +184,7 @@ class DayClosingSummary {
     required this.shortAmount,
     required this.typeRows,
     required this.categoryRows,
+    required this.itemRows,
     required this.cancelledRows,
     required this.openBills,
   });
@@ -202,6 +220,7 @@ class DayClosingSummary {
         shortAmount: 0,
         typeRows: const [],
         categoryRows: const [],
+        itemRows: const [],
         cancelledRows: const [],
         openBills: const [],
       );
@@ -244,6 +263,18 @@ class DayClosingCategoryRow {
 
   const DayClosingCategoryRow({
     required this.category,
+    required this.qty,
+    required this.amount,
+  });
+}
+
+class DayClosingItemRow {
+  final String item;
+  final int qty;
+  final double amount;
+
+  const DayClosingItemRow({
+    required this.item,
     required this.qty,
     required this.amount,
   });
@@ -297,7 +328,6 @@ Future<DayClosingSummary> computeDayClosingSummary(
   final unpaidVisible =
       unpaidBranchList.where((o) => _unsettledMatchesUserLogAccess(o, counterAccess)).toList();
   final linesByCartId = <int, List<CartItem>>{};
-  final cartLineDiscountByCartId = <int, double>{};
   if (settled.isNotEmpty) {
     final cartIds = settled.map((o) => o.cartId).toSet().toList();
     // Chunked parallel reads — faster than strictly sequential awaits on large histories.
@@ -312,20 +342,32 @@ Future<DayClosingSummary> computeDayClosingSummary(
         linesByCartId[slice[j]] = batch[j];
       }
     }
-    for (final entry in linesByCartId.entries) {
-      final lineDiscount = entry.value.fold<double>(0, (s, l) => s + l.discount);
-      cartLineDiscountByCartId[entry.key] = lineDiscount;
-    }
   }
-  double effectiveOrderDiscount(Order o) =>
-      (_orderLevelDiscount(o) + (cartLineDiscountByCartId[o.cartId] ?? 0.0))
-          .clamp(0, o.totalAmount);
+  // [Order.totalAmount] is the sum of line totals; each line total already excludes [CartItem.discount].
+  //
+  // Day-closing discount reporting must include:
+  // - Item-wise: summed from [CartItem.discount] (see [lineDiscountForOrder]).
+  // - Cart-wise + offers: anything that reduced [Order.finalAmount] below [Order.totalAmount].
+  //
+  // Cart checkout merges manual cart discount and offer into [Order.discountAmount], but if that
+  // field under-reports vs the billed gap, trust (totalAmount − finalAmount) so offers are not lost.
+  double effectiveOrderDiscount(Order o) {
+    final normalized = _orderLevelDiscount(o).clamp(0.0, o.totalAmount).toDouble();
+    final gap = (o.totalAmount - o.finalAmount).clamp(0.0, o.totalAmount).toDouble();
+    if (gap > normalized + 0.02) return gap;
+    return normalized;
+  }
   double effectiveOrderNet(Order o) =>
       (o.totalAmount - effectiveOrderDiscount(o)).clamp(0.0, o.totalAmount).toDouble();
 
-  final discount = _sumOrders(settled, effectiveOrderDiscount);
+  double lineDiscountForOrder(Order o) =>
+      _lineDiscountSum(linesByCartId[o.cartId] ?? const <CartItem>[]);
+
+  final orderDiscount = _sumOrders(settled, effectiveOrderDiscount);
+  final lineItemDiscount = _sumOrders(settled, lineDiscountForOrder);
+  final discount = orderDiscount + lineItemDiscount;
   final netTotal = _sumOrders(settled, effectiveOrderNet);
-  // Keep gross aligned with billing view: amount before discount = net + discount.
+  // Gross = net + all discounts (line-level + order-level) so UI "before discount" matches receipts.
   final grossTotal = netTotal + discount;
   final vatMode = (branch?.vat ?? '').trim().toLowerCase();
   final vp = branch?.vatPercent;
@@ -379,7 +421,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
       count: settled.where((o) => (o.orderType ?? '').toLowerCase() == 'dine_in').length,
       discount: _sumOrders(
         settled.where((o) => (o.orderType ?? '').toLowerCase() == 'dine_in'),
-        effectiveOrderDiscount,
+        (o) => effectiveOrderDiscount(o) + lineDiscountForOrder(o),
       ),
       amount: dineInSales,
     ),
@@ -389,7 +431,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
           settled.where((o) => (o.orderType ?? '').toLowerCase() == 'delivery').length,
       discount: _sumOrders(
         settled.where((o) => (o.orderType ?? '').toLowerCase() == 'delivery'),
-        effectiveOrderDiscount,
+        (o) => effectiveOrderDiscount(o) + lineDiscountForOrder(o),
       ),
       amount: deliverySale,
     ),
@@ -404,7 +446,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
           final t = (o.orderType ?? '').toLowerCase();
           return t.isEmpty || t == 'take_away';
         }),
-        effectiveOrderDiscount,
+        (o) => effectiveOrderDiscount(o) + lineDiscountForOrder(o),
       ),
       amount: takeAwaySale,
     ),
@@ -416,6 +458,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
   final shortAmount = variance < 0 ? -variance : 0.0;
 
   final categoryMap = <String, DayClosingCategoryRow>{};
+  final itemMap = <int, DayClosingItemRow>{};
   if (settled.isNotEmpty) {
     final settledItemIds = <int>{};
     for (final order in settled) {
@@ -439,8 +482,8 @@ Future<DayClosingSummary> computeDayClosingSummary(
       for (final line in lines) {
         final item = itemByAny[line.itemId];
         final category = _categoryLabelForLine(line, item, categoryNameByCatId);
-        final existing = categoryMap[category];
-        if (existing == null) {
+        final existingCat = categoryMap[category];
+        if (existingCat == null) {
           categoryMap[category] = DayClosingCategoryRow(
             category: category,
             qty: line.quantity,
@@ -448,9 +491,24 @@ Future<DayClosingSummary> computeDayClosingSummary(
           );
         } else {
           categoryMap[category] = DayClosingCategoryRow(
-            category: existing.category,
-            qty: existing.qty + line.quantity,
-            amount: existing.amount + line.total,
+            category: existingCat.category,
+            qty: existingCat.qty + line.quantity,
+            amount: existingCat.amount + line.total,
+          );
+        }
+        final itemLabel = _itemLabelForLine(line, item);
+        final existingItem = itemMap[line.itemId];
+        if (existingItem == null) {
+          itemMap[line.itemId] = DayClosingItemRow(
+            item: itemLabel,
+            qty: line.quantity,
+            amount: line.total,
+          );
+        } else {
+          itemMap[line.itemId] = DayClosingItemRow(
+            item: existingItem.item,
+            qty: existingItem.qty + line.quantity,
+            amount: existingItem.amount + line.total,
           );
         }
       }
@@ -458,6 +516,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
   }
   final categoryRows = categoryMap.values.toList()
     ..sort((a, b) => b.amount.compareTo(a.amount));
+  final itemRows = itemMap.values.toList()..sort((a, b) => b.amount.compareTo(a.amount));
 
   final userById = {for (final u in users) u.id: u.name};
   final cancelledRows = cancelled
@@ -518,6 +577,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
     shortAmount: shortAmount,
     typeRows: typeRows,
     categoryRows: categoryRows,
+    itemRows: itemRows,
     cancelledRows: cancelledRows,
     openBills: openBills,
   );

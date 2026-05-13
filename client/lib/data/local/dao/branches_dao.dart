@@ -40,13 +40,16 @@ class Branches extends Table {
 /// DAO
 /// =========================
 @DriftAccessor(tables: [Branches])
-class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin {
+class BranchesDao extends DatabaseAccessor<AppDatabase>
+    with _$BranchesDaoMixin {
   BranchesDao(super.db);
 
   /// UPSERT (sync safe)
-  Future<void> insertBranches(List<BranchModel> list, {bool downloadRemoteImages = true}) async {
+  Future<void> insertBranches(List<BranchModel> list,
+      {bool downloadRemoteImages = true}) async {
     final companions = await Future.wait(
-      list.map((b) => _toCompanion(b, downloadRemoteImages: downloadRemoteImages)),
+      list.map(
+          (b) => _toCompanion(b, downloadRemoteImages: downloadRemoteImages)),
     );
     await batch((batch) {
       batch.insertAllOnConflictUpdate(
@@ -64,7 +67,8 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
 
   /// GET ONE by [branchId] (server id / primary key)
   Future<BranchModel?> getBranchById(int branchId) async {
-    final row = await (select(branches)..where((b) => b.id.equals(branchId))).getSingleOrNull();
+    final row = await (select(branches)..where((b) => b.id.equals(branchId)))
+        .getSingleOrNull();
     return row == null ? null : _toModel(row);
   }
 
@@ -89,14 +93,22 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
   /// MAPPERS
   /// =========================
 
-  Future<BranchesCompanion> _toCompanion(BranchModel b, {required bool downloadRemoteImages}) async {
+  Future<BranchesCompanion> _toCompanion(BranchModel b,
+      {required bool downloadRemoteImages}) async {
     String localImage = '';
     if (downloadRemoteImages && b.image.trim().isNotEmpty) {
-      localImage =
-          await _downloadBranchImage(b.image, 'Branch_${b.id}_${b.branchName}') ?? '';
+      localImage = await _downloadBranchImage(
+              b.image, 'Branch_${b.id}_${b.branchName}') ??
+          '';
     } else {
       localImage = b.localImage;
     }
+    final existingBranch = await (select(branches)
+          ..where((tbl) => tbl.id.equals(b.id)))
+        .getSingleOrNull();
+    final resolvedOpeningCash =
+        existingBranch?.openingCash ?? b.openingCash ?? 0;
+
     return BranchesCompanion(
       id: Value(b.id),
       branchName: Value(b.branchName),
@@ -114,7 +126,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
       image: Value(b.image),
       installationDate: Value(b.installationDate),
       expiryDate: Value(b.expiryDate),
-      openingCash: Value(b.openingCash ?? 0),
+      openingCash: Value(resolvedOpeningCash),
       localImage: Value(localImage),
     );
   }

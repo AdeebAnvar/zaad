@@ -7,6 +7,8 @@ import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
+import 'package:pos/core/utils/order_log_cart_fallback.dart';
+import 'package:pos/core/utils/order_owner_display_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
@@ -595,12 +597,14 @@ class _DeliveryCardState extends State<_DeliveryCard> {
 
   Future<void> _loadOrderUserName() async {
     final db = locator<AppDatabase>();
-    final session = await db.sessionDao.getActiveSession();
-    if (session == null) return;
-    final u = await db.usersDao.findUserById(session.userId);
+    final name = await resolveOrderOwnerDisplayName(
+      db: db,
+      order: widget.order,
+      currentSessionUserId: () async => (await db.sessionDao.getActiveSession())?.userId,
+    );
     if (!mounted) return;
     setState(() {
-      _orderUserName = u?.name;
+      _orderUserName = name;
     });
   }
 
@@ -610,7 +614,12 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     if (widget.order.id != oldWidget.order.id) {
       _status = widget.order.status;
       _paymentType = _getPaymentType(widget.order);
+      _loadOrderUserName();
       return;
+    }
+    if (widget.order.userId != oldWidget.order.userId ||
+        widget.order.hubMetadata != oldWidget.order.hubMetadata) {
+      _loadOrderUserName();
     }
     // Same row: sync when parent list refreshes after a successful save (or external update).
     if (widget.order.status != oldWidget.order.status ||
@@ -917,8 +926,12 @@ class _DeliveryCardState extends State<_DeliveryCard> {
   Future<void> _handlePrint(BuildContext context, Order order) async {
     final cartRepo = locator<CartRepository>();
     final printService = locator<PrintService>();
-    final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
-    if (cartItems == null || cartItems.isEmpty) {
+    final cartItems = await OrderLogCartFallback.resolve(
+      order: order,
+      db: locator<AppDatabase>(),
+      cartRepo: cartRepo,
+    );
+    if (cartItems.isEmpty) {
       if (context.mounted) CustomSnackBar.showWarning(message: 'No items to print');
       return;
     }
@@ -962,8 +975,13 @@ class _DeliveryCardState extends State<_DeliveryCard> {
   Future<void> _handleView(BuildContext context, Order order) async {
     final cartRepo = locator<CartRepository>();
     final itemRepo = locator<ItemRepository>();
-    final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
-    if (cartItems == null || cartItems.isEmpty) {
+    final itemsWithDetails = await OrderLogCartFallback.buildItemsWithDetailsForOrderLog(
+      order: order,
+      db: locator<AppDatabase>(),
+      cartRepo: cartRepo,
+      itemRepo: itemRepo,
+    );
+    if (itemsWithDetails.isEmpty) {
       if (!context.mounted) return;
       await showAppMessageDialog(
         context,
@@ -971,13 +989,6 @@ class _DeliveryCardState extends State<_DeliveryCard> {
         message: 'No items found in this order.',
       );
       return;
-    }
-    final List<Map<String, dynamic>> itemsWithDetails = [];
-    for (final cartItem in cartItems) {
-      final item = await itemRepo.fetchItemByIdFromLocal(cartItem.itemId);
-      final variant = cartItem.itemVariantId != null ? await itemRepo.fetchVariantById(cartItem.itemVariantId!) : null;
-      final topping = cartItem.itemToppingId != null ? await itemRepo.fetchToppingById(cartItem.itemToppingId!) : null;
-      itemsWithDetails.add({'cartItem': cartItem, 'item': item, 'variant': variant, 'topping': topping});
     }
     if (context.mounted) {
       await showAppMessageDialog(
@@ -997,10 +1008,13 @@ class _DeliveryCardState extends State<_DeliveryCard> {
               ...itemsWithDetails.map((m) {
                 final item = m['item'] as Item?;
                 final cartItem = m['cartItem'] as CartItem;
+                final catalog = (item?.name ?? '').trim();
+                final snap = cartItem.itemName.trim();
+                final lineLabel = catalog.isNotEmpty ? catalog : (snap.isNotEmpty ? snap : 'Item');
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
-                    '${item?.name ?? "?"} x${cartItem.quantity} - ${RuntimeAppSettings.money(cartItem.total)}',
+                    '$lineLabel x${cartItem.quantity} - ${RuntimeAppSettings.money(cartItem.total)}',
                     style: AppStyles.getRegularTextStyle(fontSize: 14),
                   ),
                 );

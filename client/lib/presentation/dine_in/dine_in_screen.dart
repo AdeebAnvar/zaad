@@ -7,8 +7,10 @@ import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
+import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
@@ -99,6 +101,7 @@ class _DineInScreenState extends State<DineInScreen> {
       final s = o.status.toLowerCase();
       return s != 'completed' && s != 'cancelled';
     }).toList();
+    sortOrdersNewestFirst(active);
 
     final codeToFloors = <String, Set<int>>{};
     for (final t in allTables) {
@@ -150,7 +153,8 @@ class _DineInScreenState extends State<DineInScreen> {
     final keysOnFloor = _tables.map((t) => _tableKey(t.code)).toSet();
 
     for (final o in _activeDineInOrders) {
-      final ref = o.referenceNumber;
+      final ref = DineInRefParser.dineInAnchorForMatching(o);
+      if (ref == null || ref.isEmpty) continue;
       final leadFloor = _extractLeadingFloorId(ref);
       final normalized = _stripLeadingFloorId(ref);
       final tableCode = _tableKey(_extractTableCode(normalized));
@@ -263,7 +267,8 @@ class _DineInScreenState extends State<DineInScreen> {
     final tableCode = _tableKey(table.code);
 
     final list = _activeDineInOrders.where((o) {
-      final ref = o.referenceNumber;
+      final ref = DineInRefParser.dineInAnchorForMatching(o);
+      if (ref == null || ref.isEmpty) return false;
       final leadFloor = _extractLeadingFloorId(ref);
       final normalized = _stripLeadingFloorId(ref);
       final code = _tableKey(_extractTableCode(normalized));
@@ -534,7 +539,7 @@ class _DineInTableOrdersPanel extends StatelessWidget {
                   separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
                   itemBuilder: (context, i) {
                     final o = orders[i];
-                    final ref = (o.referenceNumber ?? '').trim();
+                    final ref = DineInRefParser.stripLeadingFloorId(o.referenceNumber).trim();
                     return ListTile(
                       leading: Icon(Icons.receipt_long_outlined, color: AppColors.primaryColor),
                       title: Text(

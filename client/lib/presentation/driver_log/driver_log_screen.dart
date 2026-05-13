@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
+import 'package:pos/core/utils/order_log_cart_fallback.dart';
+import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
@@ -71,6 +76,15 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
     final drivers = await driverRepo.getAll();
     var orders = await orderRepo.getDeliveryOrdersWithDriver();
     orders = orders.where((o) => o.deliveryPartner?.toUpperCase() == 'NORMAL').where((o) => !_isArchivedStatus(o.status)).toList();
+    final logUid = HubLogOrderUserScope.effectiveFilterUserId(
+      hub: locator<LocalHubSettings>(),
+      sessionUser: locator<CurrentCounterSession>().user,
+      uiSelectedUserId: null,
+    );
+    if (logUid != null) {
+      orders = orders.where((o) => o.userId == logUid).toList();
+    }
+    sortOrdersNewestFirst(orders);
     if (!mounted) return;
     setState(() {
       _drivers = drivers;
@@ -229,8 +243,13 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
   Future<void> _viewItems(Order order) async {
     final cartRepo = locator<CartRepository>();
     final itemRepo = locator<ItemRepository>();
-    final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
-    if (cartItems == null || cartItems.isEmpty) {
+    final itemsWithDetails = await OrderLogCartFallback.buildItemsWithDetailsForOrderLog(
+      order: order,
+      db: locator<AppDatabase>(),
+      cartRepo: cartRepo,
+      itemRepo: itemRepo,
+    );
+    if (itemsWithDetails.isEmpty) {
       if (!mounted) return;
       showDialog(
         context: context,
@@ -240,14 +259,6 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
         ),
       );
       return;
-    }
-
-    final itemsWithDetails = <Map<String, dynamic>>[];
-    for (final cartItem in cartItems) {
-      final item = await itemRepo.fetchItemByIdFromLocal(cartItem.itemId);
-      final variant = cartItem.itemVariantId != null ? await itemRepo.fetchVariantById(cartItem.itemVariantId!) : null;
-      final topping = cartItem.itemToppingId != null ? await itemRepo.fetchToppingById(cartItem.itemToppingId!) : null;
-      itemsWithDetails.add({'cartItem': cartItem, 'item': item, 'variant': variant, 'topping': topping});
     }
 
     if (!mounted) return;
@@ -264,9 +275,12 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
               children: itemsWithDetails.map((m) {
                 final item = m['item'] as Item?;
                 final cartItem = m['cartItem'] as CartItem;
+                final catalog = (item?.name ?? '').trim();
+                final snap = cartItem.itemName.trim();
+                final label = catalog.isNotEmpty ? catalog : (snap.isNotEmpty ? snap : 'Item');
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: Text('${item?.name ?? "?"} x${cartItem.quantity} - ${RuntimeAppSettings.money(cartItem.total)}'),
+                  child: Text('$label x${cartItem.quantity} - ${RuntimeAppSettings.money(cartItem.total)}'),
                 );
               }).toList(),
             ),
@@ -282,8 +296,12 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
   Future<void> _printOrder(Order order) async {
     final cartRepo = locator<CartRepository>();
     final printService = locator<PrintService>();
-    final cartItems = await cartRepo.getCartItemsByCartId(order.cartId);
-    if (cartItems == null || cartItems.isEmpty) {
+    final cartItems = await OrderLogCartFallback.resolve(
+      order: order,
+      db: locator<AppDatabase>(),
+      cartRepo: cartRepo,
+    );
+    if (cartItems.isEmpty) {
       if (mounted) {
         showAppSnackBar(context, 'No items to print', isWarning: true);
       }
@@ -322,6 +340,9 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
             locator<OrderRepository>(),
             locator<DeliveryPartnerRepository>(),
             locator<DriverRepository>(),
+            locator<LocalHubSettings>(),
+            locator<CurrentCounterSession>(),
+            hubOrdersLive: locator<HubOrdersLiveSync>(),
           ),
           child: const DeliveryLogScreen(),
         ),

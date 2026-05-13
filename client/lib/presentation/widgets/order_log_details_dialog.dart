@@ -6,6 +6,7 @@ import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 
@@ -26,6 +27,16 @@ double _effectiveOrderDiscountForDisplay(Order o) {
   }
   final gap = o.totalAmount - o.finalAmount;
   return gap > 0.009 ? gap : 0.0;
+}
+
+String _referenceLineForOrder(Order order) {
+  final raw = (order.referenceNumber ?? '').trim();
+  if (raw.isEmpty) return '—';
+  if ((order.orderType ?? '').trim().toLowerCase() == 'dine_in') {
+    final s = DineInRefParser.stripLeadingFloorId(raw).trim();
+    return s.isEmpty ? '—' : s;
+  }
+  return raw;
 }
 
 /// Shared order line-item dialog used by Take Away Log, Dine In Log, etc.
@@ -302,7 +313,7 @@ class _OrderInfoBlock extends StatelessWidget {
     final rows = <Widget>[
       _kv('Order type', orderTypeShortLabel(order)),
       _kv('Receipt no.', order.invoiceNumber),
-      _kv('Reference', order.referenceNumber ?? '—'),
+      _kv('Reference', _referenceLineForOrder(order)),
       if (order.deliveryPartner != null && order.deliveryPartner!.trim().isNotEmpty)
         _kv('Delivery partner', order.deliveryPartner!),
       if (order.driverName != null && order.driverName!.trim().isNotEmpty) _kv('Driver', order.driverName!),
@@ -403,6 +414,28 @@ class _KeyValueRow extends StatelessWidget {
   }
 }
 
+/// Matches receipt logic: for `percentage` lines, [CartItem.discount] is usually the **money** saved, not the rate.
+String _orderLogLineDiscountOffText(CartItem cartItem, double listUnitPrice) {
+  final d = cartItem.discount;
+  final dt = (cartItem.discountType ?? '').trim().toLowerCase();
+  if (d <= 0) return '';
+  final gross = listUnitPrice * cartItem.quantity;
+  final saving = (gross - cartItem.total).clamp(0.0, double.infinity);
+  if (dt == 'percentage' && gross > 0.009) {
+    double pct;
+    if (d <= 100) {
+      final implied = gross * d / 100.0;
+      pct = (implied - saving).abs() < 0.03 ? d : (saving / gross * 100.0);
+    } else {
+      pct = saving / gross * 100.0;
+    }
+    final clamped = pct.clamp(0.0, 100.0);
+    final s = clamped % 1 == 0 ? clamped.round().toString() : clamped.toStringAsFixed(2);
+    return '$s% off';
+  }
+  return '${RuntimeAppSettings.money(d)} off';
+}
+
 class _ItemCard extends StatelessWidget {
   const _ItemCard({required this.data});
 
@@ -447,6 +480,10 @@ class _ItemCard extends StatelessWidget {
     final variant = data['variant'] as ItemVariant?;
     final topping = data['topping'] as ItemTopping?;
 
+    final catalogName = (item?.name ?? '').trim();
+    final snapName = cartItem.itemName.trim();
+    final displayName = catalogName.isNotEmpty ? catalogName : (snapName.isNotEmpty ? snapName : 'Unknown item');
+
     final unitPrice = variant?.price ?? item?.price ?? 0;
     final hasDiscount = cartItem.discount > 0;
     final toppingsData = _decodeToppings(cartItem.notes);
@@ -479,7 +516,7 @@ class _ItemCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  item?.name ?? 'Unknown item',
+                  displayName,
                   style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: AppColors.textColor),
                 ),
               ),
@@ -563,9 +600,7 @@ class _ItemCard extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 2),
                         child: Text(
-                          cartItem.discountType == 'percentage'
-                              ? '${cartItem.discount}% off'
-                              : '${RuntimeAppSettings.money(cartItem.discount)} off',
+                          _orderLogLineDiscountOffText(cartItem, unitPrice.toDouble()),
                           style: AppStyles.getMediumTextStyle(fontSize: 11, color: AppColors.success),
                         ),
                       ),

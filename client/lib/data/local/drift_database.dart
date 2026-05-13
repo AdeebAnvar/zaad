@@ -88,6 +88,9 @@ Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_open());
 
+  /// In-memory SQLite for unit tests (`flutter test`). Not for production.
+  AppDatabase.memory() : super(_openMemory());
+
   @override
   int get schemaVersion => 50;
 
@@ -295,4 +298,8 @@ LazyDatabase _open() {
     final file = File(p.join(dir.path, 'pos.sqlite'));
     return NativeDatabase(file);
   });
+}
+
+LazyDatabase _openMemory() {
+  return LazyDatabase(() async => NativeDatabase.memory());
 }

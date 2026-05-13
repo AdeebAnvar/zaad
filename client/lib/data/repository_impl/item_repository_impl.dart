@@ -1,14 +1,10 @@
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/item_repository.dart';
-import 'dart:convert';
-import 'dart:io';
 
 class ItemRepositoryImpl implements ItemRepository {
   final AppDatabase db;
   ItemRepositoryImpl(this.db);
-  static const String _debugLogPath =
-      r'c:\Users\adeeb\OneDrive\Desktop\pos\pos\debug-aa2a57.log';
-  static const String _debugSessionId = 'aa2a57';
 
   Future<int> _activeBranchId() async {
     final session = await db.sessionDao.getActiveSession();
@@ -23,20 +19,19 @@ class ItemRepositoryImpl implements ItemRepository {
   @override
   Future<List<Item>> fetchItemsFromLocal() async {
     final bid = await _activeBranchId();
+    final catCount = (await db.categoryDao.getVisibleForBranch(bid)).length;
+    final totalItemsRowCount = (await db.itemDao.getAll()).length;
     final rows = await db.itemDao.getVisibleForBranch(bid);
     // #region agent log
-    await _agentLog(
-      runId: 'pre-fix',
-      hypothesisId: 'H5',
-      location: 'item_repository_impl.dart:24',
-      message: 'Fetched visible items for active session branch',
-      data: {
-        'active_branch_id': bid,
-        'total_items': rows.length,
-        'nutella_ids': rows
-            .where((i) => i.name.trim().toLowerCase().contains('nutella'))
-            .map((i) => i.id)
-            .toList(),
+    agentDebugLog(
+      hypothesisId: 'H_ITEMS_1',
+      location: 'item_repository_impl.dart:fetchItemsFromLocal',
+      message: 'visible_items_for_branch',
+      data: <String, Object?>{
+        'branchId': bid,
+        'visibleCategoryCount': catCount,
+        'totalItemRowsAllBranches': totalItemsRowCount,
+        'visibleItemCount': rows.length,
       },
     );
     // #endregion
@@ -46,25 +41,7 @@ class ItemRepositoryImpl implements ItemRepository {
   @override
   Stream<List<Item>> watchItemsFromLocal() async* {
     final bid = await _activeBranchId();
-    yield* db.itemDao.watchVisibleForBranch(bid).asyncMap((rows) async {
-      // #region agent log
-      await _agentLog(
-        runId: 'pre-fix',
-        hypothesisId: 'H6',
-        location: 'item_repository_impl.dart:47',
-        message: 'Watch visible items emitted',
-        data: {
-          'active_branch_id': bid,
-          'total_items': rows.length,
-          'nutella_ids': rows
-              .where((i) => i.name.trim().toLowerCase().contains('nutella'))
-              .map((i) => i.id)
-              .toList(),
-        },
-      );
-      // #endregion
-      return rows;
-    });
+    yield* db.itemDao.watchVisibleForBranch(bid);
   }
 
   @override
@@ -133,30 +110,5 @@ class ItemRepositoryImpl implements ItemRepository {
     final bid = await _activeBranchId();
     final catIds = await _visibleCategoryIds(bid);
     return catIds.contains(item.categoryId) ? item : null;
-  }
-
-  Future<void> _agentLog({
-    required String runId,
-    required String hypothesisId,
-    required String location,
-    required String message,
-    required Map<String, dynamic> data,
-  }) async {
-    try {
-      final payload = <String, dynamic>{
-        'sessionId': _debugSessionId,
-        'runId': runId,
-        'hypothesisId': hypothesisId,
-        'location': location,
-        'message': message,
-        'data': data,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      };
-      await File(_debugLogPath).writeAsString(
-        '${jsonEncode(payload)}\n',
-        mode: FileMode.append,
-        flush: true,
-      );
-    } catch (_) {}
   }
 }

@@ -19,8 +19,10 @@ import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/models/pos_customer.dart';
 import 'package:pos/data/repository/customer_repository.dart';
+import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/domain/models/customer_model.dart';
+import 'package:pos/domain/models/offer_model.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
 import 'package:pos/presentation/sale/desktop/cart_preview_dialog.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_item_tile.dart';
@@ -49,21 +51,160 @@ typedef PaymentDialogOnSave = Future<void> Function(
   required bool printKot,
 });
 
+/// One cart line for offer applicability (item / category / line total).
+class PaymentOfferLine {
+  final int itemId;
+  final int categoryId;
+  final double lineTotal;
+
+  const PaymentOfferLine({
+    required this.itemId,
+    required this.categoryId,
+    required this.lineTotal,
+  });
+}
+
+Future<List<PaymentOfferLine>> buildPaymentOfferLines(
+  List<CartItem> cartLines,
+  ItemRepository itemRepo,
+) async {
+  final out = <PaymentOfferLine>[];
+  for (final line in cartLines) {
+    final item = await itemRepo.fetchItemByIdFromLocal(line.itemId);
+    out.add(PaymentOfferLine(
+      itemId: line.itemId,
+      categoryId: item?.categoryId ?? 0,
+      lineTotal: line.total,
+    ));
+  }
+  return out;
+}
+
+List<int> _offerJsonIntList(dynamic raw) {
+  if (raw == null) return const [];
+  if (raw is num) return [raw.toInt()];
+  final single = int.tryParse(raw.toString().trim());
+  if (raw is! List && single != null) return [single];
+  if (raw is! List) return const [];
+  final out = <int>[];
+  for (final e in raw) {
+    if (e is num) {
+      out.add(e.toInt());
+    } else {
+      final parsed = int.tryParse(e.toString().trim());
+      if (parsed != null) out.add(parsed);
+    }
+  }
+  return out;
+}
+
+/// API may send `active` as 1, "1", true, etc.
+bool _offerPayloadIsActive(dynamic raw) {
+  if (raw == null) return false;
+  if (raw is bool) return raw;
+  if (raw is num) return raw != 0;
+  final s = raw.toString().trim().toLowerCase();
+  return s == '1' || s == 'true' || s == 'yes' || s == 'active';
+}
+
+/// Local / API payload may use `active` or `is_active`.
+bool _offerPayloadMapIsActive(Map<String, dynamic> payload) {
+  return _offerPayloadIsActive(payload['active']) || _offerPayloadIsActive(payload['is_active']);
+}
+
+Map<String, dynamic> _offerPayloadMap(dynamic decoded) {
+  if (decoded is! Map) return {};
+  return decoded.map((k, v) => MapEntry(k.toString(), v));
+}
+
+/// Unwrap JSON stored as a string (double-encoded) or return map.
+Map<String, dynamic>? _offerDecodePayloadJson(String payloadRaw) {
+  var trimmed = payloadRaw.trim();
+  if (trimmed.isEmpty) return null;
+  try {
+    dynamic decoded = jsonDecode(trimmed);
+    // Some pipelines store JSON as an escaped string inside JSON.
+    for (var i = 0; i < 3 && decoded is String; i++) {
+      final s = decoded.trim();
+      if (s.isEmpty) return null;
+      decoded = jsonDecode(s);
+    }
+    if (decoded is! Map) return null;
+    return _offerPayloadMap(decoded);
+  } catch (_) {
+    return null;
+  }
+}
+
+List<String> _offerJsonDayList(dynamic raw) {
+  if (raw == null) return const [];
+  if (raw is! List) return const [];
+  return raw.map((e) => e.toString().toLowerCase().trim()).where((s) => s.isNotEmpty).toList();
+}
+
+/// Subtotal of cart lines this offer can apply to (before the offer discount).
+double _offerApplicableSubtotal(
+  Map<String, dynamic> payload,
+  List<PaymentOfferLine> lines,
+  double orderTotal,
+) {
+  final hasApplicabilityPayload = payload.containsKey('is_all_items') ||
+      payload.containsKey('item_id') ||
+      payload.containsKey('category_id') ||
+      payload.containsKey('item_ids') ||
+      payload.containsKey('category_ids');
+  if (!hasApplicabilityPayload) {
+    return orderTotal;
+  }
+  final isAllRaw = payload['is_all_items'] ?? payload['isAllItems'];
+  final int isAll;
+  if (isAllRaw is bool) {
+    isAll = isAllRaw ? 1 : 0;
+  } else {
+    isAll = (isAllRaw is num ? isAllRaw.toInt() : null) ?? int.tryParse(isAllRaw?.toString() ?? '') ?? 0;
+  }
+  final itemIds = _offerJsonIntList(payload['item_id'] ?? payload['item_ids']);
+  final categoryIds = _offerJsonIntList(payload['category_id'] ?? payload['category_ids']);
+  if (isAll == 1) return orderTotal;
+  if (lines.isEmpty) return 0;
+  var sum = 0.0;
+  for (final line in lines) {
+    final inItems = itemIds.isNotEmpty && itemIds.contains(line.itemId);
+    final inCats = categoryIds.isNotEmpty && categoryIds.contains(line.categoryId);
+    if (itemIds.isNotEmpty && categoryIds.isNotEmpty) {
+      if (inItems || inCats) sum += line.lineTotal;
+    } else if (itemIds.isNotEmpty) {
+      if (inItems) sum += line.lineTotal;
+    } else if (categoryIds.isNotEmpty) {
+      if (inCats) sum += line.lineTotal;
+    } else {
+      return 0;
+    }
+  }
+  return sum;
+}
+
 enum _OfferValueType { percentage, amount }
 
 class _AppliedOffer {
+  final int offerId;
+  final String uuid;
   final String name;
   final String toDateText;
   final double value;
   final _OfferValueType type;
   final double discountAmount;
+  final bool isAutoDay;
 
   const _AppliedOffer({
+    required this.offerId,
+    required this.uuid,
     required this.name,
     required this.toDateText,
     required this.value,
     required this.type,
     required this.discountAmount,
+    this.isAutoDay = false,
   });
 }
 
@@ -72,24 +213,40 @@ Future<void> showCartStylePaymentDialogForOrder(
   required Order order,
   VoidCallback? onPaymentRecorded,
 }) async {
+  Map<String, dynamic>? appliedOffer;
+  try {
+    final raw = order.hubMetadata;
+    if (raw != null && raw.trim().isNotEmpty) {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map && decoded['applied_offer'] is Map) {
+        appliedOffer = Map<String, dynamic>.from(decoded['applied_offer'] as Map<dynamic, dynamic>);
+      }
+    }
+  } catch (_) {}
+
   final prefill = <String, dynamic>{
     'name': order.customerName,
     'phone': order.customerPhone,
     'email': order.customerEmail,
     'gender': order.customerGender,
     'onlineOrderNumber': order.referenceNumber,
-    'cash': order.cashAmount,
-    'credit': order.creditAmount,
-    'card': order.cardAmount,
-    'online': order.onlineAmount,
     'discountAmount': order.discountAmount,
     'discountType': order.discountType,
+    if (appliedOffer != null) 'appliedOffer': appliedOffer,
   };
+
+  final db = locator<AppDatabase>();
+  final itemRepo = locator<ItemRepository>();
+  final cartLines = await db.cartsDao.getItemsByCart(order.cartId);
+  final offerLines = cartLines.isEmpty
+      ? <PaymentOfferLine>[]
+      : await buildPaymentOfferLines(cartLines, itemRepo);
 
   await showDialog<bool>(
     context: context,
     builder: (dialogContext) => PaymentDialog(
       totalAmount: order.totalAmount,
+      offerLines: offerLines,
       closeSheetOnClose: false,
       parentContext: context,
       isDelivery: order.orderType == 'delivery',
@@ -100,7 +257,7 @@ Future<void> showCartStylePaymentDialogForOrder(
         final freshOrder = await repo.getOrderById(order.id);
         if (freshOrder == null) return;
 
-        final discountAmount = (discount['value'] as double?) ?? 0.0;
+        final discountAmount = (discount['value'] as num?)?.toDouble() ?? 0.0;
         final discountType = (discount['type'] as String?) ?? 'amount';
         final manualDiscountAmount = discountType == 'percentage'
             ? (freshOrder.totalAmount * (discountAmount / 100)).clamp(0.0, freshOrder.totalAmount).toDouble()
@@ -117,10 +274,15 @@ Future<void> showCartStylePaymentDialogForOrder(
         if (offer != null) {
           final cleanedOffer = <String, dynamic>{
             'name': offer['name']?.toString() ?? '',
+            'uuid': offer['uuid']?.toString() ?? '',
             'type': offer['type']?.toString() ?? '',
             'value': (offer['value'] as num?)?.toDouble() ?? (double.tryParse(offer['value']?.toString() ?? '') ?? 0.0),
             'discountAmount': offerDiscountAmount,
             'toDate': offer['toDate']?.toString() ?? '',
+            if (offer['autoDayDiscount'] != null)
+              'autoDayDiscount': (offer['autoDayDiscount'] as num?)?.toDouble() ??
+                  (double.tryParse(offer['autoDayDiscount']?.toString() ?? '') ?? 0.0),
+            if (offer['autoDayOfferNames'] is List) 'autoDayOfferNames': offer['autoDayOfferNames'],
           };
           try {
             final existing = (hubMetadataWithOffer != null && hubMetadataWithOffer.trim().isNotEmpty)
@@ -423,7 +585,7 @@ class CartPanel extends StatelessWidget {
                                     ? null
                                     : () async {
                                         final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
-                                        final skipKotReferenceDialog = hasRef && (isOpenedForEdit || cartCubit.orderType == OrderType.dineIn);
+                                        final skipKotReferenceDialog = hasRef && isOpenedForEdit;
                                         if (skipKotReferenceDialog) {
                                           try {
                                             final printFailed = await cartCubit.saveKOTWithExistingReference();
@@ -563,6 +725,10 @@ class CartPanel extends StatelessWidget {
     final currentReference = cartCubit.currentKOTReference;
     final referenceController = TextEditingController(text: currentReference ?? '');
 
+    final suggestionsRef = <String>[
+      if (locator.isRegistered<SharedPreferences>()) ...KotReferenceRecents.loadSync(locator<SharedPreferences>()),
+    ];
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -583,84 +749,109 @@ class CartPanel extends StatelessWidget {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      /// Header
-                      Row(
+                  child: StatefulBuilder(
+                    builder: (context, setDialogState) {
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
+                          /// Header
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
                                   currentReference == null ? 'Add reference' : 'Edit reference',
                                   style: AppStyles.getBoldTextStyle(fontSize: 20),
                                 ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Used for kitchen order tracking',
-                                  style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.grey),
-                                ),
-                              ],
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close),
+                                onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          /// Input (saved refs only; use "Save to dropdown" to add the current text)
+                          _KotReferenceAutocompleteField(
+                            controller: referenceController,
+                            suggestions: List<String>.from(suggestionsRef),
+                          ),
+                          const SizedBox(height: 6),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                final t = referenceController.text.trim();
+                                if (t.isEmpty) {
+                                  CustomSnackBar.showWarning(
+                                    context: context,
+                                    message: 'Enter a reference first, then save it to the list.',
+                                  );
+                                  return;
+                                }
+                                KotReferenceRecents.savePinnedReference(t);
+                                if (locator.isRegistered<SharedPreferences>()) {
+                                  suggestionsRef
+                                    ..clear()
+                                    ..addAll(KotReferenceRecents.loadSync(locator<SharedPreferences>()));
+                                }
+                                setDialogState(() {});
+                                CustomSnackBar.showSuccess(
+                                  context: context,
+                                  message: 'Saved to reference list',
+                                  duration: const Duration(milliseconds: 1600),
+                                );
+                              },
+                              icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+                              label: Text('Save to dropdown', style: AppStyles.getMediumTextStyle(fontSize: 13)),
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-                          ),
-                        ],
-                      ),
 
-                      const SizedBox(height: 20),
+                          const SizedBox(height: 20),
 
-                      /// Input (recent refs on focus / tap; type to filter)
-                      _KotReferenceAutocompleteField(
-                        controller: referenceController,
-                      ),
-
-                      const SizedBox(height: 28),
-
-                      /// Actions
-                      Row(
-                        children: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-                            child: const Text('Cancel'),
-                          ),
-                          const Spacer(),
-                          CustomButton(
-                            width: 80,
-                            text: 'Save',
-                            onPressed: () async {
-                              final value = referenceController.text.trim();
-                              try {
-                                final printFailed = await cartCubit.saveKOT(value);
-                                if (!context.mounted) return;
-                                Navigator.of(context, rootNavigator: true).pop();
-                                if (parentContext.mounted) {
-                                  CustomSnackBar.showKotSaved(context: parentContext);
-                                  if (printFailed.isNotEmpty) {
-                                    showPrintFailedDialog(parentContext, printFailed);
+                          /// Actions
+                          Row(
+                            children: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+                                child: const Text('Cancel'),
+                              ),
+                              const Spacer(),
+                              CustomButton(
+                                width: 80,
+                                text: 'Save',
+                                onPressed: () async {
+                                  final value = referenceController.text.trim();
+                                  try {
+                                    final printFailed = await cartCubit.saveKOT(value);
+                                    if (!context.mounted) return;
+                                    Navigator.of(context, rootNavigator: true).pop();
+                                    if (parentContext.mounted) {
+                                      CustomSnackBar.showKotSaved(context: parentContext);
+                                      if (printFailed.isNotEmpty) {
+                                        showPrintFailedDialog(parentContext, printFailed);
+                                      }
+                                    }
+                                    if (isModalBottomSheet) {
+                                      onCloseCart?.call(true);
+                                    } else if (closeOnComplete && parentContext.mounted) {
+                                      Navigator.of(parentContext).pop();
+                                    }
+                                    schedulePopSaleScreenToDineIn(parentContext);
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      showErrorDialog(context, e);
+                                    }
                                   }
-                                }
-                                if (isModalBottomSheet) {
-                                  onCloseCart?.call(true);
-                                } else if (closeOnComplete && parentContext.mounted) {
-                                  Navigator.of(parentContext).pop();
-                                }
-                                schedulePopSaleScreenToDineIn(parentContext);
-                              } catch (e) {
-                                if (context.mounted) {
-                                  showErrorDialog(context, e);
-                                }
-                              }
-                            },
+                                },
+                              ),
+                            ],
                           ),
                         ],
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ),
               );
@@ -681,10 +872,15 @@ class CartPanel extends StatelessWidget {
     // Capture while [context] is stable; avoid context.read after async gaps in [onSave].
     final cartCubit = context.read<CartCubit>();
     final prefill = await cartCubit.getPaymentPrefillForEdit();
+    final cartLines = cartCubit.state.items;
+    final offerLines = cartLines.isEmpty
+        ? <PaymentOfferLine>[]
+        : await buildPaymentOfferLines(cartLines, locator<ItemRepository>());
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => PaymentDialog(
         totalAmount: totalAmount,
+        offerLines: offerLines,
         closeSheetOnClose: closeOnComplete,
         parentContext: context,
         isDelivery: isDelivery,
@@ -747,6 +943,7 @@ class CartPanel extends StatelessWidget {
 
 class PaymentDialog extends StatefulWidget {
   final double totalAmount;
+  final List<PaymentOfferLine> offerLines;
   final bool closeSheetOnClose;
   final BuildContext parentContext;
   final bool isDelivery;
@@ -757,6 +954,7 @@ class PaymentDialog extends StatefulWidget {
   const PaymentDialog({
     super.key,
     required this.totalAmount,
+    this.offerLines = const [],
     required this.closeSheetOnClose,
     required this.parentContext,
     this.isDelivery = false,
@@ -781,9 +979,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
   final _emailController = TextEditingController();
   final _genderController = TextEditingController();
 
-  final _discountAmountController = TextEditingController();
-  final _discountPercentController = TextEditingController();
-
   final _cashController = TextEditingController();
   final _creditController = TextEditingController();
   final _cardController = TextEditingController();
@@ -797,10 +992,18 @@ class _PaymentDialogState extends State<PaymentDialog> {
   final _onlineFocusNode = FocusNode();
   final _otherFocusNode = FocusNode();
 
-  String _discountType = 'amount';
-  double _discountValue = 0;
+  final TextEditingController _discountByAmountController = TextEditingController();
+  final TextEditingController _discountByPercentController = TextEditingController();
+
+  /// Manual discount: either fixed amount **or** % (two fields; only one applies). Stacked with offer discount.
+  String _manualDiscountMode = 'amount';
+  double _manualRawValue = 0;
+
+  List<_AppliedOffer> _dropdownOffers = [];
+  List<_AppliedOffer> _autoDayOffers = [];
+  int? _selectedOfferIndex;
+  bool _loadingOffers = true;
   double _finalAmount = 0;
-  _AppliedOffer? _appliedOffer;
 
   final CustomerRepository _customerRepo = locator<CustomerRepository>();
   List<PosCustomer> _allCustomers = [];
@@ -816,7 +1019,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
     super.initState();
     final prefill = widget.prefill;
 
-    _finalAmount = widget.totalAmount;
+    final safeSubtotal = _nonNegativeOrderSubtotal(widget.totalAmount);
+    _finalAmount = safeSubtotal;
 
     if (prefill != null) {
       _nameController.text = (prefill['name'] as String?)?.trim() ?? '';
@@ -824,30 +1028,12 @@ class _PaymentDialogState extends State<PaymentDialog> {
       _emailController.text = (prefill['email'] as String?)?.trim() ?? '';
       _genderController.text = (prefill['gender'] as String?)?.trim() ?? '';
       _onlineOrderNumberController.text = (prefill['onlineOrderNumber'] as String?)?.trim() ?? '';
-
-      final savedDisc = (prefill['discountAmount'] as num?)?.toDouble() ?? 0.0;
-      final savedDiscType = prefill['discountType'] as String?;
-      if (savedDisc > 0 && savedDiscType == 'percentage') {
-        _discountType = 'percentage';
-        final subtotal = widget.totalAmount;
-        // Support both legacy data (stored as amount but tagged percentage) and corrected data (stored as percent).
-        final pct = (savedDisc >= 0 && savedDisc <= 100)
-            ? savedDisc
-            : (subtotal > 0 ? (savedDisc / subtotal * 100) : 0.0);
-        _discountPercentController.text = pct > 0 ? pct.toStringAsFixed(2) : '';
-        _discountAmountController.clear();
-      } else if (savedDisc > 0) {
-        _discountType = 'amount';
-        _discountAmountController.text = savedDisc.toString();
-        _discountPercentController.clear();
-      }
     }
 
     _updateFinalAmount();
-    unawaited(_loadApplicableOffer());
+    unawaited(_loadOfferChoices());
 
-    // New order: [getPaymentPrefillForEdit] is null — leave payment fields empty (take away, dine in, delivery).
-    // Editing: prefill cash/card/credit/online from the saved order.
+    // Prefill payment amounts only when prefill includes cash/card/credit/online (e.g. counter edit). Log pay omits those keys.
     if (prefill != null) {
       final cashP = (prefill['cash'] as num?)?.toDouble() ?? 0.0;
       final creditP = (prefill['credit'] as num?)?.toDouble() ?? 0.0;
@@ -870,69 +1056,239 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _otherFocusNode.addListener(_onPaymentFocusOther);
   }
 
-  Future<void> _loadApplicableOffer() async {
+  Future<void> _loadOfferChoices() async {
+    setState(() => _loadingOffers = true);
     try {
       final db = locator<AppDatabase>();
       final session = await db.sessionDao.getActiveSession();
       final branchId = session?.branchId ?? 1;
       final rows = await db.pullDataDao.getOffersForBranch(branchId);
       final today = DateUtils.dateOnly(DateTime.now());
+      final lines = widget.offerLines;
 
-      _AppliedOffer? applied;
+      final dropdown = <_AppliedOffer>[];
+      final autoDay = <_AppliedOffer>[];
       for (final row in rows) {
         final payloadRaw = row.otherName;
         if (payloadRaw == null || payloadRaw.trim().isEmpty) continue;
-        final decoded = jsonDecode(payloadRaw);
-        if (decoded is! Map) continue;
-        final payload = Map<String, dynamic>.from(decoded);
+        final payload = _offerDecodePayloadJson(payloadRaw);
+        if (payload == null || payload.isEmpty) continue;
 
-        final activeRaw = payload['active'];
-        final active = activeRaw is num ? activeRaw.toInt() : int.tryParse(activeRaw?.toString() ?? '') ?? 0;
-        if (active != 1) continue;
+        if (!_offerPayloadMapIsActive(payload)) continue;
 
         final fromDate = DateTime.tryParse(payload['from_date']?.toString() ?? '');
         final toDate = DateTime.tryParse(payload['to_date']?.toString() ?? '');
-        if (fromDate == null || toDate == null) continue;
-        final fromOnly = DateUtils.dateOnly(fromDate);
-        final toOnly = DateUtils.dateOnly(toDate);
-        if (today.isBefore(fromOnly) || today.isAfter(toOnly)) continue;
+        if (fromDate != null && toDate != null) {
+          final fromOnly = DateUtils.dateOnly(fromDate);
+          final toOnly = DateUtils.dateOnly(toDate);
+          if (today.isBefore(fromOnly) || today.isAfter(toOnly)) continue;
+        }
 
         final rawType = payload['type']?.toString().trim().toLowerCase() ?? '';
-        final type = rawType == 'percentage'
+        final type = (rawType == 'percentage' || rawType == 'percent' || rawType == '%')
             ? _OfferValueType.percentage
-            : (rawType == 'amount' ? _OfferValueType.amount : null);
+            : (rawType == 'amount' ||
+                    rawType == 'fixed' ||
+                    rawType == 'flat' ||
+                    rawType == 'fixed_amount' ||
+                    rawType == 'value')
+                ? _OfferValueType.amount
+                : null;
         if (type == null) continue;
 
         final value = double.tryParse(payload['value']?.toString() ?? '') ?? 0.0;
         if (value <= 0) continue;
 
+        final applicable = _offerApplicableSubtotal(payload, lines, widget.totalAmount);
+        if (applicable <= 0) continue;
+
         final discount = type == _OfferValueType.percentage
-            ? (widget.totalAmount * (value / 100)).clamp(0.0, widget.totalAmount).toDouble()
-            : value.clamp(0.0, widget.totalAmount).toDouble();
+            ? (applicable * (value / 100)).clamp(0.0, applicable).toDouble()
+            : value.clamp(0.0, applicable).toDouble();
         if (discount <= 0) continue;
 
-        applied = _AppliedOffer(
-          name: row.categoryName.trim().isEmpty ? 'Offer' : row.categoryName.trim(),
+        final days = _offerJsonDayList(payload['day'] ?? payload['days']);
+        if (!OfferSchedule.isActiveAt(
+          DateTime.now(),
+          days: days,
+          startTime: payload['start_time']?.toString(),
+          offerHours: OfferSchedule.coerceOfferHours(payload['offer_hour']),
+        )) {
+          continue;
+        }
+
+        final offerUuid = (payload['uuid']?.toString().trim().isNotEmpty == true)
+            ? payload['uuid'].toString().trim()
+            : row.uuid;
+
+        final offerNameFromPayload = payload['offer_name']?.toString().trim() ?? '';
+        final displayName = offerNameFromPayload.isNotEmpty
+            ? offerNameFromPayload
+            : (row.categoryName.trim().isEmpty ? 'Offer' : row.categoryName.trim());
+
+        final built = _AppliedOffer(
+          offerId: row.id,
+          uuid: offerUuid,
+          name: displayName,
           toDateText: payload['to_date']?.toString() ?? '',
           value: value,
           type: type,
           discountAmount: discount,
+          isAutoDay: days.isNotEmpty,
         );
-        break;
+
+        if (days.isNotEmpty) {
+          autoDay.add(built);
+        } else {
+          dropdown.add(built);
+        }
       }
 
       if (!mounted) return;
       setState(() {
-        _appliedOffer = applied;
+        _dropdownOffers = dropdown;
+        _autoDayOffers = autoDay;
+        _applyPrefillDiscountAfterOffersLoaded();
+        _loadingOffers = false;
         _recalculateFinalAmount();
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _appliedOffer = null;
+        _dropdownOffers = [];
+        _autoDayOffers = [];
+        _selectedOfferIndex = null;
+        _applyPrefillDiscountAfterOffersLoaded();
+        _loadingOffers = false;
         _recalculateFinalAmount();
       });
     }
+  }
+
+  /// Maps cart/order prefill to manual + optional matched offer once offers are loaded.
+  void _applyPrefillDiscountAfterOffersLoaded() {
+    final prefill = widget.prefill;
+    if (prefill == null) {
+      _selectedOfferIndex = null;
+      return;
+    }
+
+    final savedDisc = (prefill['discountAmount'] as num?)?.toDouble() ?? 0.0;
+    final appliedRaw = prefill['appliedOffer'];
+    int? matchedIdx;
+    if (appliedRaw is Map && _dropdownOffers.isNotEmpty) {
+      final wantUuid = (appliedRaw['uuid'] ?? '').toString().trim().toLowerCase();
+      if (wantUuid.isNotEmpty) {
+        for (var i = 0; i < _dropdownOffers.length; i++) {
+          if (_dropdownOffers[i].uuid.trim().toLowerCase() == wantUuid) {
+            matchedIdx = i;
+            break;
+          }
+        }
+      }
+      if (matchedIdx == null) {
+        final want = (appliedRaw['name'] ?? '').toString().trim().toLowerCase();
+        if (want.isNotEmpty) {
+          for (var i = 0; i < _dropdownOffers.length; i++) {
+            if (_dropdownOffers[i].name.trim().toLowerCase() == want) {
+              matchedIdx = i;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    _selectedOfferIndex = matchedIdx;
+    final autoDisc = _autoDayOffers.fold<double>(0, (a, o) => a + o.discountAmount);
+    final manualOfferDisc = matchedIdx != null ? _dropdownOffers[matchedIdx].discountAmount : 0.0;
+    final offerDisc = autoDisc + manualOfferDisc;
+    var residual = savedDisc - offerDisc;
+    if (residual < 0.009) residual = 0;
+
+    if (matchedIdx == null && savedDisc > 0) {
+      final savedDiscType = prefill['discountType'] as String?;
+      if (savedDiscType == 'percentage') {
+        _manualDiscountMode = 'percentage';
+        final subtotal = widget.totalAmount;
+        final pct = (savedDisc >= 0 && savedDisc <= 100)
+            ? savedDisc
+            : (subtotal > 0 ? (savedDisc / subtotal * 100) : 0.0);
+        _manualRawValue = pct;
+      } else {
+        _manualDiscountMode = 'amount';
+        _manualRawValue = savedDisc;
+      }
+    } else {
+      _manualDiscountMode = 'amount';
+      _manualRawValue = residual;
+    }
+    _syncManualDiscountControllerFromState();
+  }
+
+  void _syncManualDiscountControllerFromState() {
+    var amountText = '';
+    var percentText = '';
+    if (_manualRawValue > 0) {
+      if (_manualDiscountMode == 'percentage') {
+        percentText =
+            _manualRawValue % 1 == 0 ? _manualRawValue.round().toString() : _manualRawValue.toStringAsFixed(2);
+      } else {
+        amountText = _manualRawValue.toStringAsFixed(2);
+      }
+    }
+    if (_discountByAmountController.text != amountText) {
+      _discountByAmountController.value = TextEditingValue(
+        text: amountText,
+        selection: TextSelection.collapsed(offset: amountText.length),
+      );
+    }
+    if (_discountByPercentController.text != percentText) {
+      _discountByPercentController.value = TextEditingValue(
+        text: percentText,
+        selection: TextSelection.collapsed(offset: percentText.length),
+      );
+    }
+  }
+
+  void _onDiscountByAmountChanged(String text) {
+    final p = double.tryParse(text.trim()) ?? 0.0;
+    setState(() {
+      if (p > 0.0001) {
+        _discountByPercentController.clear();
+        _manualDiscountMode = 'amount';
+        _manualRawValue = p;
+      } else {
+        final pct = double.tryParse(_discountByPercentController.text.trim()) ?? 0.0;
+        if (pct > 0.0001) {
+          _manualDiscountMode = 'percentage';
+          _manualRawValue = pct;
+        } else {
+          _manualRawValue = 0;
+        }
+      }
+      _recalculateFinalAmount();
+    });
+  }
+
+  void _onDiscountByPercentChanged(String text) {
+    final p = double.tryParse(text.trim()) ?? 0.0;
+    setState(() {
+      if (p > 0.0001) {
+        _discountByAmountController.clear();
+        _manualDiscountMode = 'percentage';
+        _manualRawValue = p;
+      } else {
+        final amt = double.tryParse(_discountByAmountController.text.trim()) ?? 0.0;
+        if (amt > 0.0001) {
+          _manualDiscountMode = 'amount';
+          _manualRawValue = amt;
+        } else {
+          _manualRawValue = 0;
+        }
+      }
+      _recalculateFinalAmount();
+    });
   }
 
   /// When a payment field gets focus, set its value to remaining amount.
@@ -1043,15 +1399,30 @@ class _PaymentDialogState extends State<PaymentDialog> {
     setState(_recalculateFinalAmount);
   }
 
-  void _recalculateFinalAmount() {
-    if (_discountType == 'percentage') {
-      final percent = double.tryParse(_discountPercentController.text) ?? 0;
-      _discountValue = widget.totalAmount * (percent / 100);
-    } else {
-      _discountValue = double.tryParse(_discountAmountController.text) ?? 0;
+  /// [double.clamp] requires `min <= max`; a negative or non-finite order subtotal would throw.
+  static double _nonNegativeOrderSubtotal(double totalAmount) {
+    if (totalAmount.isNaN || !totalAmount.isFinite) return 0.0;
+    return totalAmount < 0 ? 0.0 : totalAmount;
+  }
+
+  double _manualDiscountAmountComputed() {
+    final cap = _nonNegativeOrderSubtotal(widget.totalAmount);
+    if (_manualDiscountMode == 'percentage') {
+      return (cap * (_manualRawValue / 100)).clamp(0.0, cap).toDouble();
     }
-    final offerDiscount = _appliedOffer?.discountAmount ?? 0.0;
-    _finalAmount = (widget.totalAmount - _discountValue - offerDiscount).clamp(0, double.infinity);
+    return _manualRawValue.clamp(0.0, cap).toDouble();
+  }
+
+  void _recalculateFinalAmount() {
+    final base = _nonNegativeOrderSubtotal(widget.totalAmount);
+    final manualDisc = _manualDiscountAmountComputed();
+    final autoDisc = _autoDayOffers.fold<double>(0, (a, o) => a + o.discountAmount);
+    final dropdownDisc = _selectedOfferIndex != null &&
+            _selectedOfferIndex! >= 0 &&
+            _selectedOfferIndex! < _dropdownOffers.length
+        ? _dropdownOffers[_selectedOfferIndex!].discountAmount
+        : 0.0;
+    _finalAmount = (base - manualDisc - autoDisc - dropdownDisc).clamp(0.0, double.infinity);
   }
 
   bool _validatePayments() {
@@ -1140,6 +1511,28 @@ class _PaymentDialogState extends State<PaymentDialog> {
               ),
             ],
           ),
+          if (!_loadingOffers && _autoDayOffers.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.local_offer_outlined, size: 15, color: Colors.white.withValues(alpha: 0.92)),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    _autoDayOffers.length == 1
+                        ? 'Day offer: ${_autoDayOffers.first.name}'
+                        : 'Day offers active (${_autoDayOffers.length})',
+                    style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: Colors.white),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -1350,7 +1743,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   Widget _discountFields() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1361,20 +1754,15 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 children: [
                   Text(
                     'Discount by Amount',
-                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
+                    style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.textColor),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   CustomTextField(
-                    controller: _discountAmountController,
+                    controller: _discountByAmountController,
                     labelText: '',
-                    keyBoardType: TextInputType.numberWithOptions(decimal: true),
+                    keyBoardType: const TextInputType.numberWithOptions(decimal: true),
                     inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
-                    onTap: () {
-                      _discountType = 'amount';
-                      _discountPercentController.clear();
-                      _updateFinalAmount();
-                    },
-                    onChanged: (_) => _updateFinalAmount(),
+                    onChanged: _onDiscountByAmountChanged,
                   ),
                 ],
               ),
@@ -1386,82 +1774,151 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 children: [
                   Text(
                     'Discount by %',
-                    style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
+                    style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.textColor),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   CustomTextField(
-                    controller: _discountPercentController,
+                    controller: _discountByPercentController,
                     labelText: '',
-                    keyBoardType: TextInputType.numberWithOptions(decimal: true),
+                    keyBoardType: const TextInputType.numberWithOptions(decimal: true),
                     inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
-                    onTap: () {
-                      _discountType = 'percentage';
-                      _discountAmountController.clear();
-                      _updateFinalAmount();
-                    },
-                    onChanged: (_) => _updateFinalAmount(),
+                    onChanged: _onDiscountByPercentChanged,
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 20),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  'Amount Payable',
-                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  height: 44,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey.shade300),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Amount Payable',
+                    style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.textColor),
                   ),
-                  child: Center(
+                  const SizedBox(height: 4),
+                  Container(
+                    height: 50,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    alignment: Alignment.center,
                     child: Text(
                       '$_currencyLabel ${_finalAmount.toStringAsFixed(2)}',
                       style: AppStyles.getBoldTextStyle(fontSize: 18, color: AppColors.primaryColor),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
-        if (_appliedOffer != null) ...[
+        if (!_loadingOffers && _dropdownOffers.isNotEmpty) ...[
           const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.green.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.green.shade200),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _appliedOffer!.name.toUpperCase(),
-                  style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: Colors.green.shade900),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _appliedOffer!.type == _OfferValueType.percentage
-                      ? '${_formatOfferValue(_appliedOffer!.value)}% discount'
-                      : '$_currencyLabel ${_formatOfferValue(_appliedOffer!.value)} discount',
-                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.green.shade900),
-                ),
-              ],
-            ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final maxW = constraints.maxWidth;
+              if (!maxW.isFinite || maxW <= 0) {
+                return SizedBox(
+                  width: 320,
+                  child: _offerDropdownColumn(context),
+                );
+              }
+              // Same width as "Discount by Amount" + gap + "Discount by %" above (2 of 3 columns).
+              final colW = (maxW - 24) / 3;
+              final offerWidth = (colW * 2 + 12).clamp(200.0, maxW);
+              return SizedBox(
+                width: offerWidth,
+                child: _offerDropdownColumn(context),
+              );
+            },
+          ),
+        ],
+        if (!_loadingOffers && _autoDayOffers.isNotEmpty) ...[
+          if (_dropdownOffers.isNotEmpty) const SizedBox(height: 10) else const SizedBox(height: 12),
+          Text(
+            'Today\'s offer(s): ${_autoDayOffers.map((e) => '${e.name} (-$_currencyLabel ${e.discountAmount.toStringAsFixed(2)})').join('; ')}',
+            style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
           ),
         ],
       ],
     );
+  }
+
+  /// Same outer height as [CustomTextField] / amount-payable strip in this dialog (≈50).
+  static const double _discountFieldVisualHeight = 50;
+
+  Widget _offerDropdownColumn(BuildContext context) {
+    final borderColor = Theme.of(context).dividerColor.withValues(alpha: 0.5);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Offer',
+          style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.textColor),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          height: _discountFieldVisualHeight,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor, width: 1.5),
+          ),
+          alignment: Alignment.centerLeft,
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<int?>(
+              value: _selectedOfferIndex != null &&
+                      _selectedOfferIndex! >= 0 &&
+                      _selectedOfferIndex! < _dropdownOffers.length
+                  ? _selectedOfferIndex
+                  : null,
+              isDense: true,
+              isExpanded: true,
+              icon: Icon(Icons.arrow_drop_down, size: 22, color: AppColors.textColor.withValues(alpha: 0.75)),
+              style: AppStyles.getRegularTextStyle(fontSize: 14, color: AppColors.textColor).copyWith(height: 1.15),
+              hint: Text(
+                'Select offer',
+                style: AppStyles.getRegularTextStyle(fontSize: 14, color: AppColors.hintFontColor).copyWith(height: 1.15),
+              ),
+              items: [
+                const DropdownMenuItem<int?>(
+                  value: null,
+                  child: Text('No offer'),
+                ),
+                for (var i = 0; i < _dropdownOffers.length; i++)
+                  DropdownMenuItem<int?>(
+                    value: i,
+                    child: Text(
+                      _offerDropdownLabel(_dropdownOffers[i]),
+                      style: AppStyles.getRegularTextStyle(fontSize: 14),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (v) {
+                setState(() {
+                  _selectedOfferIndex = v;
+                  _recalculateFinalAmount();
+                });
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _offerDropdownLabel(_AppliedOffer o) {
+    final valuePart = o.type == _OfferValueType.percentage
+        ? '${_formatOfferValue(o.value)}%'
+        : '$_currencyLabel ${_formatOfferValue(o.value)}';
+    return '${o.name} ($valuePart) — ${o.discountAmount.toStringAsFixed(2)} off';
   }
 
   String _formatOfferValue(double value) {
@@ -1470,29 +1927,12 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Widget _discountSectionTitle() {
-    final offer = _appliedOffer;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(Icons.discount_outlined, size: 20, color: AppColors.primaryColor),
         const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Discount', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
-              if (offer != null) ...[
-                const SizedBox(height: 2),
-                Text(
-                  'Offer: ${offer.name} (${offer.discountAmount.toStringAsFixed(2)} off)',
-                  style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.green.shade700),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ],
-          ),
-        ),
+        Text('Discount', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
       ],
     );
   }
@@ -1629,6 +2069,19 @@ class _PaymentDialogState extends State<PaymentDialog> {
                           }
                           return;
                         }
+                        final creditAmt = double.tryParse(_creditController.text) ?? 0;
+                        if (creditAmt > 0.005) {
+                          final nameOk = _nameController.text.trim().isNotEmpty;
+                          final phoneOk = _phoneController.text.trim().isNotEmpty;
+                          if (!nameOk || !phoneOk) {
+                            if (mounted) {
+                              CustomSnackBar.showError(
+                                message: 'Customer name and phone are required for credit sales.',
+                              );
+                            }
+                            return;
+                          }
+                        }
                         if (!_validatePayments()) {
                           final cash = double.tryParse(_cashController.text) ?? 0;
                           final card = double.tryParse(_cardController.text) ?? 0;
@@ -1661,9 +2114,42 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         setState(() => _isSubmitting = true);
                         try {
                           await _saveNewCustomerIfNeeded();
-                          final percentInput = double.tryParse(_discountPercentController.text) ?? 0.0;
-                          final discountPayloadValue =
-                              _discountType == 'percentage' ? percentInput : _discountValue;
+                          final sel = _selectedOfferIndex;
+                          final applied =
+                              sel != null && sel >= 0 && sel < _dropdownOffers.length ? _dropdownOffers[sel] : null;
+                          final autoDisc = _autoDayOffers.fold<double>(0, (a, o) => a + o.discountAmount);
+                          final manualAmt = applied?.discountAmount ?? 0.0;
+                          final totalOfferDisc = manualAmt + autoDisc;
+                          final autoNamesJoined =
+                              _autoDayOffers.map((e) => e.name.trim()).where((s) => s.isNotEmpty).join(', ');
+                          String offerDisplayName;
+                          if (applied != null && autoDisc > 0.009) {
+                            offerDisplayName =
+                                autoNamesJoined.isNotEmpty ? '${applied.name} + $autoNamesJoined' : applied.name;
+                          } else if (applied != null) {
+                            offerDisplayName = applied.name;
+                          } else if (_autoDayOffers.length == 1) {
+                            offerDisplayName = _autoDayOffers.first.name;
+                          } else if (_autoDayOffers.isNotEmpty) {
+                            offerDisplayName = autoNamesJoined.isNotEmpty ? autoNamesJoined : 'Day offers';
+                          } else {
+                            offerDisplayName = 'Offer';
+                          }
+                          final Map<String, dynamic>? offerPayload = totalOfferDisc < 0.005
+                              ? null
+                              : {
+                                  'name': offerDisplayName,
+                                  'uuid': applied?.uuid ?? '',
+                                  'type': applied != null
+                                      ? (applied.type == _OfferValueType.percentage ? 'percentage' : 'amount')
+                                      : 'amount',
+                                  'value': applied?.value ?? 0.0,
+                                  'discountAmount': totalOfferDisc,
+                                  'toDate': applied?.toDateText ?? '',
+                                  'autoDayDiscount': autoDisc,
+                                  if (_autoDayOffers.isNotEmpty)
+                                    'autoDayOfferNames': _autoDayOffers.map((e) => e.name).toList(),
+                                };
                           await widget.onSave(
                             {
                               'name': _nameController.text,
@@ -1673,17 +2159,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
                               'onlineOrderNumber': _onlineOrderNumberController.text.trim().isEmpty ? null : _onlineOrderNumberController.text.trim(),
                             },
                             {
-                              'type': _discountType,
-                              'value': discountPayloadValue,
-                              'offer': _appliedOffer == null
-                                  ? null
-                                  : {
-                                      'name': _appliedOffer!.name,
-                                      'type': _appliedOffer!.type == _OfferValueType.percentage ? 'percentage' : 'amount',
-                                      'value': _appliedOffer!.value,
-                                      'discountAmount': _appliedOffer!.discountAmount,
-                                      'toDate': _appliedOffer!.toDateText,
-                                    },
+                              'type': _manualDiscountMode,
+                              'value': _manualRawValue,
+                              'offer': offerPayload,
                             },
                             {
                               'cash': double.tryParse(_cashController.text) ?? 0,
@@ -1785,14 +2263,14 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _phoneController.dispose();
     _emailController.dispose();
     _genderController.dispose();
-    _discountAmountController.dispose();
-    _discountPercentController.dispose();
     _cashController.dispose();
     _creditController.dispose();
     _cardController.dispose();
     _onlineController.dispose();
     _otherController.dispose();
     _onlineOrderNumberController.dispose();
+    _discountByAmountController.dispose();
+    _discountByPercentController.dispose();
     super.dispose();
   }
 }
@@ -1800,9 +2278,11 @@ class _PaymentDialogState extends State<PaymentDialog> {
 class _KotReferenceAutocompleteField extends StatefulWidget {
   const _KotReferenceAutocompleteField({
     required this.controller,
+    required this.suggestions,
   });
 
   final TextEditingController controller;
+  final List<String> suggestions;
 
   @override
   State<_KotReferenceAutocompleteField> createState() => _KotReferenceAutocompleteFieldState();
@@ -1810,39 +2290,13 @@ class _KotReferenceAutocompleteField extends StatefulWidget {
 
 class _KotReferenceAutocompleteFieldState extends State<_KotReferenceAutocompleteField> {
   final FocusNode _focusNode = FocusNode();
-  List<String> _suggestions = [];
 
   @override
   void initState() {
     super.initState();
-    if (locator.isRegistered<SharedPreferences>()) {
-      _suggestions = KotReferenceRecents.mergePrefsAndDistinctDb(
-        KotReferenceRecents.loadSync(locator<SharedPreferences>()),
-        const [],
-      );
-    }
-    unawaited(_augmentFromDb());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
     });
-  }
-
-  Future<void> _augmentFromDb() async {
-    try {
-      final db = locator<AppDatabase>();
-      final session = await db.sessionDao.getActiveSession();
-      final branchId = session?.branchId ?? 1;
-      final fromDb = await db.ordersDao.getRecentDistinctReferenceNumbers(limit: 40, branchId: branchId);
-      if (!mounted) return;
-      if (!locator.isRegistered<SharedPreferences>()) return;
-      final merged = KotReferenceRecents.mergePrefsAndDistinctDb(
-        KotReferenceRecents.loadSync(locator<SharedPreferences>()),
-        fromDb,
-      );
-      setState(() => _suggestions = merged);
-    } catch (_) {
-      /* offline / db edge */
-    }
   }
 
   @override
@@ -1854,7 +2308,7 @@ class _KotReferenceAutocompleteFieldState extends State<_KotReferenceAutocomplet
   @override
   Widget build(BuildContext context) {
     return AutoCompleteTextField<String>(
-      items: _suggestions,
+      items: widget.suggestions,
       displayStringFunction: (s) => s,
       defaultText: '',
       labelText: 'Reference Number',

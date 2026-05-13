@@ -4,9 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/enums.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/auth/login_credentials_prefs.dart';
+import 'package:pos/core/network/pos_server_settings.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/core/util/error_diagnostics.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -34,7 +38,11 @@ class LoginCubit extends Cubit<LoginState> {
     return b.difference(a).inDays;
   }
 
-  Future<void> login(String username, String password) async {
+  Future<void> login(
+    String username,
+    String password, {
+    bool saveCredentials = false,
+  }) async {
     emit(LoginLoading());
 
     if (username.isEmpty || password.isEmpty) {
@@ -45,6 +53,17 @@ class LoginCubit extends Cubit<LoginState> {
     final user = await userRepo.findLocalUser(username, password);
 
     if (user == null) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H4',
+        location: 'login_screen_cubit.dart:login',
+        message: 'local_login_user_not_found',
+        data: <String, Object?>{
+          'usernameLen': username.length,
+          'isHubSub': locator.isRegistered<LocalHubSettings>() ? locator<LocalHubSettings>().isHubSub : null,
+        },
+      );
+      // #endregion
       emit(LoginError("User does not exist"));
       return;
     }
@@ -52,6 +71,17 @@ class LoginCubit extends Cubit<LoginState> {
     final db = locator<AppDatabase>();
     final branch = await db.branchesDao.getBranchById(user.branchId);
     if (branch == null) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H4',
+        location: 'login_screen_cubit.dart:login',
+        message: 'local_login_branch_missing',
+        data: <String, Object?>{
+          'userId': user.id,
+          'branchId': user.branchId,
+        },
+      );
+      // #endregion
       emit(LoginError("Branch setup not found for this user"));
       return;
     }
@@ -66,6 +96,26 @@ class LoginCubit extends Cubit<LoginState> {
       user.type == UserType.admin ? "admin" : "counter",
       user.branchId,
     );
+
+    final prefs = locator<SharedPreferences>();
+    if (saveCredentials) {
+      await LoginCredentialsPrefs.save(prefs, username, password);
+    } else {
+      await LoginCredentialsPrefs.clear(prefs);
+    }
+
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H4',
+      location: 'login_screen_cubit.dart:login',
+      message: 'local_login_success',
+      data: <String, Object?>{
+        'userId': user.id,
+        'branchId': user.branchId,
+        'isHubSub': locator.isRegistered<LocalHubSettings>() ? locator<LocalHubSettings>().isHubSub : null,
+      },
+    );
+    // #endregion
 
     final critical = daysLeft <= 5;
     final warning = daysLeft <= 10 ? (daysLeft == 0 ? 'Subscription expires today.' : 'Subscription expires in $daysLeft day${daysLeft == 1 ? '' : 's'}.') : null;
@@ -96,6 +146,10 @@ class LoginCubit extends Cubit<LoginState> {
       emit(LoginLoading());
       if (kDebugMode) {
         debugPrint('[connectToServer] started, appId="${code.trim()}"');
+      }
+      final trimmedCode = code.trim();
+      if (trimmedCode.isNotEmpty && locator.isRegistered<PosServerSettings>()) {
+        unawaited(locator<PosServerSettings>().setLastTenantConnectAppId(trimmedCode));
       }
       final priorBaseUrl = normalizedTenantBaseUrl(await authRepo.getSavedBaseUrl());
       CompanyDataModel companyDataModel = await authRepo.connectToServer(code);

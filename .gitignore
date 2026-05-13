@@ -38,7 +38,7 @@ migrate_working_dir/
 # Client (Flutter lives under client/)
 client/build/
 client/.dart_tool/
-
+installer/output/
 # Server (Node.js)
 server/node_modules/
 

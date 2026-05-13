@@ -4,6 +4,9 @@ import 'package:pos/data/repository_impl/push_local_to_push_records_mapper.dart'
 import 'package:pos/presentation/day_closing/day_closing_summary.dart';
 
 /// One element of `push_records.settle_sales`.
+///
+/// Includes `category_wise_product_list` and `item_wise_product_list` as JSON arrays
+/// (same shape as the day-closing screen / receipt sections 5–6).
 class SettleSalePushMapper {
   SettleSalePushMapper._();
 
@@ -31,6 +34,25 @@ class SettleSalePushMapper {
 
     final expense = s.purchase + s.salary;
     final ts = PushLocalToPushRecordsMapper.formatApiDateTime(at);
+
+    final categoryWise = s.categoryRows
+        .map(
+          (r) => <String, dynamic>{
+            'category': r.category,
+            'qty': r.qty,
+            'amount': r.amount,
+          },
+        )
+        .toList();
+    final itemWise = s.itemRows
+        .map(
+          (r) => <String, dynamic>{
+            'item': r.item,
+            'qty': r.qty,
+            'amount': r.amount,
+          },
+        )
+        .toList();
 
     return <String, dynamic>{
       'uuid': uuid,
@@ -61,6 +83,8 @@ class SettleSalePushMapper {
       'excess': s.excessAmount,
       'short': s.shortAmount,
       'order_type_summary': jsonEncode(orderTypeSummary),
+      'category_wise_product_list': jsonEncode(categoryWise),
+      'item_wise_product_list': jsonEncode(itemWise),
       'created_at': ts,
       'updated_at': ts,
     };

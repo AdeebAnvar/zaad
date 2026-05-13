@@ -71,6 +71,10 @@ class PullDataRepositoryImpl implements PullDataRepository {
   static const String _pageQuery = 'page';
   static const String _branchQuery = 'branch_id';
   static const String _lastSyncedAtQuery = 'last_synced_at';
+
+  /// When `false`, [pullAndPersist] omits `last_synced_at` — server returns non-incremental page data.
+  /// **Temporary workaround** until incremental cursor issue is diagnosed.
+  static const bool _includeLastSyncedAtOnPullQueries = false;
   static final DateFormat _apiDateTime = DateFormat('yyyy-MM-dd HH:mm:ss');
   static const int _kMaxPagesPerResource = 500;
 
@@ -107,7 +111,8 @@ class PullDataRepositoryImpl implements PullDataRepository {
     final allItemForImages = <ItemCreatedUpdated>[];
     PullData? lastPull;
     var page = 1;
-    final cycleLastSyncedAt = await _db.pullDataDao.getPullLastSyncedAt();
+    final cycleLastSyncedAt =
+        _includeLastSyncedAtOnPullQueries ? await _db.pullDataDao.getPullLastSyncedAt() : null;
     String? nextPullLastSyncedAt;
     _emitProgress('Starting sync...', 0, _kMaxPagesPerResource);
     while (page <= _kMaxPagesPerResource) {
@@ -130,9 +135,11 @@ class PullDataRepositoryImpl implements PullDataRepository {
           _pageQuery: page,
           _branchQuery: activeBranchId,
         };
-        final normalizedLastSyncedAt = _normalizeLastSyncedAtForQuery(cycleLastSyncedAt);
-        if (normalizedLastSyncedAt != null) {
-          queryParams[_lastSyncedAtQuery] = normalizedLastSyncedAt;
+        if (_includeLastSyncedAtOnPullQueries) {
+          final normalizedLastSyncedAt = _normalizeLastSyncedAtForQuery(cycleLastSyncedAt);
+          if (normalizedLastSyncedAt != null) {
+            queryParams[_lastSyncedAtQuery] = normalizedLastSyncedAt;
+          }
         }
         response = await _api.pullData(queryParams);
       } on DioException catch (e) {
@@ -1533,13 +1540,24 @@ class PullDataRepositoryImpl implements PullDataRepository {
 
   Future<void> _persistOffers(OfferModel r) async {
     for (final o in r.createdUpdated) {
+      final st = o.startTime;
+      final oh = o.offerHours;
       final payload = jsonEncode({
+        'uuid': o.uuid,
+        'offer_name': o.offerName,
         'promocode': o.promocode,
         'from_date': o.fromDate,
         'to_date': o.toDate,
         'value': o.value,
         'type': o.type,
         'active': o.active,
+        'is_active': o.active,
+        'item_id': o.itemIds,
+        'category_id': o.categoryIds,
+        'is_all_items': o.isAllItems,
+        'day': o.days,
+        if (st != null && st.trim().isNotEmpty) 'start_time': st,
+        if (oh != null && oh > 0) 'offer_hour': oh,
       });
       await _db.pullDataDao.upsertPullCategory(
         PullCategoryRowsCompanion.insert(

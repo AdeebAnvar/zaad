@@ -79,20 +79,24 @@ class _CommonLogCardState extends State<CommonLogCard> {
               _userNameLine(),
               const SizedBox(height: 6),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    widget.invoiceNumber,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppStyles.getSemiBoldTextStyle(fontSize: 13, color: AppColors.textColor),
+                  Expanded(
+                    child: Text(
+                      widget.invoiceNumber,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppStyles.getSemiBoldTextStyle(fontSize: 13, color: AppColors.textColor),
+                    ),
                   ),
-                  Text(
-                    'Ref: ${widget.referenceNumber.trim().isEmpty ? '-' : widget.referenceNumber}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppStyles.getSemiBoldTextStyle(fontSize: 13, color: AppColors.textColor),
-                  ),
+                  if (widget.referenceNumber.trim().isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      'Ref: ${widget.referenceNumber.trim()}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppStyles.getSemiBoldTextStyle(fontSize: 13, color: AppColors.textColor),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 2),

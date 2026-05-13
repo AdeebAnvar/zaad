@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:pos/core/auth/login_credentials_prefs.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/network/pos_server_settings.dart';
+import 'package:pos/domain/models/api/auth/auth_repository.dart';
 import 'package:pos/presentation/login/login_screen_cubit.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_dialogue.dart';
@@ -30,16 +36,43 @@ class _LoginScreenState extends State<LoginScreen> {
   final GlobalKey<FormState> formKey = GlobalKey<FormState>();
 
   late final LoginCubit cubit;
+  bool _saveCredentials = false;
 
   @override
   void initState() {
     super.initState();
     cubit = locator<LoginCubit>();
+    unawaited(_refreshSavedBaseUrl());
 
-    if (kDebugMode) {
+    final prefs = locator<SharedPreferences>();
+    if (LoginCredentialsPrefs.hasSaved(prefs)) {
+      userNameController.text = LoginCredentialsPrefs.readUsername(prefs) ?? '';
+      passWordController.text = LoginCredentialsPrefs.readPassword(prefs) ?? '';
+      _saveCredentials = true;
+    } else if (kDebugMode) {
       userNameController.text = "counter";
       passWordController.text = "12345";
     }
+  }
+
+  Future<void> _refreshSavedBaseUrl() async {
+    await locator<AuthRepository>().getSavedBaseUrl();
+  }
+
+  Future<void> _showConnectedToServerSnack() async {
+    await Future<void>.delayed(const Duration(milliseconds: 160));
+    if (!mounted) return;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    CustomSnackBar.showSuccess(
+      context: context,
+      message: 'Connected to server',
+      duration: const Duration(milliseconds: 1800),
+      floating: true,
+      position: SnackBarPosition.bottom,
+      compact: true,
+    );
+    unawaited(_refreshSavedBaseUrl());
   }
 
   @override
@@ -86,13 +119,8 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     if (state is LoginServerConnected) {
       LoaderOverlay.hide();
-    }
-
-    if (state is LoginServerConnected) {
-      LoaderOverlay.hide();
-      CustomSnackBar.showSuccess(
-        message: "Server connected successfully",
-      );
+      // Defer past loader removal + route settle (Windows: overlay/snackbar races with dialog close).
+      unawaited(_showConnectedToServerSnack());
     }
 
     if (state is LoginSuccess) {
@@ -218,7 +246,18 @@ class _LoginScreenState extends State<LoginScreen> {
             labelText: 'Password',
             validator: (v) => v == null || v.isEmpty ? 'Enter password' : null,
           ),
-          const SizedBox(height: 20),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            dense: true,
+            value: _saveCredentials,
+            onChanged: (v) => setState(() => _saveCredentials = v ?? false),
+            title: Text(
+              'Save credentials',
+              style: AppStyles.getRegularTextStyle(fontSize: 14, color: AppColors.textColor),
+            ),
+          ),
+          const SizedBox(height: 8),
           CustomButton(
             text: "Login",
             onPressed: _onLoginPressed,
@@ -231,21 +270,25 @@ class _LoginScreenState extends State<LoginScreen> {
               style: AppStyles.getRegularTextStyle(fontSize: 13, color: Colors.grey.shade700),
             )
           else
-            GestureDetector(
-              onTap: _openServerDialog,
-              child: Text(
-                'Connect to server',
-                style: AppStyles.getRegularTextStyle(
-                  fontSize: 14,
-                  color: AppColors.primaryColor,
+            Column(
+              children: [
+                GestureDetector(
+                  onTap: _openServerDialog,
+                  child: Text(
+                    'Connect to server',
+                    style: AppStyles.getRegularTextStyle(
+                      fontSize: 14,
+                      color: AppColors.primaryColor,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           const SizedBox(height: 12),
           TextButton(
             onPressed: () async {
               await AppNavigator.pushNamed(Routes.lanHubSettings);
-              if (mounted) setState(() {});
+              if (mounted) unawaited(_refreshSavedBaseUrl());
             },
             child: Text(
               'LAN hub (MAIN / SUB)',
@@ -273,52 +316,14 @@ class _LoginScreenState extends State<LoginScreen> {
     cubit.login(
       userNameController.text.trim(),
       passWordController.text.trim(),
+      saveCredentials: _saveCredentials,
     );
   }
 
   void _openServerDialog() {
-    final controller = TextEditingController();
-    if (kDebugMode) {
-      controller.text = 'R3M2KZ';
-    }
     CustomDialog.showResponsiveDialog(
       context,
-      Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            "Server Connection",
-            style: AppStyles.getSemiBoldTextStyle(fontSize: 18, color: AppColors.textColor),
-          ),
-          const SizedBox(height: 16),
-          CustomTextField(
-            controller: controller,
-            labelText: "Server URL",
-            prefixIcon: const Icon(Icons.link),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: CustomButton(
-                  text: "Cancel",
-                  onPressed: AppNavigator.pop,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: CustomButton(
-                  text: "Connect",
-                  onPressed: () {
-                    AppNavigator.pop();
-                    cubit.connectToServer(controller.text.trim());
-                  },
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      _ServerConnectDialogBody(loginCubit: cubit),
     );
   }
 
@@ -429,6 +434,81 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _ServerConnectDialogBody extends StatefulWidget {
+  const _ServerConnectDialogBody({required this.loginCubit});
+
+  final LoginCubit loginCubit;
+
+  @override
+  State<_ServerConnectDialogBody> createState() => _ServerConnectDialogBodyState();
+}
+
+class _ServerConnectDialogBodyState extends State<_ServerConnectDialogBody> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    final saved = locator<PosServerSettings>().lastTenantConnectAppId;
+    _controller = TextEditingController(
+      text: saved ?? (kDebugMode ? 'R3M2KZ' : ''),
+    );
+  }
+
+  void _persistServerCodeDraft() {
+    final t = _controller.text.trim();
+    if (t.isEmpty) return;
+    unawaited(locator<PosServerSettings>().setLastTenantConnectAppId(t));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          "Server Connection",
+          style: AppStyles.getSemiBoldTextStyle(fontSize: 18, color: AppColors.textColor),
+        ),
+        const SizedBox(height: 16),
+        CustomTextField(
+          controller: _controller,
+          labelText: "Server URL",
+          prefixIcon: const Icon(Icons.link),
+          onChanged: (_) => _persistServerCodeDraft(),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            Expanded(
+              child: CustomButton(
+                text: "Cancel",
+                onPressed: AppNavigator.pop,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: CustomButton(
+                text: "Connect",
+                onPressed: () {
+                  AppNavigator.pop();
+                  widget.loginCubit.connectToServer(_controller.text.trim());
+                },
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

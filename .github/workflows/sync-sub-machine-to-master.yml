@@ -1,0 +1,36 @@
+# Merges `sub_machine` into `master` after each push to `sub_machine`.
+# Requires: default GITHUB_TOKEN with write access to Contents (usual for repos
+# without strict branch protection blocking the Actions bot).
+
+name: Sync sub_machine to master
+
+on:
+  push:
+    branches: [sub_machine]
+
+concurrency:
+  group: sync-sub-machine-to-master
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Fetch sub_machine and merge
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin sub_machine
+          git merge origin/sub_machine --no-edit -m "Merge branch 'sub_machine' into master"
+
+      - name: Push master
+        run: git push origin master

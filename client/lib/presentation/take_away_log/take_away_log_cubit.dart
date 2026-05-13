@@ -1,6 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/utils/hub_log_order_user_scope.dart';
+import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
@@ -9,7 +13,9 @@ part 'take_away_log_state.dart';
 
 class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
   TakeAwayLogCubit(
-    this.orderRepo, {
+    this.orderRepo,
+    this.hubSettings,
+    this.counterSession, {
     HubOrdersLiveSync? hubOrdersLive,
   })  : _hubLive = hubOrdersLive,
         super(TakeAwayLogInitial()) {
@@ -18,6 +24,8 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
   }
 
   final OrderRepository orderRepo;
+  final LocalHubSettings hubSettings;
+  final CurrentCounterSession counterSession;
   final HubOrdersLiveSync? _hubLive;
   void Function()? _detachHubLive;
 
@@ -33,11 +41,21 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
     _detachHubLive = () => h.revision.removeListener(onRev);
   }
 
+  int? _scopedUserId({int? uiUserId}) => HubLogOrderUserScope.effectiveFilterUserId(
+        hub: hubSettings,
+        sessionUser: counterSession.user,
+        uiSelectedUserId: uiUserId,
+      );
+
   Future<void> loadOrders() async {
     emit(TakeAwayLogLoading());
     try {
-      var orders = await orderRepo.filterOrders(orderType: 'take_away');
+      var orders = await orderRepo.filterOrders(
+        orderType: 'take_away',
+        userId: _scopedUserId(uiUserId: null),
+      );
       orders = orders.where((o) => o.status == 'kot').toList();
+      sortOrdersNewestFirst(orders);
       emit(TakeAwayLogLoaded(orders));
     } catch (e) {
       emit(TakeAwayLogError(e.toString()));
@@ -65,7 +83,7 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
         orderType: 'take_away',
         startDate: startDate,
         endDate: endDate,
-        userId: userId,
+        userId: _scopedUserId(uiUserId: userId),
       );
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where((o) => o.status == 'kot').toList();
@@ -74,6 +92,7 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
       } else {
         orders = [];
       }
+      sortOrdersNewestFirst(orders);
       emit(TakeAwayLogLoaded(orders));
     } catch (e) {
       emit(TakeAwayLogError(e.toString()));

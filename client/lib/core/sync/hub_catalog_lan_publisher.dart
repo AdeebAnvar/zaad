@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/lan_hub_health.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
@@ -23,16 +24,54 @@ class HubCatalogLanPublisher {
     required List<ItemCreatedUpdated> pulledItemsSnapshot,
   }) async {
     final g = GetIt.instance;
-    if (!g.isRegistered<LocalHubSettings>()) return;
+    if (!g.isRegistered<LocalHubSettings>()) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H_ITEMS_4',
+        location: 'hub_catalog_lan_publisher.dart:publishAfterTenantPull',
+        message: 'skip_no_LocalHubSettings',
+        data: const <String, Object?>{},
+      );
+      // #endregion
+      return;
+    }
 
     final hub = g<LocalHubSettings>();
 
     // SUB terminals never publish catalog deltas.
-    if (hub.blocksTenantCloudRest) return;
-    if (!hub.publishesCatalogAfterTenantPull) return;
+    if (hub.blocksTenantCloudRest) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H_ITEMS_4',
+        location: 'hub_catalog_lan_publisher.dart:publishAfterTenantPull',
+        message: 'skip_SUB_blocksTenantCloudRest',
+        data: const <String, Object?>{},
+      );
+      // #endregion
+      return;
+    }
+    if (!hub.publishesCatalogAfterTenantPull) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H_ITEMS_4',
+        location: 'hub_catalog_lan_publisher.dart:publishAfterTenantPull',
+        message: 'skip_publishesCatalogAfterTenantPull_false',
+        data: const <String, Object?>{},
+      );
+      // #endregion
+      return;
+    }
 
     final resolvedUrl = hub.publishHubWsUrlOrLoopback;
     if (resolvedUrl.isEmpty) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H_ITEMS_4',
+        location: 'hub_catalog_lan_publisher.dart:publishAfterTenantPull',
+        message: 'skip_empty_publish_url',
+        data: const <String, Object?>{},
+      );
+      // #endregion
       return;
     }
 
@@ -42,12 +81,30 @@ class HubCatalogLanPublisher {
           '[HubCatalogLanPublisher] skip: hub reports ≤1 open WS client (solitary MAIN — toggle in LAN hub settings)',
         );
       }
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H_ITEMS_4',
+        location: 'hub_catalog_lan_publisher.dart:publishAfterTenantPull',
+        message: 'skip_solitary_ws_gate',
+        data: const <String, Object?>{},
+      );
+      // #endregion
       return;
     }
 
     try {
       final cats = await db.pullDataDao.lanPublishMirrorCategories();
-      if (cats.isEmpty && pulledItemsSnapshot.isEmpty) return;
+      if (cats.isEmpty && pulledItemsSnapshot.isEmpty) {
+        // #region agent log
+        agentDebugLog(
+          hypothesisId: 'H_ITEMS_4',
+          location: 'hub_catalog_lan_publisher.dart:publishAfterTenantPull',
+          message: 'skip_empty_categories_and_pull_snapshot',
+          data: const <String, Object?>{},
+        );
+        // #endregion
+        return;
+      }
 
       for (final row in cats) {
         await _sleepBetweenFrames();
@@ -74,8 +131,29 @@ class HubCatalogLanPublisher {
           '[HubCatalogLanPublisher] queued ${cats.length} categories + ${pulledItemsSnapshot.length} items for ACK-backed outbox',
         );
       }
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H_ITEMS_4',
+        location: 'hub_catalog_lan_publisher.dart:publishAfterTenantPull',
+        message: 'catalog_mirror_queued_ok',
+        data: <String, Object?>{
+          'categoryQueued': cats.length,
+          'itemsQueued': pulledItemsSnapshot.length,
+        },
+      );
+      // #endregion
     } catch (e, st) {
       if (kDebugMode) debugPrint('[HubCatalogLanPublisher] failed: $e\n$st');
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H_ITEMS_4',
+        location: 'hub_catalog_lan_publisher.dart:publishAfterTenantPull',
+        message: 'catalog_mirror_exception',
+        data: <String, Object?>{
+          'errorType': e.runtimeType.toString(),
+        },
+      );
+      // #endregion
     }
   }
 
