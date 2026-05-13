@@ -27,36 +27,13 @@ class KotReferenceRecents {
     return out;
   }
 
-  /// Prefer [prefsOrdered] MRU order, append distinct [dbOrdered] refs not already present.
-  static List<String> mergePrefsAndDistinctDb(List<String> prefsOrdered, List<String> dbOrdered) {
-    final out = <String>[];
-    final seenLower = <String>{};
-    void take(String raw) {
-      final t = raw.trim();
-      if (t.isEmpty) return;
-      final k = t.toLowerCase();
-      if (!seenLower.contains(k)) {
-        seenLower.add(k);
-        out.add(t);
-      }
-    }
-
-    for (final p in prefsOrdered) {
-      take(p);
-    }
-    for (final d in dbOrdered) {
-      take(d);
-    }
-
-    while (out.length > 48) out.removeLast();
-    return out;
-  }
-
   static Future<void> _persist(SharedPreferences prefs, List<String> list) =>
       prefs.setStringList(_prefsKey, list);
 
-  /// Fire-and-forget; safe if [SharedPreferences] is not registered yet.
-  static void recordBestEffort(String reference) {
+  /// Persists [reference] to the MRU list shown in the KOT reference dropdown.
+  ///
+  /// Call only from explicit UI (e.g. "Save to list"); do not invoke on every bill save.
+  static void savePinnedReference(String reference) {
     final t = reference.trim();
     if (t.isEmpty) return;
     final g = GetIt.instance;

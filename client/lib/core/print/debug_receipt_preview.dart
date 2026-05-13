@@ -201,6 +201,38 @@ String _orderTypeLabel(String? raw) {
   return (label: 'Discount (Amount):', amount: raw.clamp(0, order.totalAmount).toDouble());
 }
 
+({String label, double amount})? _offerLineForPreview(Order order) {
+  final meta = order.hubMetadata;
+  if (meta == null || meta.trim().isEmpty) return null;
+  try {
+    final decoded = jsonDecode(meta);
+    if (decoded is! Map) return null;
+    final root = Map<String, dynamic>.from(decoded);
+    final rawOffer = root['applied_offer'];
+    if (rawOffer is! Map) return null;
+    final offer = Map<String, dynamic>.from(rawOffer);
+    final amount = (offer['discountAmount'] as num?)?.toDouble() ??
+        (double.tryParse(offer['discountAmount']?.toString() ?? '') ?? 0.0);
+    if (amount <= 0.009) return null;
+    var name = offer['name']?.toString().trim() ?? '';
+    final namesList = offer['autoDayOfferNames'];
+    if (namesList is List && namesList.isNotEmpty) {
+      final joined = namesList.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).join(', ');
+      if (joined.isNotEmpty) {
+        if (name.isEmpty || name.toLowerCase() == 'day offers') {
+          name = joined;
+        } else if (!name.toLowerCase().contains(joined.toLowerCase())) {
+          name = '$name + $joined';
+        }
+      }
+    }
+    final label = name.isNotEmpty ? 'Offer ($name):' : 'Offer:';
+    return (label: label, amount: amount.clamp(0, order.totalAmount).toDouble());
+  } catch (_) {
+    return null;
+  }
+}
+
 bool _receiptShowsPaid(Order order, double totalPayable, double paidSum) {
   final st = order.status.trim().toLowerCase();
   if (st == 'cancelled') return false;
@@ -508,19 +540,31 @@ class _ReceiptPaper extends StatelessWidget {
     }
 
     if (order.discountAmount > 0) {
+      final offerLine = _offerLineForPreview(order);
       final discountLine = _discountLineForPreview(order);
+      final manualAmount = (discountLine.amount - (offerLine?.amount ?? 0)).clamp(0.0, order.totalAmount).toDouble();
       children.add(
         Text(
           _previewAmountRow(label: 'Subtotal:', amount: _fmtMoney(order.totalAmount)),
           style: mono,
         ),
       );
-      children.add(
-        Text(
-          _previewAmountRow(label: discountLine.label, amount: '-${_fmtMoney(discountLine.amount)}'),
-          style: mono,
-        ),
-      );
+      if (offerLine != null) {
+        children.add(
+          Text(
+            _previewAmountRow(label: offerLine.label, amount: '-${_fmtMoney(offerLine.amount)}'),
+            style: mono,
+          ),
+        );
+      }
+      if (manualAmount > 0.009) {
+        children.add(
+          Text(
+            _previewAmountRow(label: discountLine.label, amount: '-${_fmtMoney(manualAmount)}'),
+            style: mono,
+          ),
+        );
+      }
     }
 
     if (hasVat) {
@@ -633,11 +677,73 @@ class _RawTicketPaper extends StatelessWidget {
       color: Colors.black87,
     );
 
+    final branch = data.branch;
+    final branchNameLc = branch?.branchName.trim().toLowerCase() ?? '';
+    final headerChildren = <Widget>[];
+    final logo = data.logoPngBytes;
+    if (logo != null) {
+      headerChildren.add(
+        Center(
+          child: Image.memory(
+            logo,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.medium,
+          ),
+        ),
+      );
+      headerChildren.add(const SizedBox(height: 8));
+    }
+    if (branch != null && branch.branchName.trim().isNotEmpty) {
+      headerChildren.add(
+        Text(
+          _sanitize(branch.branchName.trim()),
+          style: mono,
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    if (branch != null && branch.location.trim().isNotEmpty) {
+      for (final locLine in _dedupeWrappedLines(
+        _wrapReceiptLine(_sanitize(branch.location.trim()), 42),
+      )) {
+        if (branchNameLc.isNotEmpty && locLine.trim().toLowerCase() == branchNameLc) continue;
+        headerChildren.add(
+          Text(
+            locLine,
+            style: mono,
+            textAlign: TextAlign.center,
+          ),
+        );
+      }
+    }
+    if (branch != null && branch.contactNo.trim().isNotEmpty) {
+      headerChildren.add(
+        Text(
+          'Contact: ${_sanitize(branch.contactNo.trim())}',
+          style: mono,
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    if (branch != null && (branch.trnNumber ?? '').toString().trim().isNotEmpty) {
+      headerChildren.add(
+        Text(
+          ' ${_sanitize((branch.trnNumber ?? '').toString().trim())}',
+          style: mono,
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    if (headerChildren.isNotEmpty) {
+      headerChildren.add(const SizedBox(height: 8));
+    }
+
     return DefaultTextStyle.merge(
       style: mono,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          ...headerChildren,
           for (final line in data.rawLines)
             Text(
               line,

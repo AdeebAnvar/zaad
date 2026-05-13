@@ -2,11 +2,15 @@ import 'dart:async';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
+import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 
 part 'dine_in_log_state.dart';
 
@@ -15,10 +19,22 @@ bool dineInBillIsSplittable(Order order) {
   return order.orderType == 'dine_in' && (s == 'kot' || s == 'placed');
 }
 
+/// Dine-in log is for open bills only: no cancelled, no completed, no fully paid rows.
+bool _dineInLogListVisible(Order o) {
+  final s = o.status.toLowerCase();
+  if (s == 'cancelled' || s == 'completed') return false;
+  final payable = o.finalAmount > 0.009 ? o.finalAmount : o.totalAmount;
+  if (payable <= 0.009) return true;
+  final paid = o.cashAmount + o.cardAmount + o.creditAmount + o.onlineAmount;
+  return paid + 0.02 < payable;
+}
+
 class DineInLogCubit extends Cubit<DineInLogState> {
   DineInLogCubit(
     this.orderRepo,
-    this.cartRepo, {
+    this.cartRepo,
+    this.hubSettings,
+    this.counterSession, {
     HubOrdersLiveSync? hubOrdersLive,
   })  : _hubLive = hubOrdersLive,
         super(DineInLogInitial()) {
@@ -28,6 +44,8 @@ class DineInLogCubit extends Cubit<DineInLogState> {
 
   final OrderRepository orderRepo;
   final CartRepository cartRepo;
+  final LocalHubSettings hubSettings;
+  final CurrentCounterSession counterSession;
   final HubOrdersLiveSync? _hubLive;
   void Function()? _detachHubLive;
 
@@ -43,12 +61,20 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     _detachHubLive = () => h.revision.removeListener(onRev);
   }
 
+  int? _scopedUserId({int? uiUserId}) => HubLogOrderUserScope.effectiveFilterUserId(
+        hub: hubSettings,
+        sessionUser: counterSession.user,
+        uiSelectedUserId: uiUserId,
+      );
+
   Future<void> loadOrders() async {
     emit(DineInLogLoading());
     try {
-      final orders = await orderRepo.filterOrders(orderType: 'dine_in');
-      // Show KOT + paid + other active; exclude cancelled (same idea as floor + history).
-      final visible = orders.where((o) => o.status != 'cancelled').toList();
+      final orders = await orderRepo.filterOrders(
+        orderType: 'dine_in',
+        userId: _scopedUserId(uiUserId: null),
+      );
+      final visible = orders.where(_dineInLogListVisible).toList();
       sortOrdersNewestFirst(visible);
       final cartIds = visible.map((o) => o.cartId).toSet().toList();
       final counts = await cartRepo.countCartItemsByCartIds(cartIds);
@@ -77,12 +103,12 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         orderType: 'dine_in',
         startDate: startDate,
         endDate: endDate,
-        userId: userId,
+        userId: _scopedUserId(uiUserId: userId),
       );
       if (status == null || status.isEmpty || status == 'All') {
-        orders = orders.where((o) => o.status != 'cancelled').toList();
+        orders = orders.where(_dineInLogListVisible).toList();
       } else {
-        orders = orders.where((o) => o.status == status).toList();
+        orders = orders.where((o) => o.status == status).where(_dineInLogListVisible).toList();
       }
       sortOrdersNewestFirst(orders);
       final cartIds = orders.map((o) => o.cartId).toSet().toList();
@@ -102,7 +128,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     }
   }
 
-  /// Updates dine-in table/floor reference (`floorId|CODE | N pax`). Returns null on success.
+  /// Updates dine-in table/floor routing in hub metadata (optional KOT [Order.referenceNumber] unchanged).
   Future<String?> moveDineInOrderToTable({
     required int orderId,
     required String newReferenceNumber,
@@ -110,8 +136,16 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     try {
       final order = await orderRepo.getOrderById(orderId);
       if (order == null) return 'Order not found';
+      final mergedHub = DineInRefParser.mergeHubMetadataAnchor(order.hubMetadata, newReferenceNumber);
+      final hadHubAnchor = DineInRefParser.dineInAnchorFromHubMetadata(order.hubMetadata) != null;
+      final r = order.referenceNumber?.trim() ?? '';
+      final routingOnlyInRef =
+          !hadHubAnchor && r.isNotEmpty && DineInRefParser.extractLeadingFloorId(r) != null;
       await orderRepo.updateOrder(
-        order.copyWith(referenceNumber: Value(newReferenceNumber)),
+        order.copyWith(
+          hubMetadata: Value(mergedHub),
+          referenceNumber: routingOnlyInRef ? const Value<String?>(null) : const Value.absent(),
+        ),
       );
       await loadOrders();
       return null;
@@ -195,6 +229,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         driverName: null,
         userId: source.userId,
         branchId: source.branchId,
+        hubMetadata: source.hubMetadata,
         hubSyncPending: false,
       );
       await orderRepo.createOrder(newOrder);
@@ -223,8 +258,8 @@ class DineInLogCubit extends Cubit<DineInLogState> {
       if (target.orderType != 'dine_in' || source.orderType != 'dine_in') {
         return 'Only dine-in bills can be merged';
       }
-      final tRef = target.referenceNumber?.trim();
-      final sRef = source.referenceNumber?.trim();
+      final tRef = DineInRefParser.dineInAnchorForMatching(target)?.trim();
+      final sRef = DineInRefParser.dineInAnchorForMatching(source)?.trim();
       if (tRef == null || tRef.isEmpty || tRef != sRef) {
         return 'Bills must be for the same table / reference';
       }

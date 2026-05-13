@@ -43,8 +43,12 @@ class CustomSnackBar {
     bool enableEntranceAnimation = true,
     bool compact = false,
   }) {
-    final overlayState = AppNavigator.navigatorKey.currentState?.overlay;
     _removeCurrentOverlay();
+
+    OverlayState? overlayState = AppNavigator.navigatorKey.currentState?.overlay;
+    if (overlayState == null && context != null && context.mounted) {
+      overlayState = Overlay.maybeOf(context, rootOverlay: true);
+    }
 
     final icon = _icons[type] ?? Icons.notifications_active_outlined;
     final background = _backgroundColors[type] ?? AppColors.primaryColor;
@@ -76,10 +80,27 @@ class CustomSnackBar {
             ),
     );
 
-    overlayState?.insert(_currentOverlay!);
-    onVisible?.call();
-
-    Future.delayed(duration, _removeCurrentOverlay);
+    if (overlayState != null) {
+      overlayState.insert(_currentOverlay!);
+      onVisible?.call();
+      Future.delayed(duration, _removeCurrentOverlay);
+    } else {
+      _currentOverlay = null;
+      if (context != null && context.mounted) {
+        final messenger = ScaffoldMessenger.maybeOf(context);
+        if (messenger != null) {
+          messenger.clearSnackBars();
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(message),
+              duration: duration,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          onVisible?.call();
+        }
+      }
+    }
   }
 
   static void showSuccess({
@@ -95,7 +116,7 @@ class CustomSnackBar {
     bool compact = false,
   }) {
     show(
-      context: context ?? AppNavigator.navigatorKey.currentState!.context,
+      context: context ?? AppNavigator.navigatorKey.currentState?.context,
       message: message,
       type: SnackBarType.success,
       duration: duration ?? const Duration(seconds: 2),

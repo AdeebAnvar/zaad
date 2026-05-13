@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/debug/agent_debug_log.dart';
+import 'package:pos/core/utils/image_utils.dart';
 import 'package:pos/core/utils/item_order_channels.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
@@ -48,6 +49,7 @@ class ItemsCubit extends Cubit<ItemState> {
   String? _deliveryFilterToken;
 
   Future<void> fetchItemsAndCategories() async {
+    unawaited(TenantImageUrlCache.ensureBaseUrlLoaded());
     _allItems = await _repo.fetchItemsFromLocal();
     _allCategories = await _repo.fetchCategoriesFromLocal();
     final allVariants = await _repo.fetchAllVariants();

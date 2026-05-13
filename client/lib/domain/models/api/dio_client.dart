@@ -5,6 +5,7 @@ import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/network/cloud_sync_prerequisites.dart';
+import '../../../core/network/dio_bad_api_status_interceptor.dart';
 import '../../../core/network/local_hub_settings.dart';
 import '../../../core/sync/hub_api_mirror_publisher.dart';
 
@@ -12,6 +13,7 @@ class DioClient {
   static Dio? _dio;
   static bool _lanSubBlockInterceptorAdded = false;
   static bool _apiMirrorInterceptorAdded = false;
+  static bool _badApiStatusInterceptorAdded = false;
 
   static const String _authHeaderKey = 'X-Auth-Key';
   static const String _authHeaderValue = 'd0ff75bf-77e6-4032-a7d4-9061ddd89752';
@@ -54,6 +56,7 @@ class DioClient {
     _maybeAttachLogger(_dio!);
     _attachLanSubTenantBlocker(_dio!);
     _attachApiMirrorInterceptor(_dio!);
+    _attachBadApiStatusInterceptor(_dio!);
 
     return _dio!;
   }
@@ -92,6 +95,12 @@ class DioClient {
         },
       ),
     );
+  }
+
+  static void _attachBadApiStatusInterceptor(Dio dio) {
+    if (_badApiStatusInterceptorAdded) return;
+    _badApiStatusInterceptorAdded = true;
+    dio.interceptors.add(DioBadApiStatusInterceptor.instance);
   }
 
   static void _attachLanSubTenantBlocker(Dio dio) {

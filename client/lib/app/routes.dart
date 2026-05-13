@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/enums.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
@@ -86,6 +88,7 @@ class Routes {
       final referenceNumber = args?['referenceNumber'] as String?;
       final fromDineIn = args?['fromDineIn'] as bool? ?? false;
       final openPaymentOnLoad = args?['openPaymentOnLoad'] as bool? ?? false;
+      final dineInNewFromFloor = fromDineIn && orderType == OrderType.dineIn && orderId == null;
 
       return BlocProvider<CartCubit>(
         create: (context) {
@@ -98,7 +101,8 @@ class Routes {
             locator<PrintService>(),
             orderType: orderType,
             deliveryPartner: deliveryPartner,
-            initialReferenceNumber: referenceNumber,
+            initialReferenceNumber: dineInNewFromFloor ? null : referenceNumber,
+            dineInFloorTableAnchor: dineInNewFromFloor ? referenceNumber : null,
           );
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (orderId != null) {
@@ -129,6 +133,8 @@ class Routes {
     takeAwayLog: (_) => BlocProvider(
           create: (context) => TakeAwayLogCubit(
             locator<OrderRepository>(),
+            locator<LocalHubSettings>(),
+            locator<CurrentCounterSession>(),
             hubOrdersLive: locator<HubOrdersLiveSync>(),
           ),
           child: const TakeAwayLogScreen(),
@@ -139,6 +145,8 @@ class Routes {
             locator<OrderRepository>(),
             locator<DeliveryPartnerRepository>(),
             locator<DriverRepository>(),
+            locator<LocalHubSettings>(),
+            locator<CurrentCounterSession>(),
             hubOrdersLive: locator<HubOrdersLiveSync>(),
           ),
           child: const DeliveryLogScreen(),

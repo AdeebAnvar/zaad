@@ -78,25 +78,9 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
   Future<void> _onPrint() async {
     try {
       final printService = locator<PrintService>();
-      final rows = <({String label, double amount})>[
-        (label: 'Opening Cash', amount: _summary.openingCash),
-        (label: 'Gross Sales', amount: _summary.grossTotal),
-        if (_summary.totalVatAmount > 0.009) (label: 'Total VAT', amount: _summary.totalVatAmount),
-        (label: 'Discounts', amount: _summary.discount),
-        (label: 'Cash Sale', amount: _summary.cashSale),
-        (label: 'Card Sale', amount: _summary.cardSale),
-        (label: 'Credit Sale', amount: _summary.creditSale),
-        (label: 'Online Sale', amount: _summary.onlineSale),
-        (label: 'Delivery Sale', amount: _summary.deliverySale),
-        (label: 'Net Sales', amount: _summary.netTotal),
-        (label: 'Cash In', amount: _summary.cashIn),
-        (label: 'Cash Out', amount: _summary.cashOut),
-        (label: 'Cash Drawer', amount: _summary.cashDrawer),
-        (label: 'Unpaid Amount', amount: _summary.unpaidAmount),
-      ];
       final failed = await printService.printDayClosingReport(
-        title: 'Day Closing',
-        rows: rows,
+        summary: _summary,
+        counterAccess: _counterAccess,
       );
       if (!mounted) return;
       if (failed.isEmpty) {
@@ -306,6 +290,20 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                         rows: [
                           ..._summary.categoryRows.map((r) => [
                                 r.category,
+                                r.qty.toString(),
+                                RuntimeAppSettings.money(r.amount),
+                              ]),
+                        ],
+                        footerLabel: 'GRAND TOTAL',
+                        footerValue: RuntimeAppSettings.money(_summary.netTotal),
+                      ),
+                      const SizedBox(height: 14),
+                      _sectionCard(
+                        title: '6. Item Wise Product List',
+                        headers: const ['ITEM', 'QTY', 'AMOUNT'],
+                        rows: [
+                          ..._summary.itemRows.map((r) => [
+                                r.item,
                                 r.qty.toString(),
                                 RuntimeAppSettings.money(r.amount),
                               ]),

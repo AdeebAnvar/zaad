@@ -23,11 +23,11 @@ class ReceiptPreviewData {
     required this.previewTitle,
     required this.previewSubtitle,
     required this.rawLines,
+    this.branch,
+    this.logoPngBytes,
   })  : kind = ReceiptPreviewKind.rawTicket,
         order = null,
         lines = const [],
-        branch = null,
-        logoPngBytes = null,
         settledBill = false,
         updatedOrder = false,
         asTaxInvoice = false;

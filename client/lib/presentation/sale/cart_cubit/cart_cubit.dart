@@ -7,7 +7,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/enums.dart';
-import 'package:pos/core/utils/kot_reference_recents.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/print/kot_kitchen_update_diff.dart';
 import 'package:pos/core/print/print_service.dart';
@@ -16,6 +15,7 @@ import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/core/update/updater_manager.dart';
+import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 
 part 'cart_state.dart';
 
@@ -29,8 +29,10 @@ class CartCubit extends Cubit<CartState> {
     this.orderType = OrderType.takeAway,
     this.deliveryPartner,
     this.initialReferenceNumber,
+    String? dineInFloorTableAnchor,
   }) : super(CartState([])) {
     _currentKOTReference = initialReferenceNumber;
+    _dineInFloorTableAnchor = dineInFloorTableAnchor;
   }
 
   final OrderType orderType;
@@ -45,6 +47,8 @@ class CartCubit extends Cubit<CartState> {
   String? _invoiceNumber;
   String? _currentKOTReference;
   int? _currentKOTOrderId;
+  /// Table/floor anchor from Dine In tap; persisted in hub metadata, not as [Order.referenceNumber] unless user enters text in the KOT dialog.
+  String? _dineInFloorTableAnchor;
   int? _editingOrderId; // Track order ID when editing a paid order
   String? _editingOrderStatus; // Track order status when editing
   bool _openedForEdit = false; // True when screen was opened from Take Away Log (edit order)
@@ -354,6 +358,7 @@ class CartCubit extends Cubit<CartState> {
     }
     _currentKOTReference = null;
     _currentKOTOrderId = null;
+    _dineInFloorTableAnchor = null;
     _editingOrderId = null;
     _editingOrderStatus = null;
     _openedForEdit = false;
@@ -375,6 +380,7 @@ class CartCubit extends Cubit<CartState> {
     }
     _currentKOTReference = null;
     _currentKOTOrderId = null;
+    _dineInFloorTableAnchor = null;
     _editingOrderId = null;
     _editingOrderStatus = null;
     _openedForEdit = false;
@@ -386,6 +392,24 @@ class CartCubit extends Cubit<CartState> {
     emit(CartState([]));
   }
 
+  String? _hubMetadataWithDineInAnchor(String? existingHub) {
+    final anchor = _dineInFloorTableAnchor?.trim();
+    if (orderType != OrderType.dineIn || anchor == null || anchor.isEmpty) return existingHub;
+    try {
+      Map<String, dynamic> map;
+      if (existingHub != null && existingHub.trim().isNotEmpty) {
+        final parsed = jsonDecode(existingHub);
+        map = parsed is Map ? Map<String, dynamic>.from(parsed) : <String, dynamic>{};
+      } else {
+        map = <String, dynamic>{};
+      }
+      map[DineInRefParser.hubMetadataAnchorKey] = anchor;
+      return jsonEncode(map);
+    } catch (_) {
+      return jsonEncode({DineInRefParser.hubMetadataAnchorKey: anchor});
+    }
+  }
+
   Future<List<String>> saveKOT(String referenceNumber) async {
     if (state.items.isEmpty || _activeCartId == null) return [];
     final normalizedInputReference = referenceNumber.trim();
@@ -395,21 +419,34 @@ class CartCubit extends Cubit<CartState> {
       effectiveReference = (existing != null && existing.isNotEmpty) ? existing : '';
     }
 
-    // Calculate total amount
     final totalAmount = state.items.fold<double>(
       0.0,
       (sum, item) => sum + item.total,
     );
 
-    // Check if KOT already exists with this reference
-    final existingKOT = await orderRepo.getKOTByReference(effectiveReference);
+    Order? existingKOT;
+    if (effectiveReference.isNotEmpty) {
+      existingKOT = await orderRepo.getKOTByReference(effectiveReference);
+    } else if (_currentKOTOrderId != null) {
+      final self = await orderRepo.getOrderById(_currentKOTOrderId!);
+      if (self != null &&
+          self.status.toLowerCase() == 'kot' &&
+          self.cartId == _activeCartId) {
+        existingKOT = self;
+      }
+    }
+
+    final refForDb = effectiveReference.isEmpty ? null : effectiveReference;
+    final hubForDb = _hubMetadataWithDineInAnchor(null);
 
     if (existingKOT != null && existingKOT.id == _currentKOTOrderId) {
-      // Update existing KOT (same reference, same order)
+      final mergedHub = _hubMetadataWithDineInAnchor(existingKOT.hubMetadata);
       final updatedOrder = existingKOT.copyWith(
         totalAmount: totalAmount,
         finalAmount: totalAmount,
         cartId: _activeCartId!,
+        referenceNumber: Value(refForDb),
+        hubMetadata: mergedHub != null ? Value<String?>(mergedHub) : const Value.absent(),
       );
       await orderRepo.updateOrder(updatedOrder);
       _currentKOTOrderId = existingKOT.id;
@@ -421,7 +458,7 @@ class CartCubit extends Cubit<CartState> {
         id: 0,
         cartId: _activeCartId!,
         invoiceNumber: await _invoiceNumberForPersistedCart(),
-        referenceNumber: effectiveReference,
+        referenceNumber: refForDb,
         totalAmount: totalAmount,
         discountAmount: 0,
         discountType: null,
@@ -440,17 +477,14 @@ class CartCubit extends Cubit<CartState> {
         deliveryPartner: deliveryPartner,
         userId: cashierId,
         branchId: branchId,
+        hubMetadata: hubForDb,
         hubSyncPending: false,
       );
       final orderId = await orderRepo.createOrder(order);
       _currentKOTOrderId = orderId;
     }
 
-    _currentKOTReference = effectiveReference;
-
-    if (effectiveReference.isNotEmpty) {
-      KotReferenceRecents.recordBestEffort(effectiveReference);
-    }
+    _currentKOTReference = refForDb;
 
     Order? kotOrder;
     final kotId = _currentKOTOrderId;
@@ -459,7 +493,9 @@ class CartCubit extends Cubit<CartState> {
     }
 
     final currentSnap = List<CartItem>.from(state.items);
-    final kotRef = kotOrder?.referenceNumber?.trim().isNotEmpty == true ? kotOrder!.referenceNumber!.trim() : effectiveReference;
+    final kotRefPrint = kotOrder?.referenceNumber?.trim().isNotEmpty == true
+        ? kotOrder!.referenceNumber!.trim()
+        : (kotOrder?.invoiceNumber ?? effectiveReference);
 
     late final List<String> printFailed;
 
@@ -476,7 +512,7 @@ class CartCubit extends Cubit<CartState> {
             : await printService.printKOTUpdatePerKitchen(
                 rows: rows,
                 orderTypeRaw: oTypeRaw,
-                referenceNumber: kotRef,
+                referenceNumber: kotRefPrint,
                 invoiceNumber: inv,
                 branchId: bid,
                 orderedAt: ordAt,
@@ -488,7 +524,7 @@ class CartCubit extends Cubit<CartState> {
             : await printService.printKOTPerKitchen(
                 cartItems: itemsToPrint,
                 order: kotOrder,
-                referenceNumber: effectiveReference,
+                referenceNumber: kotRefPrint,
                 invoiceNumber: inv,
                 branchId: bid,
                 orderedAt: ordAt,
@@ -507,7 +543,7 @@ class CartCubit extends Cubit<CartState> {
         : await printService.printKOTPerKitchen(
             cartItems: currentSnap,
             order: kotOrder,
-            referenceNumber: effectiveReference,
+            referenceNumber: kotRefPrint,
             invoiceNumber: kotOrder?.invoiceNumber,
             branchId: kotOrder?.branchId,
             orderedAt: kotOrder?.createdAt,
@@ -539,11 +575,16 @@ class CartCubit extends Cubit<CartState> {
     if (offer == null) return hubMetadata;
     final cleanedOffer = <String, dynamic>{
       'name': offer['name']?.toString() ?? '',
+      'uuid': offer['uuid']?.toString() ?? '',
       'type': offer['type']?.toString() ?? '',
       'value': (offer['value'] as num?)?.toDouble() ?? (double.tryParse(offer['value']?.toString() ?? '') ?? 0.0),
       'discountAmount': (offer['discountAmount'] as num?)?.toDouble() ??
           (double.tryParse(offer['discountAmount']?.toString() ?? '') ?? 0.0),
       'toDate': offer['toDate']?.toString() ?? '',
+      if (offer['autoDayDiscount'] != null)
+        'autoDayDiscount': (offer['autoDayDiscount'] as num?)?.toDouble() ??
+            (double.tryParse(offer['autoDayDiscount']?.toString() ?? '') ?? 0.0),
+      if (offer['autoDayOfferNames'] is List) 'autoDayOfferNames': offer['autoDayOfferNames'],
     };
     try {
       final root = (hubMetadata != null && hubMetadata.trim().isNotEmpty) ? jsonDecode(hubMetadata) : <String, dynamic>{};
@@ -561,7 +602,10 @@ class CartCubit extends Cubit<CartState> {
   }
 
   Future<void> _updateKOTIfExists() async {
-    if (_currentKOTReference == null || _activeCartId == null) return;
+    if (_activeCartId == null) return;
+    final hasKot = _currentKOTOrderId != null ||
+        (_currentKOTReference != null && _currentKOTReference!.trim().isNotEmpty);
+    if (!hasKot) return;
 
     if (state.items.isEmpty) {
       // Remove KOT if cart is emptyz
@@ -582,14 +626,18 @@ class CartCubit extends Cubit<CartState> {
     Order? existingKOT;
     if (_currentKOTOrderId != null) {
       existingKOT = await orderRepo.getOrderById(_currentKOTOrderId!);
-    } else {
-      existingKOT = await orderRepo.getKOTByReference(_currentKOTReference!);
+    } else if (_currentKOTReference != null && _currentKOTReference!.trim().isNotEmpty) {
+      existingKOT = await orderRepo.getKOTByReference(_currentKOTReference!.trim());
     }
-    if (existingKOT != null) {
+    if (existingKOT != null &&
+        existingKOT.status.toLowerCase() == 'kot' &&
+        existingKOT.cartId == _activeCartId) {
+      final mergedHub = _hubMetadataWithDineInAnchor(existingKOT.hubMetadata);
       final updatedOrder = existingKOT.copyWith(
         totalAmount: totalAmount,
         finalAmount: totalAmount,
         cartId: _activeCartId!,
+        hubMetadata: mergedHub != null ? Value<String?>(mergedHub) : const Value.absent(),
       );
       await orderRepo.updateOrder(updatedOrder);
     }
@@ -653,6 +701,17 @@ class CartCubit extends Cubit<CartState> {
     _activeCartId = order.cartId;
     _invoiceNumber = order.invoiceNumber;
 
+    _dineInFloorTableAnchor = null;
+    if ((order.orderType ?? '').trim().toLowerCase() == 'dine_in') {
+      final hubA = DineInRefParser.dineInAnchorFromHubMetadata(order.hubMetadata);
+      final r = order.referenceNumber?.trim() ?? '';
+      if (hubA != null && hubA.isNotEmpty) {
+        _dineInFloorTableAnchor = hubA;
+      } else if (r.isNotEmpty && DineInRefParser.extractLeadingFloorId(r) != null) {
+        _dineInFloorTableAnchor = r;
+      }
+    }
+
     if (order.status == 'kot') {
       _currentKOTReference = order.referenceNumber;
       _currentKOTOrderId = order.id;
@@ -688,7 +747,7 @@ class CartCubit extends Cubit<CartState> {
     if (state.items.isEmpty || _activeCartId == null) return [];
 
     // Apply cart discount if provided
-    final discountValue = discount['value'] as double;
+    final discountValue = (discount['value'] as num?)?.toDouble() ?? 0.0;
     if (discountValue > 0) {
       final isPercentage = discount['type'] == 'percentage';
       await applyCartDiscount(discountValue, isPercentage);
@@ -713,7 +772,18 @@ class CartCubit extends Cubit<CartState> {
 
     // Create order record (same invoice as cart / KOT if any).
     final invoiceNum = await _invoiceNumberForPersistedCart();
-    final refNumber = orderType == OrderType.delivery && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : (_currentKOTReference ?? invoiceNum);
+    final String? refNumber;
+    if (orderType == OrderType.delivery && onlineOrderNumber != null && onlineOrderNumber.trim().isNotEmpty) {
+      refNumber = onlineOrderNumber.trim();
+    } else if (orderType == OrderType.dineIn) {
+      final k = _currentKOTReference?.trim();
+      refNumber = (k != null && k.isNotEmpty) ? k : null;
+    } else {
+      final k = _currentKOTReference?.trim();
+      refNumber = (k != null && k.isNotEmpty) ? k : invoiceNum;
+    }
+    final offerMeta = _withOfferMetadata(null, offer);
+    final hubMeta = _hubMetadataWithDineInAnchor(offerMeta);
     final cashierId = await _sessionUserId();
     final branchId = await _sessionBranchId();
     final order = Order(
@@ -739,7 +809,7 @@ class CartCubit extends Cubit<CartState> {
       deliveryPartner: deliveryPartner,
       userId: cashierId,
       branchId: branchId,
-      hubMetadata: _withOfferMetadata(null, offer),
+      hubMetadata: hubMeta,
       hubSyncPending: false,
     );
 
@@ -855,7 +925,7 @@ class CartCubit extends Cubit<CartState> {
     if (state.items.isEmpty || _activeCartId == null || _editingOrderId == null) return [];
 
     // Apply cart discount if provided
-    final discountValue = discount['value'] as double;
+    final discountValue = (discount['value'] as num?)?.toDouble() ?? 0.0;
     if (discountValue > 0) {
       final isPercentage = discount['type'] == 'percentage';
       await applyCartDiscount(discountValue, isPercentage);

@@ -5,14 +5,17 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_thermal_printer/flutter_thermal_printer.dart';
 import 'package:flutter_thermal_printer/network/network_print_result.dart';
 import 'package:flutter_thermal_printer/utils/printer.dart';
 import 'package:image/image.dart' as img;
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/print/debug_receipt_preview.dart';
 import 'package:pos/core/print/kot_kitchen_update_diff.dart';
 import 'package:pos/core/print/receipt_preview_data.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
+import 'package:pos/presentation/day_closing/day_closing_summary.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/domain/models/branch_model.dart';
@@ -59,8 +62,18 @@ class PrintService {
     } catch (_) {}
   }
 
-  /// Strip ₹ from any string (item names, notes, etc.) so printer receives ASCII-only.
-  static String _sanitize(String s) => s.replaceAll('₹', 'Rs');
+  /// Normalize text for ESC/POS: [Generator.text] uses Latin-1; Unicode punctuation
+  /// (e.g. em dash, minus sign, smart quotes) must be replaced or encode throws.
+  static String _sanitize(String s) {
+    var t = s.replaceAll('₹', 'Rs');
+    t = t.replaceAll('—', '-'); // U+2014 em dash
+    t = t.replaceAll('–', '-'); // U+2013 en dash
+    t = t.replaceAll('−', '-'); // U+2212 minus sign
+    t = t.replaceAll('…', '...');
+    t = t.replaceAll('\u2018', "'").replaceAll('\u2019', "'");
+    t = t.replaceAll('\u201C', '"').replaceAll('\u201D', '"');
+    return t;
+  }
 
   /// Grep / logcat: `POS_PRINT`. One line before every job so support can match printer, size, payload hash.
   static void _logPrinterPayloadHeading({
@@ -172,6 +185,14 @@ class PrintService {
     return lines;
   }
 
+  Future<String> _resolveCashierName() async {
+    final session = await _db.sessionDao.getActiveSession();
+    if (session == null) return '';
+    final user = await _db.usersDao.findUserById(session.userId);
+    final name = (user?.name ?? '').trim();
+    return name;
+  }
+
   static String _orderTypeLabel(String? raw) {
     final s = (raw ?? '').trim().toLowerCase();
     return switch (s) {
@@ -200,6 +221,26 @@ class PrintService {
     return (netBeforeVat: net, vatAmount: totalInclusive - net);
   }
 
+  /// [CartItem.discount] for `percentage` lines stores the **money** discounted (see [CartCubit.updateCartItemDiscount]),
+  /// not the rate. Some rows may still hold the rate (0–100); this picks the correct label.
+  static String _receiptLineDiscountPercentLabel({
+    required double grossBeforeDiscount,
+    required double saving,
+    required double storedDiscountField,
+  }) {
+    if (grossBeforeDiscount <= 0.009) return '0';
+    if (storedDiscountField > 0.009 && storedDiscountField <= 100) {
+      final impliedSaving = grossBeforeDiscount * (storedDiscountField / 100.0);
+      if ((impliedSaving - saving).abs() < 0.03) {
+        return storedDiscountField % 1 == 0
+            ? storedDiscountField.round().toString()
+            : storedDiscountField.toStringAsFixed(2);
+      }
+    }
+    final pct = (saving / grossBeforeDiscount * 100.0).clamp(0.0, 100.0);
+    return pct % 1 == 0 ? pct.round().toString() : pct.toStringAsFixed(2);
+  }
+
   /// Per cart line for receipt/KOT plumbing; includes optional display of markdown vs catalog [unitPrice].
   static String _receiptLineDiscountCaption(CartItem ci, double listUnitPrice, double lineTotal) {
     final gross = listUnitPrice * ci.quantity;
@@ -207,7 +248,12 @@ class PrintService {
     final saving = savingUnclamped > 0.009 ? savingUnclamped : 0.0;
     final dt = (ci.discountType ?? '').trim().toLowerCase();
     if (dt == 'percentage' && ci.discount > 0.001) {
-      return 'Discount (${ci.discount % 1 == 0 ? ci.discount.round().toString() : ci.discount.toStringAsFixed(2)}%): -${_fmtMoney(saving)}';
+      final pctStr = _receiptLineDiscountPercentLabel(
+        grossBeforeDiscount: gross,
+        saving: saving,
+        storedDiscountField: ci.discount,
+      );
+      return 'Discount ($pctStr%): -${_fmtMoney(saving)}';
     }
     if ((dt == 'amount' || dt.isEmpty) && ci.discount > 0.001 && saving <= 0.009) {
       return 'Discount: -${_fmtMoney(ci.discount.clamp(0.0, gross))}';
@@ -245,7 +291,18 @@ class PrintService {
       final amount = (offer['discountAmount'] as num?)?.toDouble() ??
           (double.tryParse(offer['discountAmount']?.toString() ?? '') ?? 0.0);
       if (amount <= 0.009) return null;
-      final name = offer['name']?.toString().trim() ?? '';
+      var name = offer['name']?.toString().trim() ?? '';
+      final namesList = offer['autoDayOfferNames'];
+      if (namesList is List && namesList.isNotEmpty) {
+        final joined = namesList.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).join(', ');
+        if (joined.isNotEmpty) {
+          if (name.isEmpty || name.toLowerCase() == 'day offers') {
+            name = joined;
+          } else if (!name.toLowerCase().contains(joined.toLowerCase())) {
+            name = '$name + $joined';
+          }
+        }
+      }
       final label = name.isNotEmpty ? 'Offer ($name):' : 'Offer:';
       return (label: label, amount: amount.clamp(0, order.totalAmount).toDouble());
     } catch (_) {
@@ -384,6 +441,7 @@ class PrintService {
     String? invoiceNumber,
     int? branchId,
     DateTime? orderedAt,
+    String? cashierName,
   }) async {
     final failed = <String>[];
     final previewDocs = <String>[];
@@ -393,6 +451,10 @@ class PrintService {
     final refRaw = referenceNumber.trim();
     final invRaw = (invoiceNumber ?? '').trim();
     final orderDate = orderedAt ?? DateTime.now();
+    // Resolve cashier name from session if not provided by caller.
+    final resolvedCashier = cashierName?.trim().isNotEmpty == true
+        ? cashierName!.trim()
+        : await _resolveCashierName();
 
     final lines = await _kotLinesFromCartOrOrder(cartItems, order);
     if (lines.isEmpty) return failed;
@@ -426,6 +488,7 @@ class PrintService {
           referenceNumber: refRaw,
           invoiceNumber: invRaw,
           orderedAt: orderDate,
+          cashierName: resolvedCashier,
         ),
       );
       previewDocs.add('');
@@ -451,6 +514,7 @@ class PrintService {
           referenceNumber: refRaw,
           invoiceNumber: invRaw,
           orderedAt: orderDate,
+          cashierName: resolvedCashier,
         );
         final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
         await _sendToPrinter(
@@ -490,6 +554,7 @@ class PrintService {
     String? invoiceNumber,
     int? branchId,
     DateTime? orderedAt,
+    String? cashierName,
   }) async {
     final failed = <String>[];
     final previewDocs = <String>[];
@@ -502,6 +567,9 @@ class PrintService {
     final invRaw = (invoiceNumber ?? '').trim();
     final orderDate = orderedAt ?? DateTime.now();
     final orderTypeLabel = _orderTypeLabel(orderTypeRaw);
+    final resolvedCashier = cashierName?.trim().isNotEmpty == true
+        ? cashierName!.trim()
+        : await _resolveCashierName();
 
     final paired = <(KotKitchenUpdateRow, _PrintLine)>[];
     for (final r in rows) {
@@ -544,6 +612,7 @@ class PrintService {
           invoiceNumber: invRaw,
           orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
+          cashierName: resolvedCashier,
         ),
       );
       previewDocs.add('');
@@ -569,6 +638,7 @@ class PrintService {
           invoiceNumber: invRaw,
           orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
+          cashierName: resolvedCashier,
         );
         final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
         await _sendToPrinter(
@@ -710,8 +780,13 @@ class PrintService {
       if (discRaw is num && discRaw.toDouble() > 0.001 && lineDisc > 0.009) {
         final d = discRaw.toDouble();
         if (dt == 'percentage') {
-          caption =
-              'Discount (${d % 1 == 0 ? d.round().toString() : d.toStringAsFixed(2)}%): -${_fmtMoney(lineDisc)}';
+          final grossSnap = unitList * qty;
+          final pctStr = _receiptLineDiscountPercentLabel(
+            grossBeforeDiscount: grossSnap,
+            saving: lineDisc,
+            storedDiscountField: d,
+          );
+          caption = 'Discount ($pctStr%): -${_fmtMoney(lineDisc)}';
         } else {
           caption = 'Discount: -${_fmtMoney(lineDisc)}';
         }
@@ -960,11 +1035,15 @@ class PrintService {
     required String title,
     required String subtitle,
     required List<String> lines,
+    BranchModel? branch,
+    Uint8List? logoPngBytes,
   }) {
     return ReceiptPreviewData.rawTicket(
       previewTitle: title,
       previewSubtitle: subtitle,
       rawLines: lines,
+      branch: branch,
+      logoPngBytes: logoPngBytes,
     );
   }
 
@@ -975,6 +1054,7 @@ class PrintService {
     required String referenceNumber,
     required String invoiceNumber,
     required DateTime orderedAt,
+    String? cashierName,
   }) {
     final out = <String>[];
     final safeBranch = branchName.trim();
@@ -991,6 +1071,8 @@ class PrintService {
     out.add('-' * 42);
     out.add('');
     out.add('ordered date: ${RuntimeAppSettings.formatDateTime(orderedAt)}');
+    final cn = cashierName?.trim() ?? '';
+    if (cn.isNotEmpty) out.add('printed by: ${_sanitize(cn)}');
     return out;
   }
 
@@ -1002,6 +1084,7 @@ class PrintService {
     required String invoiceNumber,
     required String orderTypeLabel,
     required DateTime orderedAt,
+    String? cashierName,
   }) {
     final out = <String>[];
     final safeBranch = branchName.trim();
@@ -1021,26 +1104,180 @@ class PrintService {
     out.add('-' * 42);
     out.add('');
     out.add('ordered date: ${RuntimeAppSettings.formatDateTime(orderedAt)}');
+    final cn = cashierName?.trim() ?? '';
+    if (cn.isNotEmpty) out.add('printed by: ${_sanitize(cn)}');
     return out;
   }
 
+  static String _dayClosingCashDrawerHint(double difference) {
+    if (difference > 0.009) return '(SHORT vs Section 3 expense total)';
+    if (difference < -0.009) return '(EXCESS vs Section 3 expense total)';
+    return '';
+  }
+
+  /// Text lines for debug overlay; branch/logo render via [ReceiptPreviewData.branch] / [logoPngBytes].
   List<String> _buildDayClosingPreviewLines({
-    required String title,
-    required List<({String label, double amount})> rows,
+    required DayClosingSummary summary,
+    required CounterAccess counterAccess,
+    required String closedBy,
   }) {
-    final out = <String>[
-      _sanitize(title.toUpperCase()),
-      RuntimeAppSettings.formatDateTime(DateTime.now()),
-      '',
-      '-' * 42,
-    ];
-    for (final row in rows) {
-      final label = _sanitize(row.label.toUpperCase());
-      final amount = '$_currency${row.amount.toStringAsFixed(2)}';
-      final left = label.length >= 30 ? label.substring(0, 30) : label.padRight(30);
-      out.add(left + amount.padLeft(12));
+    final out = <String>[];
+    void hr() => out.add('-' * 42);
+    void secTitle(String t) {
+      out.add('');
+      out.add(_sanitize(t.toUpperCase()));
+      hr();
     }
-    out.add('-' * 42);
+
+    void pair(String label, double amt) {
+      final L = _sanitize(label.toUpperCase());
+      final R = '$_currency${_fmtMoney(amt)}';
+      for (final ln in _wrapReceiptLine(L, 42)) {
+        out.add(ln);
+      }
+      out.add(R.padLeft(42));
+    }
+
+    out.add('CLOSING REPORT');
+    out.add(
+      'LAST CLOSING: ${summary.lastClosingAt == null ? '—' : RuntimeAppSettings.formatDateTime(summary.lastClosingAt!)}',
+    );
+    out.add('DATE: ${RuntimeAppSettings.formatDate(summary.generatedAt)}');
+    out.add('CLOSED BY: ${closedBy.isEmpty ? '—' : _sanitize(closedBy)}');
+    out.add('TIME: ${RuntimeAppSettings.formatDateTime(summary.generatedAt)}');
+    out.add('');
+    hr();
+
+    secTitle('1. OPENING CASH & SALES DETAILS');
+    pair('OPENING CASH', summary.openingCash);
+    pair('GROSS SALES (before discount)', summary.grossTotal);
+    if (summary.totalVatAmount > 0.009) {
+      pair('TOTAL VAT AMOUNT', summary.totalVatAmount);
+    }
+    pair('DISCOUNTS', summary.discount);
+    pair('NET SALES (completed)', summary.netTotal);
+    pair('CASH SALE', summary.cashSale);
+    pair('CARD SALE', summary.cardSale);
+    pair('CREDIT SALE', summary.creditSale);
+    pair('ONLINE SALE', summary.onlineSale);
+    pair('DELIVERY SALE', summary.deliverySale);
+    pair('CASH DRAWER BALANCE', summary.cashDrawer);
+
+    secTitle('2. SALES SUMMARY & ADJUSTMENTS');
+    out.add('${'TYPE'.padRight(12)}${'COUNT'.padLeft(4)}${'DISCOUNT'.padRight(11)}${'AMOUNT'.padLeft(13)}');
+    hr();
+    for (final r in summary.typeRows) {
+      out.add(
+        '${_sanitize(r.type.toUpperCase()).padRight(12)}'
+        '${r.count.toString().padLeft(4)}'
+        '${('$_currency${_fmtMoney(r.discount)}').padRight(11)}'
+        '${('$_currency${_fmtMoney(r.amount)}').padLeft(13)}',
+      );
+    }
+    pair('EXCESS AMOUNT', summary.excessAmount);
+    pair('SHORT AMOUNT', summary.shortAmount);
+
+    secTitle('3. EXPENSE & UNPAID RECONCILIATION');
+    pair('PURCHASE', summary.purchase);
+    final gap = (summary.unpaidAmount - summary.unsettledFromAccessibleLogs).abs();
+    final split = !counterAccess.isAdmin && gap > 0.009;
+    if (!split) {
+      pair('UNPAID BILLS', summary.unpaidAmount);
+    } else {
+      pair('UNPAID BILLS (logs you can open)', summary.unsettledFromAccessibleLogs);
+      pair('UNPAID (channels without log permission)', summary.unpaidAmount - summary.unsettledFromAccessibleLogs);
+    }
+    pair('SALARY', summary.salary);
+    pair('OTHER INCOME (+)', summary.otherIncome);
+    pair(
+      'TOTAL (EXP + SAL + UNPAID – OTHER INCOME)',
+      summary.purchase + summary.salary + summary.unpaidAmount - summary.otherIncome,
+    );
+    pair('DIFFERENCE (SECTION 3 TOTAL − MODELED DRAWER)', summary.difference.abs());
+
+    if (summary.openBills.isNotEmpty) {
+      secTitle('3b. OPEN BILLS (SETTLE THESE FIRST)');
+      out.add('${'INVOICE'.padRight(12)}${'STATUS'.padRight(10)}${'TYPE'.padRight(10)}${'AMOUNT'.padLeft(8)}');
+      hr();
+      for (final ob in summary.openBills) {
+        out.add(
+          '${_sanitize(ob.invoiceNumber).padRight(12)}'
+          '${_sanitize(ob.status).padRight(10)}'
+          '${_sanitize(_orderTypeLabel(ob.orderType)).padRight(10)}'
+          '${('$_currency${_fmtMoney(ob.finalAmount)}').padLeft(8)}',
+        );
+      }
+      final footerLbl = gap <= 0.009 ? 'UNPAID TOTAL' : 'UNPAID TOTAL (YOUR LOGS)';
+      pair(footerLbl, summary.unsettledFromAccessibleLogs);
+    }
+
+    secTitle('4. CASH RECONCILIATION');
+    pair('OPENING CASH', summary.openingCash);
+    pair('DINE-IN SALES', summary.dineInSales);
+    pair('DELIVERY SALES', summary.deliverySale);
+    pair('TAKEAWAY SALES', summary.takeAwaySales);
+    pair('CASH IN (OPENING + CASH SALE AFTER DISCOUNT)', summary.cashIn);
+    pair('CASH OUT (EXPENSES FROM CASH)', summary.cashOut);
+    pair('TOTAL CASH DRAWER', summary.cashDrawer);
+    final hint = _dayClosingCashDrawerHint(summary.difference);
+    if (hint.isNotEmpty) out.add(hint);
+
+    secTitle('5. CATEGORY WISE PRODUCT LIST');
+    out.add('${'CATEGORY'.padRight(20)}${'QTY'.padLeft(5)}${'AMOUNT'.padLeft(15)}');
+    hr();
+    for (final r in summary.categoryRows) {
+      final cat = _sanitize(r.category.toUpperCase());
+      final wrapped = _wrapReceiptLine(cat, 20);
+      for (var i = 0; i < wrapped.length; i++) {
+        if (i == 0) {
+          out.add(
+            '${wrapped[0].padRight(20)}'
+            '${r.qty.toString().padLeft(5)}'
+            '${('$_currency${_fmtMoney(r.amount)}').padLeft(15)}',
+          );
+        } else {
+          out.add(wrapped[i]);
+        }
+      }
+    }
+    pair('GRAND TOTAL', summary.netTotal);
+
+    secTitle('6. ITEM WISE PRODUCT LIST');
+    out.add('${'ITEM'.padRight(20)}${'QTY'.padLeft(5)}${'AMOUNT'.padLeft(15)}');
+    hr();
+    for (final r in summary.itemRows) {
+      final nm = _sanitize(r.item.toUpperCase());
+      final wrapped = _wrapReceiptLine(nm, 20);
+      for (var i = 0; i < wrapped.length; i++) {
+        if (i == 0) {
+          out.add(
+            '${wrapped[0].padRight(20)}'
+            '${r.qty.toString().padLeft(5)}'
+            '${('$_currency${_fmtMoney(r.amount)}').padLeft(15)}',
+          );
+        } else {
+          out.add(wrapped[i]);
+        }
+      }
+    }
+    pair('GRAND TOTAL', summary.netTotal);
+
+    secTitle('7. CANCELLED BILLS SUMMARY');
+    if (summary.cancelledRows.isEmpty) {
+      out.add('NO CANCELLED BILLS RECORDED.');
+    } else {
+      for (final r in summary.cancelledRows) {
+        out.add(_sanitize(r.receiptId));
+        out.add(' ${_sanitize(r.reason)} / BY: ${_sanitize(r.by)}');
+        out.add(('$_currency${_fmtMoney(r.amount)}').padLeft(42));
+      }
+    }
+    pair(
+      'TOTAL CANCELLED (${summary.cancelledRows.length})',
+      summary.cancelledRows.fold<double>(0, (s, e) => s + e.amount),
+    );
+
+    hr();
     return out;
   }
 
@@ -1113,10 +1350,10 @@ class PrintService {
     return failed;
   }
 
-  /// Prints a compact day-closing report to the bill printer.
+  /// Prints a day-closing report to the bill printer (same sections as the Day Closing screen).
   Future<List<String>> printDayClosingReport({
-    required String title,
-    required List<({String label, double amount})> rows,
+    required DayClosingSummary summary,
+    required CounterAccess counterAccess,
   }) async {
     final failed = <String>[];
     final billPrinter = await _db.itemDao.getBillPrinter();
@@ -1127,39 +1364,69 @@ class PrintService {
     }
 
     const printerLabel = 'Bill printer';
+    ReceiptPreviewData? debugPreview;
     try {
+      final session = await _db.sessionDao.getActiveSession();
+      final branchId = session?.branchId ?? 1;
+      final branch = await _db.branchesDao.getBranchById(branchId);
+      final logoImg = await _tryLoadBranchLogo(branch);
+      final closedBy = await _resolveCashierName();
+
       final bytes = await _generateDayClosingTicket(
-        title: title,
-        rows: rows,
+        summary: summary,
+        counterAccess: counterAccess,
+        branch: branch,
+        logoImage: logoImg,
+        closedBy: closedBy,
       );
       if (kDebugMode) {
-        scheduleDebugReceiptPreview(
-          _buildRawTicketPreview(
-            title: 'Day closing preview (debug)',
-            subtitle: 'Thermal layout · 80mm · same content as print',
-            lines: _buildDayClosingPreviewLines(title: title, rows: rows),
+        Uint8List? logoPng;
+        if (logoImg != null) {
+          logoPng = Uint8List.fromList(img.encodePng(logoImg));
+        }
+        debugPreview = _buildRawTicketPreview(
+          title: 'Day closing preview (debug)',
+          subtitle: 'Thermal layout · 80mm · same content as print',
+          lines: _buildDayClosingPreviewLines(
+            summary: summary,
+            counterAccess: counterAccess,
+            closedBy: closedBy,
           ),
+          branch: branch,
+          logoPngBytes: logoPng,
         );
         if (noBillPrinter) {
           debugPrint('PrintService: No bill printer — day closing preview shown');
-          return failed;
         }
       }
-      final (address, vendorId, productId, connType) = _decodeAddress(billPrinter!.printerIp);
-      await _sendToPrinter(
-        jobKind: 'DAY_CLOSING',
-        address: address,
-        port: billPrinter.printerPort,
-        bytes: bytes,
-        printerLabel: printerLabel,
-        connectionType: connType,
-        vendorId: vendorId,
-        productId: productId,
-      );
+      if (!noBillPrinter) {
+        final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
+        await _sendToPrinter(
+          jobKind: 'DAY_CLOSING',
+          address: address,
+          port: billPrinter.printerPort,
+          bytes: bytes,
+          printerLabel: printerLabel,
+          connectionType: connType,
+          vendorId: vendorId,
+          productId: productId,
+        );
+      }
     } catch (e, st) {
       debugPrint('PrintService: Day closing printer failed [$printerLabel]: $e');
       debugPrint('PrintService: stack trace:\n$st');
       failed.add(printerLabel);
+    } finally {
+      final preview = debugPreview;
+      if (kDebugMode && preview != null) {
+        // Run after this method returns so any "printer failed" dialog is already up;
+        // short delay helps the preview overlay stack above that dialog.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future<void>.delayed(const Duration(milliseconds: 450), () {
+            scheduleDebugReceiptPreview(preview);
+          });
+        });
+      }
     }
     return failed;
   }
@@ -1301,17 +1568,24 @@ class PrintService {
   }) {
     final ref = referenceNumber.trim();
     final inv = invoiceNumber.trim();
+    const w = 42;
     if (ref.isNotEmpty && inv.isNotEmpty && ref == inv) {
-      out.add('Ref / Receipt: ${_sanitize(ref)}');
+      final s = _sanitize(ref);
+      out.add(s.padLeft((w + s.length) ~/ 2).padRight(w));
+      final r = 'Receipt: ${_sanitize(inv)}';
+      out.add(r.padLeft((w + r.length) ~/ 2).padRight(w));
       return;
     }
     if (ref.isNotEmpty) {
-      out.add('Reference: ${_sanitize(ref)}');
+      final s = _sanitize(ref);
+      out.add(s.padLeft((w + s.length) ~/ 2).padRight(w));
     }
     if (inv.isNotEmpty) {
-      out.add('Receipt no: ${_sanitize(inv)}');
+      final r = 'Receipt: ${_sanitize(inv)}';
+      out.add(r.padLeft((w + r.length) ~/ 2).padRight(w));
     } else if (ref.isEmpty) {
-      out.add('Receipt no: —');
+      const r = 'Receipt: —';
+      out.add(r.padLeft((w + r.length) ~/ 2).padRight(w));
     }
   }
 
@@ -1324,27 +1598,27 @@ class PrintService {
     List<int> chunk = [];
     final ref = referenceNumber.trim();
     final inv = invoiceNumber.trim();
-    final refStyle = referenceBold ? const PosStyles(bold: true, align: PosAlign.left) : const PosStyles(align: PosAlign.left);
+    // Center + bold + double-height for the reference so it stands out prominently.
+    const centeredBoldBig = PosStyles(
+      bold: true,
+      align: PosAlign.center,
+      height: PosTextSize.size2,
+      width: PosTextSize.size2,
+    );
+    const centeredBold = PosStyles(bold: true, align: PosAlign.center);
+    const centeredNormal = PosStyles(align: PosAlign.center);
     if (ref.isNotEmpty && inv.isNotEmpty && ref == inv) {
-      chunk += generator.text(
-        'Ref / Receipt: ${_sanitize(ref)}',
-        styles: const PosStyles(align: PosAlign.left),
-      );
+      chunk += generator.text(_sanitize(ref), styles: centeredBoldBig);
+      chunk += generator.text('Receipt: ${_sanitize(inv)}', styles: centeredNormal);
       return chunk;
     }
     if (ref.isNotEmpty) {
-      chunk += generator.text('Reference: ${_sanitize(ref)}', styles: refStyle);
+      chunk += generator.text(_sanitize(ref), styles: centeredBoldBig);
     }
     if (inv.isNotEmpty) {
-      chunk += generator.text(
-        'Receipt no: ${_sanitize(inv)}',
-        styles: const PosStyles(align: PosAlign.left),
-      );
+      chunk += generator.text('Receipt: ${_sanitize(inv)}', styles: centeredBold);
     } else if (ref.isEmpty) {
-      chunk += generator.text(
-        'Receipt no: —',
-        styles: const PosStyles(align: PosAlign.left),
-      );
+      chunk += generator.text('Receipt: —', styles: centeredNormal);
     }
     return chunk;
   }
@@ -1498,6 +1772,7 @@ class PrintService {
     required String referenceNumber,
     required String invoiceNumber,
     required DateTime orderedAt,
+    String? cashierName,
   }) async {
     final profile = await CapabilityProfile.load();
     final generator = Generator(PaperSize.mm80, profile);
@@ -1543,6 +1818,13 @@ class PrintService {
       'ordered date: ${RuntimeAppSettings.formatDateTime(orderedAt)}',
       styles: const PosStyles(align: PosAlign.left),
     );
+    final cn = cashierName?.trim() ?? '';
+    if (cn.isNotEmpty) {
+      bytes += generator.text(
+        'printed by: ${_sanitize(cn)}',
+        styles: const PosStyles(align: PosAlign.left),
+      );
+    }
 
     bytes += generator.feed(2);
     bytes += generator.cut();
@@ -1557,6 +1839,7 @@ class PrintService {
     required String invoiceNumber,
     required String orderTypeLabel,
     required DateTime orderedAt,
+    String? cashierName,
   }) async {
     final profile = await CapabilityProfile.load();
     final generator = Generator(PaperSize.mm80, profile);
@@ -1615,6 +1898,13 @@ class PrintService {
       'ordered date: ${RuntimeAppSettings.formatDateTime(orderedAt)}',
       styles: const PosStyles(align: PosAlign.left),
     );
+    final cn = cashierName?.trim() ?? '';
+    if (cn.isNotEmpty) {
+      bytes += generator.text(
+        'printed by: ${_sanitize(cn)}',
+        styles: const PosStyles(align: PosAlign.left),
+      );
+    }
 
     bytes += generator.feed(2);
     bytes += generator.cut();
@@ -1903,31 +2193,266 @@ class PrintService {
     return bytes;
   }
 
+  void _dayClosingEmitMoneyPair(Generator generator, List<int> bytes, String label, double amount) {
+    final upper = _sanitize(label.toUpperCase());
+    for (final line in _wrapReceiptLine(upper, 42)) {
+      bytes += generator.text(line, styles: const PosStyles(align: PosAlign.left));
+    }
+    bytes += generator.text(
+      '$_currency${_fmtMoney(amount)}'.padLeft(42),
+      styles: const PosStyles(align: PosAlign.left),
+    );
+  }
+
+  void _dayClosingEmitSectionTitle(Generator generator, List<int> bytes, String title) {
+    bytes += generator.feed(1);
+    bytes += generator.text(
+      _sanitize(title.toUpperCase()),
+      styles: const PosStyles(bold: true, align: PosAlign.left),
+    );
+    bytes += generator.hr();
+  }
+
   Future<List<int>> _generateDayClosingTicket({
-    required String title,
-    required List<({String label, double amount})> rows,
+    required DayClosingSummary summary,
+    required CounterAccess counterAccess,
+    required BranchModel? branch,
+    required img.Image? logoImage,
+    required String closedBy,
   }) async {
     final profile = await CapabilityProfile.load();
     final generator = Generator(PaperSize.mm80, profile);
     List<int> bytes = [];
 
+    const center = PosStyles(align: PosAlign.center);
+    const centerTitle = PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2);
+    const leftBold = PosStyles(align: PosAlign.left, bold: true);
+
+    if (logoImage != null) {
+      try {
+        bytes += generator.image(logoImage, align: PosAlign.center);
+        bytes += generator.feed(1);
+      } catch (e) {
+        if (kDebugMode) debugPrint('PrintService: day closing logo skipped: $e');
+      }
+    }
+
+    final branchNameLc = branch?.branchName.trim().toLowerCase() ?? '';
+    if (branch != null && branch.branchName.trim().isNotEmpty) {
+      bytes += generator.text(_sanitize(branch.branchName.trim()), styles: center);
+    }
+    if (branch != null && branch.location.trim().isNotEmpty) {
+      for (final locLine in _dedupeWrappedLines(
+        _wrapReceiptLine(_sanitize(branch.location.trim()), 42),
+      )) {
+        if (branchNameLc.isNotEmpty && locLine.trim().toLowerCase() == branchNameLc) continue;
+        bytes += generator.text(locLine, styles: center);
+      }
+    }
+    if (branch != null && branch.contactNo.trim().isNotEmpty) {
+      bytes += generator.text(
+        'Contact: ${_sanitize(branch.contactNo.trim())}',
+        styles: center,
+      );
+    }
+    if (branch != null && (branch.trnNumber ?? '').toString().trim().isNotEmpty) {
+      bytes += generator.text(
+        ' ${_sanitize((branch.trnNumber ?? '').toString().trim())}',
+        styles: center,
+      );
+    }
+
+    bytes += generator.feed(1);
+    bytes += generator.text('CLOSING REPORT', styles: centerTitle);
     bytes += generator.text(
-      _sanitize(title.toUpperCase()),
-      styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2),
-    );
-    bytes += generator.text(
-      RuntimeAppSettings.formatDateTime(DateTime.now()),
+      _sanitize(
+        'LAST CLOSING: ${summary.lastClosingAt == null ? '—' : RuntimeAppSettings.formatDateTime(summary.lastClosingAt!)}',
+      ),
       styles: const PosStyles(align: PosAlign.left),
     );
-    bytes += generator.feed(1);
+    bytes += generator.text(
+      _sanitize('DATE: ${RuntimeAppSettings.formatDate(summary.generatedAt)}'),
+      styles: const PosStyles(align: PosAlign.left),
+    );
+    bytes += generator.text(
+      _sanitize('CLOSED BY: ${closedBy.isEmpty ? '—' : closedBy}'),
+      styles: const PosStyles(align: PosAlign.left),
+    );
+    bytes += generator.text(
+      _sanitize('TIME: ${RuntimeAppSettings.formatDateTime(summary.generatedAt)}'),
+      styles: const PosStyles(align: PosAlign.left),
+    );
     bytes += generator.hr();
 
-    for (final row in rows) {
-      bytes += generator.row([
-        PosColumn(text: _sanitize(row.label.toUpperCase()), width: 8),
-        PosColumn(text: '$_currency${row.amount.toStringAsFixed(2)}', width: 4),
-      ]);
+    _dayClosingEmitSectionTitle(generator, bytes, '1. OPENING CASH & SALES DETAILS');
+    _dayClosingEmitMoneyPair(generator, bytes, 'OPENING CASH', summary.openingCash);
+    _dayClosingEmitMoneyPair(generator, bytes, 'GROSS SALES (before discount)', summary.grossTotal);
+    if (summary.totalVatAmount > 0.009) {
+      _dayClosingEmitMoneyPair(generator, bytes, 'TOTAL VAT AMOUNT', summary.totalVatAmount);
     }
+    _dayClosingEmitMoneyPair(generator, bytes, 'DISCOUNTS', summary.discount);
+    _dayClosingEmitMoneyPair(generator, bytes, 'NET SALES (completed)', summary.netTotal);
+    _dayClosingEmitMoneyPair(generator, bytes, 'CASH SALE', summary.cashSale);
+    _dayClosingEmitMoneyPair(generator, bytes, 'CARD SALE', summary.cardSale);
+    _dayClosingEmitMoneyPair(generator, bytes, 'CREDIT SALE', summary.creditSale);
+    _dayClosingEmitMoneyPair(generator, bytes, 'ONLINE SALE', summary.onlineSale);
+    _dayClosingEmitMoneyPair(generator, bytes, 'DELIVERY SALE', summary.deliverySale);
+    _dayClosingEmitMoneyPair(generator, bytes, 'CASH DRAWER BALANCE', summary.cashDrawer);
+
+    _dayClosingEmitSectionTitle(generator, bytes, '2. SALES SUMMARY & ADJUSTMENTS');
+    bytes += generator.text(
+      '${'TYPE'.padRight(10)}${'CNT'.padLeft(4)}${'DISCOUNT'.padRight(12)}${'AMOUNT'.padLeft(14)}',
+      styles: leftBold,
+    );
+    bytes += generator.hr(ch: '-');
+    for (final r in summary.typeRows) {
+      bytes += generator.text(
+        '${_sanitize(r.type.toUpperCase()).padRight(10)}'
+        '${r.count.toString().padLeft(4)}'
+        '${('$_currency${_fmtMoney(r.discount)}').padRight(12)}'
+        '${('$_currency${_fmtMoney(r.amount)}').padLeft(14)}',
+        styles: const PosStyles(align: PosAlign.left),
+      );
+    }
+    _dayClosingEmitMoneyPair(generator, bytes, 'EXCESS AMOUNT', summary.excessAmount);
+    _dayClosingEmitMoneyPair(generator, bytes, 'SHORT AMOUNT', summary.shortAmount);
+
+    _dayClosingEmitSectionTitle(generator, bytes, '3. EXPENSE & UNPAID RECONCILIATION');
+    _dayClosingEmitMoneyPair(generator, bytes, 'PURCHASE', summary.purchase);
+    final gap = (summary.unpaidAmount - summary.unsettledFromAccessibleLogs).abs();
+    final split = !counterAccess.isAdmin && gap > 0.009;
+    if (!split) {
+      _dayClosingEmitMoneyPair(generator, bytes, 'UNPAID BILLS', summary.unpaidAmount);
+    } else {
+      _dayClosingEmitMoneyPair(generator, bytes, 'UNPAID BILLS (logs you can open)', summary.unsettledFromAccessibleLogs);
+      _dayClosingEmitMoneyPair(
+        generator,
+        bytes,
+        'UNPAID (channels without log permission)',
+        summary.unpaidAmount - summary.unsettledFromAccessibleLogs,
+      );
+    }
+    _dayClosingEmitMoneyPair(generator, bytes, 'SALARY', summary.salary);
+    _dayClosingEmitMoneyPair(generator, bytes, 'OTHER INCOME (+)', summary.otherIncome);
+    _dayClosingEmitMoneyPair(
+      generator,
+      bytes,
+      'TOTAL (EXP + SAL + UNPAID – OTHER INCOME)',
+      summary.purchase + summary.salary + summary.unpaidAmount - summary.otherIncome,
+    );
+    _dayClosingEmitMoneyPair(
+      generator,
+      bytes,
+      'DIFFERENCE (SECTION 3 TOTAL − MODELED DRAWER)',
+      summary.difference.abs(),
+    );
+
+    if (summary.openBills.isNotEmpty) {
+      _dayClosingEmitSectionTitle(generator, bytes, '3b. OPEN BILLS (SETTLE THESE FIRST)');
+      bytes += generator.text(
+        '${'INVOICE'.padRight(12)}${'STATUS'.padRight(10)}${'TYPE'.padRight(10)}${'AMOUNT'.padLeft(8)}',
+        styles: leftBold,
+      );
+      bytes += generator.hr(ch: '-');
+      for (final ob in summary.openBills) {
+        bytes += generator.text(
+          '${_sanitize(ob.invoiceNumber).padRight(12)}'
+          '${_sanitize(ob.status).padRight(10)}'
+          '${_sanitize(_orderTypeLabel(ob.orderType)).padRight(10)}'
+          '${('$_currency${_fmtMoney(ob.finalAmount)}').padLeft(8)}',
+          styles: const PosStyles(align: PosAlign.left),
+        );
+      }
+      final footerLbl = gap <= 0.009 ? 'UNPAID TOTAL' : 'UNPAID TOTAL (YOUR LOGS)';
+      _dayClosingEmitMoneyPair(generator, bytes, footerLbl, summary.unsettledFromAccessibleLogs);
+    }
+
+    _dayClosingEmitSectionTitle(generator, bytes, '4. CASH RECONCILIATION');
+    _dayClosingEmitMoneyPair(generator, bytes, 'OPENING CASH', summary.openingCash);
+    _dayClosingEmitMoneyPair(generator, bytes, 'DINE-IN SALES', summary.dineInSales);
+    _dayClosingEmitMoneyPair(generator, bytes, 'DELIVERY SALES', summary.deliverySale);
+    _dayClosingEmitMoneyPair(generator, bytes, 'TAKEAWAY SALES', summary.takeAwaySales);
+    _dayClosingEmitMoneyPair(generator, bytes, 'CASH IN (OPENING + CASH SALE AFTER DISCOUNT)', summary.cashIn);
+    _dayClosingEmitMoneyPair(generator, bytes, 'CASH OUT (EXPENSES FROM CASH)', summary.cashOut);
+    _dayClosingEmitMoneyPair(generator, bytes, 'TOTAL CASH DRAWER', summary.cashDrawer);
+    final hint = _dayClosingCashDrawerHint(summary.difference);
+    if (hint.isNotEmpty) {
+      bytes += generator.text(_sanitize(hint), styles: const PosStyles(align: PosAlign.left));
+    }
+
+    _dayClosingEmitSectionTitle(generator, bytes, '5. CATEGORY WISE PRODUCT LIST');
+    bytes += generator.text(
+      '${'CATEGORY'.padRight(20)}${'QTY'.padLeft(5)}${'AMOUNT'.padLeft(15)}',
+      styles: leftBold,
+    );
+    bytes += generator.hr(ch: '-');
+    for (final r in summary.categoryRows) {
+      final cat = _sanitize(r.category.toUpperCase());
+      final wrapped = _wrapReceiptLine(cat, 20);
+      for (var i = 0; i < wrapped.length; i++) {
+        if (i == 0) {
+          bytes += generator.text(
+            '${wrapped[0].padRight(20)}'
+            '${r.qty.toString().padLeft(5)}'
+            '${('$_currency${_fmtMoney(r.amount)}').padLeft(15)}',
+            styles: const PosStyles(align: PosAlign.left),
+          );
+        } else {
+          bytes += generator.text(wrapped[i], styles: const PosStyles(align: PosAlign.left));
+        }
+      }
+    }
+    _dayClosingEmitMoneyPair(generator, bytes, 'GRAND TOTAL', summary.netTotal);
+
+    _dayClosingEmitSectionTitle(generator, bytes, '6. ITEM WISE PRODUCT LIST');
+    bytes += generator.text(
+      '${'ITEM'.padRight(20)}${'QTY'.padLeft(5)}${'AMOUNT'.padLeft(15)}',
+      styles: leftBold,
+    );
+    bytes += generator.hr(ch: '-');
+    for (final r in summary.itemRows) {
+      final nm = _sanitize(r.item.toUpperCase());
+      final wrapped = _wrapReceiptLine(nm, 20);
+      for (var i = 0; i < wrapped.length; i++) {
+        if (i == 0) {
+          bytes += generator.text(
+            '${wrapped[0].padRight(20)}'
+            '${r.qty.toString().padLeft(5)}'
+            '${('$_currency${_fmtMoney(r.amount)}').padLeft(15)}',
+            styles: const PosStyles(align: PosAlign.left),
+          );
+        } else {
+          bytes += generator.text(wrapped[i], styles: const PosStyles(align: PosAlign.left));
+        }
+      }
+    }
+    _dayClosingEmitMoneyPair(generator, bytes, 'GRAND TOTAL', summary.netTotal);
+
+    _dayClosingEmitSectionTitle(generator, bytes, '7. CANCELLED BILLS SUMMARY');
+    if (summary.cancelledRows.isEmpty) {
+      bytes += generator.text(
+        'NO CANCELLED BILLS RECORDED.',
+        styles: const PosStyles(align: PosAlign.left),
+      );
+    } else {
+      for (final r in summary.cancelledRows) {
+        bytes += generator.text(_sanitize(r.receiptId), styles: const PosStyles(align: PosAlign.left));
+        bytes += generator.text(
+          ' ${_sanitize(r.reason)} / BY: ${_sanitize(r.by)}',
+          styles: const PosStyles(align: PosAlign.left),
+        );
+        bytes += generator.text(
+          '$_currency${_fmtMoney(r.amount)}'.padLeft(42),
+          styles: const PosStyles(align: PosAlign.left),
+        );
+      }
+    }
+    _dayClosingEmitMoneyPair(
+      generator,
+      bytes,
+      'TOTAL CANCELLED (${summary.cancelledRows.length})',
+      summary.cancelledRows.fold<double>(0, (s, e) => s + e.amount),
+    );
 
     bytes += generator.hr();
     bytes += generator.feed(2);

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
@@ -73,6 +76,14 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
     final drivers = await driverRepo.getAll();
     var orders = await orderRepo.getDeliveryOrdersWithDriver();
     orders = orders.where((o) => o.deliveryPartner?.toUpperCase() == 'NORMAL').where((o) => !_isArchivedStatus(o.status)).toList();
+    final logUid = HubLogOrderUserScope.effectiveFilterUserId(
+      hub: locator<LocalHubSettings>(),
+      sessionUser: locator<CurrentCounterSession>().user,
+      uiSelectedUserId: null,
+    );
+    if (logUid != null) {
+      orders = orders.where((o) => o.userId == logUid).toList();
+    }
     sortOrdersNewestFirst(orders);
     if (!mounted) return;
     setState(() {
@@ -329,6 +340,9 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
             locator<OrderRepository>(),
             locator<DeliveryPartnerRepository>(),
             locator<DriverRepository>(),
+            locator<LocalHubSettings>(),
+            locator<CurrentCounterSession>(),
+            hubOrdersLive: locator<HubOrdersLiveSync>(),
           ),
           child: const DeliveryLogScreen(),
         ),

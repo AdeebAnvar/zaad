@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:drift/drift.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
@@ -53,7 +56,9 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
   DeliveryLogCubit(
     this.orderRepo,
     this.deliveryPartnerRepo,
-    this.driverRepo, {
+    this.driverRepo,
+    this.hubSettings,
+    this.counterSession, {
     HubOrdersLiveSync? hubOrdersLive,
   })  : _hubLive = hubOrdersLive,
         super(DeliveryLogInitial()) {
@@ -64,6 +69,8 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
   final OrderRepository orderRepo;
   final DeliveryPartnerRepository deliveryPartnerRepo;
   final DriverRepository driverRepo;
+  final LocalHubSettings hubSettings;
+  final CurrentCounterSession counterSession;
   final HubOrdersLiveSync? _hubLive;
   void Function()? _detachHubLive;
 
@@ -78,6 +85,13 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     h.revision.addListener(onRev);
     _detachHubLive = () => h.revision.removeListener(onRev);
   }
+
+  int? _scopedUserId({int? uiUserId}) => HubLogOrderUserScope.effectiveFilterUserId(
+        hub: hubSettings,
+        sessionUser: counterSession.user,
+        uiSelectedUserId: uiUserId,
+      );
+
   String? _selectedPartner;
   final Set<int> _normalSelection = {};
 
@@ -150,6 +164,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         orderType: 'delivery',
         deliveryPartner: partnerFilter != null && partnerFilter.isNotEmpty ? partnerFilter : null,
         statusAnyOf: statusAny,
+        userId: _scopedUserId(uiUserId: null),
       );
       orders = _filterDeliveryLogList(orders);
       sortOrdersNewestFirst(orders);
@@ -203,7 +218,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         statusAnyOf: statusAny,
         startDate: startDate,
         endDate: endDate,
-        userId: userId,
+        userId: _scopedUserId(uiUserId: userId),
       );
       orders = _filterDeliveryLogList(orders);
       sortOrdersNewestFirst(orders);

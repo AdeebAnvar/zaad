@@ -1,7 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../dio_client.dart';
+
+import 'package:pos/core/utils/image_utils.dart';
+
 import '../api_endpoints.dart';
+import '../dio_client.dart';
 
 class AuthApi {
   Future<String?> getBaseUrl(String code) async {
@@ -29,6 +32,7 @@ class AuthApi {
     }
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString('baseUrl', '$url');
+    TenantImageUrlCache.invalidate();
     return null;
   }
 

@@ -1540,13 +1540,24 @@ class PullDataRepositoryImpl implements PullDataRepository {
 
   Future<void> _persistOffers(OfferModel r) async {
     for (final o in r.createdUpdated) {
+      final st = o.startTime;
+      final oh = o.offerHours;
       final payload = jsonEncode({
+        'uuid': o.uuid,
+        'offer_name': o.offerName,
         'promocode': o.promocode,
         'from_date': o.fromDate,
         'to_date': o.toDate,
         'value': o.value,
         'type': o.type,
         'active': o.active,
+        'is_active': o.active,
+        'item_id': o.itemIds,
+        'category_id': o.categoryIds,
+        'is_all_items': o.isAllItems,
+        'day': o.days,
+        if (st != null && st.trim().isNotEmpty) 'start_time': st,
+        if (oh != null && oh > 0) 'offer_hour': oh,
       });
       await _db.pullDataDao.upsertPullCategory(
         PullCategoryRowsCompanion.insert(

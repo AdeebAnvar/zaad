@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:pos/data/local/drift_database.dart';
 
 /// Parse dine-in reference strings and build `floorId|TABLE | N pax` refs (aligned with Dine In floor plan).
+///
+/// The leading `floorId|` segment is **storage routing** (same table code on different floors).
+/// Staff-facing labels should use [stripLeadingFloorId] so e.g. `1|T3 | 2 pax` shows as `T3 | 2 pax`.
 class DineInRefParser {
   DineInRefParser._();
 
@@ -45,6 +50,48 @@ class DineInRefParser {
   /// Floor + table only (no pax). Used when seat handling is off: multiple orders per table without chair allocation.
   static String buildTableOnlyReference(int floorId, String tableCode) => '$floorId|${tableCode.trim()}';
 
+  static const String hubMetadataAnchorKey = 'dine_in_anchor';
+
+  /// Table/floor routing stored in [Order.hubMetadata] when the user leaves [Order.referenceNumber] empty.
+  static String? dineInAnchorFromHubMetadata(String? hubMetadata) {
+    try {
+      if (hubMetadata == null || hubMetadata.trim().isEmpty) return null;
+      final root = jsonDecode(hubMetadata);
+      if (root is! Map) return null;
+      final a = root[hubMetadataAnchorKey];
+      if (a is String && a.trim().isNotEmpty) return a.trim();
+    } catch (_) {}
+    return null;
+  }
+
+  static String mergeHubMetadataAnchor(String? hubMetadata, String newAnchor) {
+    final a = newAnchor.trim();
+    if (a.isEmpty) return hubMetadata ?? '';
+    try {
+      Map<String, dynamic> map;
+      if (hubMetadata != null && hubMetadata.trim().isNotEmpty) {
+        final p = jsonDecode(hubMetadata);
+        map = p is Map ? Map<String, dynamic>.from(p) : <String, dynamic>{};
+      } else {
+        map = <String, dynamic>{};
+      }
+      map[hubMetadataAnchorKey] = a;
+      return jsonEncode(map);
+    } catch (_) {
+      return jsonEncode({hubMetadataAnchorKey: a});
+    }
+  }
+
+  /// Floor-plan matching: explicit `referenceNumber`, else `hubMetadata.dine_in_anchor`, else legacy rows
+  /// where the table routing lived only in `referenceNumber`.
+  static String? dineInAnchorForMatching(Order o) {
+    final r = o.referenceNumber?.trim();
+    if (r != null && r.isNotEmpty) return r;
+    final fromHub = dineInAnchorFromHubMetadata(o.hubMetadata);
+    if (fromHub != null && fromHub.isNotEmpty) return fromHub;
+    return null;
+  }
+
   /// Whether [o] is assigned to [floorId] + [tableCodeUpper] (same rules as floor plan).
   static bool orderMatchesFloorTable(
     Order o,
@@ -52,7 +99,8 @@ class DineInRefParser {
     String tableCodeUpper,
     Map<String, Set<int>> tableCodeToFloorIds,
   ) {
-    final ref = o.referenceNumber;
+    final ref = dineInAnchorForMatching(o);
+    if (ref == null || ref.isEmpty) return false;
     final leadFloor = extractLeadingFloorId(ref);
     final normalized = stripLeadingFloorId(ref);
     final code = tableKey(extractTableCode(normalized));
@@ -80,7 +128,7 @@ class DineInRefParser {
     for (final o in activeDineInOrders) {
       if (o.id == excludeOrderId) continue;
       if (!orderMatchesFloorTable(o, floorId, tableCodeUpper, codeToFloors)) continue;
-      sum += extractPaxFromReference(o.referenceNumber);
+      sum += extractPaxFromReference(dineInAnchorForMatching(o));
     }
     return sum;
   }

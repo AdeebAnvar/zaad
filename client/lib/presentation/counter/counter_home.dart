@@ -9,6 +9,7 @@ import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
@@ -51,6 +52,8 @@ class _CounterHomeState extends State<CounterHome> {
               builder: (_) => BlocProvider(
                 create: (context) => TakeAwayLogCubit(
                   locator<OrderRepository>(),
+                  locator<LocalHubSettings>(),
+                  locator<CurrentCounterSession>(),
                   hubOrdersLive: locator<HubOrdersLiveSync>(),
                 ),
                 child: const TakeAwayLogScreen(),
@@ -82,6 +85,8 @@ class _CounterHomeState extends State<CounterHome> {
                   locator<OrderRepository>(),
                   locator<DeliveryPartnerRepository>(),
                   locator<DriverRepository>(),
+                  locator<LocalHubSettings>(),
+                  locator<CurrentCounterSession>(),
                   hubOrdersLive: locator<HubOrdersLiveSync>(),
                 ),
                 child: const DeliveryLogScreen(),

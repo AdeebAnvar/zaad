@@ -37,13 +37,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   late final LoginCubit cubit;
   bool _saveCredentials = false;
-  bool _tenantLinked = false;
 
   @override
   void initState() {
     super.initState();
     cubit = locator<LoginCubit>();
-    unawaited(_refreshTenantLinked());
+    unawaited(_refreshSavedBaseUrl());
 
     final prefs = locator<SharedPreferences>();
     if (LoginCredentialsPrefs.hasSaved(prefs)) {
@@ -56,11 +55,24 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _refreshTenantLinked() async {
-    final url = await locator<AuthRepository>().getSavedBaseUrl();
+  Future<void> _refreshSavedBaseUrl() async {
+    await locator<AuthRepository>().getSavedBaseUrl();
+  }
+
+  Future<void> _showConnectedToServerSnack() async {
+    await Future<void>.delayed(const Duration(milliseconds: 160));
     if (!mounted) return;
-    final linked = url != null && url.trim().isNotEmpty;
-    if (_tenantLinked != linked) setState(() => _tenantLinked = linked);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    CustomSnackBar.showSuccess(
+      context: context,
+      message: 'Connected to server',
+      duration: const Duration(milliseconds: 1800),
+      floating: true,
+      position: SnackBarPosition.bottom,
+      compact: true,
+    );
+    unawaited(_refreshSavedBaseUrl());
   }
 
   @override
@@ -107,12 +119,8 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     if (state is LoginServerConnected) {
       LoaderOverlay.hide();
-      // Show after loader overlay is removed so the toast isn't lost under another overlay.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted) return;
-        CustomSnackBar.showSuccess(message: 'Connected to server');
-        unawaited(_refreshTenantLinked());
-      });
+      // Defer past loader removal + route settle (Windows: overlay/snackbar races with dialog close).
+      unawaited(_showConnectedToServerSnack());
     }
 
     if (state is LoginSuccess) {
@@ -264,24 +272,10 @@ class _LoginScreenState extends State<LoginScreen> {
           else
             Column(
               children: [
-                if (_tenantLinked) ...[
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.cloud_done_rounded, size: 18, color: Colors.green.shade700),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Connected to server',
-                        style: AppStyles.getMediumTextStyle(fontSize: 14, color: Colors.green.shade700),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
                 GestureDetector(
                   onTap: _openServerDialog,
                   child: Text(
-                    _tenantLinked ? 'Change server…' : 'Connect to server',
+                    'Connect to server',
                     style: AppStyles.getRegularTextStyle(
                       fontSize: 14,
                       color: AppColors.primaryColor,
@@ -294,7 +288,7 @@ class _LoginScreenState extends State<LoginScreen> {
           TextButton(
             onPressed: () async {
               await AppNavigator.pushNamed(Routes.lanHubSettings);
-              if (mounted) unawaited(_refreshTenantLinked());
+              if (mounted) unawaited(_refreshSavedBaseUrl());
             },
             child: Text(
               'LAN hub (MAIN / SUB)',
@@ -329,7 +323,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _openServerDialog() {
     CustomDialog.showResponsiveDialog(
       context,
-      _ServerConnectDialogBody(),
+      _ServerConnectDialogBody(loginCubit: cubit),
     );
   }
 
@@ -445,6 +439,10 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 class _ServerConnectDialogBody extends StatefulWidget {
+  const _ServerConnectDialogBody({required this.loginCubit});
+
+  final LoginCubit loginCubit;
+
   @override
   State<_ServerConnectDialogBody> createState() => _ServerConnectDialogBodyState();
 }
@@ -475,7 +473,6 @@ class _ServerConnectDialogBodyState extends State<_ServerConnectDialogBody> {
 
   @override
   Widget build(BuildContext context) {
-    final cubit = locator<LoginCubit>();
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -505,7 +502,7 @@ class _ServerConnectDialogBodyState extends State<_ServerConnectDialogBody> {
                 text: "Connect",
                 onPressed: () {
                   AppNavigator.pop();
-                  cubit.connectToServer(_controller.text.trim());
+                  widget.loginCubit.connectToServer(_controller.text.trim());
                 },
               ),
             ),

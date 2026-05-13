@@ -8,6 +8,58 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/domain/models/api/dio_client.dart';
 
+/// Caches tenant `baseUrl` (from prefs) and resolved absolute URLs for relative image paths.
+/// Avoids re-reading [SharedPreferences] and re-flashing placeholders when catalog tiles
+/// rebuild (e.g. switching category) while the tenant URL is unchanged.
+class TenantImageUrlCache {
+  TenantImageUrlCache._();
+
+  static Future<String>? _baseLoadFuture;
+  static String? _baseUrl;
+  static final Map<String, String> _absoluteByRelative = {};
+
+  /// Call after the saved tenant base URL changes (e.g. new company link).
+  static void invalidate() {
+    _baseLoadFuture = null;
+    _baseUrl = null;
+    _absoluteByRelative.clear();
+  }
+
+  static String _normKey(String relativeOrAbsolute) => relativeOrAbsolute.trim();
+
+  static Future<String> ensureBaseUrlLoaded() async {
+    if (_baseUrl != null) return _baseUrl!;
+    _baseLoadFuture ??= () async {
+      final prefs = await SharedPreferences.getInstance();
+      _baseUrl = prefs.getString('baseUrl') ?? '';
+      return _baseUrl!;
+    }();
+    return _baseLoadFuture!;
+  }
+
+  /// Resolves [relativeOrAbsolute] when [baseUrl] is already in memory; otherwise returns null.
+  static String? resolveWhenBaseReady(String relativeOrAbsolute) {
+    final base = _baseUrl;
+    if (base == null || base.trim().isEmpty) return null;
+    final k = _normKey(relativeOrAbsolute);
+    if (_absoluteByRelative.containsKey(k)) {
+      final c = _absoluteByRelative[k]!;
+      return c.isEmpty ? null : c;
+    }
+    final u = ImageUtils.resolveToAbsoluteImageUrl(
+      relativeOrAbsolute,
+      baseUrlOverride: base,
+    )
+        ?.trim();
+    if (u == null || u.isEmpty) {
+      _absoluteByRelative[k] = '';
+      return null;
+    }
+    _absoluteByRelative[k] = u;
+    return u;
+  }
+}
+
 class ImageUtils {
   /// Turns API image fields into a downloadable [http/https] URL.
   /// Server payloads are often path-only (e.g. `/storage/...`); [baseUrl] is the app API base (from prefs).
