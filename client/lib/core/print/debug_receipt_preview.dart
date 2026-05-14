@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pos/app/navigation.dart';
 import 'package:pos/core/print/receipt_preview_data.dart';
+import 'package:pos/core/pricing/vat_inclusive_breakdown.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/branch_model.dart';
@@ -176,15 +177,11 @@ String _orderTypeLabel(String? raw) {
 
 ({double netBeforeVat, double vatAmount}) _vatBreakdown(double totalInclusive, BranchModel? branch) {
   if (branch == null) return (netBeforeVat: totalInclusive, vatAmount: 0.0);
-  final mode = branch.vat.trim().toLowerCase();
-  final vp = branch.vatPercent;
-  final pct = vp is num ? vp.toDouble() : double.tryParse('$vp') ?? 0.0;
-  if (mode == 'no_vat' || pct <= 0) {
-    return (netBeforeVat: totalInclusive, vatAmount: 0.0);
-  }
-  final divisor = 1 + pct / 100.0;
-  final net = totalInclusive / divisor;
-  return (netBeforeVat: net, vatAmount: totalInclusive - net);
+  return vatBreakdownFromInclusive(
+    totalInclusive,
+    vatMode: branch.vat,
+    vatPercentRaw: branch.vatPercent,
+  );
 }
 
 ({String label, double amount}) _discountLineForPreview(Order order) {

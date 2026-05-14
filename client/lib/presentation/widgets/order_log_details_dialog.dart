@@ -95,7 +95,7 @@ class OrderLogDetailsDialog extends StatelessWidget {
                             },
                           ),
                         ),
-                        _Footer(order: order),
+                        _Footer(order: order, itemsWithDetails: itemsWithDetails),
                       ],
                     ),
                   ),
@@ -482,10 +482,17 @@ class _ItemCard extends StatelessWidget {
 
     final catalogName = (item?.name ?? '').trim();
     final snapName = cartItem.itemName.trim();
-    final displayName = catalogName.isNotEmpty ? catalogName : (snapName.isNotEmpty ? snapName : 'Unknown item');
+    // Snapshot name is what was sold (hub / other terminal). Local [itemId] can point at a different
+    // catalog row on LAN SUB devices, which previously made the title look like a "random" item.
+    final displayName =
+        snapName.isNotEmpty ? snapName : (catalogName.isNotEmpty ? catalogName : 'Unknown item');
 
-    final unitPrice = variant?.price ?? item?.price ?? 0;
     final hasDiscount = cartItem.discount > 0;
+    final derivedUnit = cartItem.quantity > 0 ? cartItem.total / cartItem.quantity : 0.0;
+    final catalogUnit = variant?.price ?? item?.price ?? 0;
+    final unitPrice = !hasDiscount
+        ? derivedUnit
+        : (catalogUnit > 0.001 ? catalogUnit : derivedUnit);
     final toppingsData = _decodeToppings(cartItem.notes);
     final lineNote = _lineNoteFromCartNotes(cartItem.notes);
 
@@ -620,15 +627,33 @@ class _ItemCard extends StatelessWidget {
 }
 
 class _Footer extends StatelessWidget {
-  const _Footer({required this.order});
+  const _Footer({
+    required this.order,
+    required this.itemsWithDetails,
+  });
 
   final Order order;
+  final List<Map<String, dynamic>> itemsWithDetails;
+
+  static double _linesSum(List<Map<String, dynamic>> items) {
+    var s = 0.0;
+    for (final d in items) {
+      final ci = d['cartItem'] as CartItem?;
+      if (ci != null) s += ci.total;
+    }
+    return s;
+  }
 
   @override
   Widget build(BuildContext context) {
     final effectiveDiscount = _effectiveOrderDiscountForDisplay(order);
     final hasDiscount = effectiveDiscount > 0.009;
     final total = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
+    final linesSum = _linesSum(itemsWithDetails);
+    final hasLines = itemsWithDetails.isNotEmpty;
+    final billedSubtotal = order.totalAmount;
+    final gapToBilled = hasLines ? (billedSubtotal - linesSum) : 0.0;
+    final showGap = hasLines && gapToBilled.abs() > 0.02;
 
     return Container(
       width: double.infinity,
@@ -643,13 +668,31 @@ class _Footer extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (hasDiscount) ...[
+            if (hasLines) ...[
               _TotalLine(
-                label: 'Subtotal',
-                amount: order.totalAmount,
+                label: 'Subtotal (line items)',
+                amount: linesSum,
                 emphasize: false,
               ),
-              const SizedBox(height: 4),
+              if (showGap) ...[
+                const SizedBox(height: 4),
+                _TotalLine(
+                  label: gapToBilled > 0.02 ? 'Other (fees / unlisted lines)' : 'Adjustment',
+                  amount: gapToBilled,
+                  emphasize: false,
+                ),
+              ],
+              const SizedBox(height: 6),
+            ],
+            if (hasDiscount) ...[
+              if (!hasLines) ...[
+                _TotalLine(
+                  label: 'Subtotal',
+                  amount: order.totalAmount,
+                  emphasize: false,
+                ),
+                const SizedBox(height: 4),
+              ],
               _TotalLine(
                 label: 'Discount',
                 amount: -effectiveDiscount,

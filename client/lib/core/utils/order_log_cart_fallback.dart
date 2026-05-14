@@ -15,15 +15,17 @@ class OrderLogCartFallback {
     required AppDatabase db,
     required CartRepository cartRepo,
   }) async {
-    final fromDb = await cartRepo.getCartItemsByCartId(order.cartId);
-    final list = fromDb ?? [];
-    if (list.isNotEmpty) return list;
-
+    // Hub-mirrored orders often share a shadow [cartId]. Prefer the LAN snapshot in [hubMetadata]
+    // so we never show another order's SQLite cart rows on SUB terminals.
     final hm = order.hubMetadata?.trim();
     if (hm != null && hm.isNotEmpty) {
       final fromHub = decodeCartItemsFromPayloadJson(hm, order.cartId);
       if (fromHub.isNotEmpty) return fromHub;
     }
+
+    final fromDb = await cartRepo.getCartItemsByCartId(order.cartId);
+    final list = fromDb ?? [];
+    if (list.isNotEmpty) return list;
 
     final log = await db.ordersDao.findLatestOrderLogByLocalOrderId(order.id);
     if (log != null) {
@@ -155,8 +157,8 @@ class OrderLogCartFallback {
     final discount = readDouble(m['discount']);
     final discountType = m['discount_type']?.toString() ?? m['discountType']?.toString();
     final notes = m['notes']?.toString();
-    final totalRaw = readDouble(m['total']);
-    var total = totalRaw;
+    final totalDyn = m['total'] ?? m['line_total'] ?? m['lineTotal'] ?? m['subtotal'] ?? m['amount'];
+    var total = readDouble(totalDyn);
     if (total <= 0.004) {
       final centsRaw = m['unitPriceCents'] ?? m['unit_price_cents'];
       final cents = centsRaw is num ? centsRaw.round() : int.tryParse('$centsRaw');

@@ -11,6 +11,7 @@ import 'package:flutter_thermal_printer/network/network_print_result.dart';
 import 'package:flutter_thermal_printer/utils/printer.dart';
 import 'package:image/image.dart' as img;
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/pricing/vat_inclusive_breakdown.dart';
 import 'package:pos/core/print/debug_receipt_preview.dart';
 import 'package:pos/core/print/kot_kitchen_update_diff.dart';
 import 'package:pos/core/print/receipt_preview_data.dart';
@@ -210,15 +211,11 @@ class PrintService {
 
   static ({double netBeforeVat, double vatAmount}) _vatBreakdown(double totalInclusive, BranchModel? branch) {
     if (branch == null) return (netBeforeVat: totalInclusive, vatAmount: 0.0);
-    final mode = branch.vat.trim().toLowerCase();
-    final vp = branch.vatPercent;
-    final pct = vp is num ? vp.toDouble() : double.tryParse('$vp') ?? 0.0;
-    if (mode == 'no_vat' || pct <= 0) {
-      return (netBeforeVat: totalInclusive, vatAmount: 0.0);
-    }
-    final divisor = 1 + pct / 100.0;
-    final net = totalInclusive / divisor;
-    return (netBeforeVat: net, vatAmount: totalInclusive - net);
+    return vatBreakdownFromInclusive(
+      totalInclusive,
+      vatMode: branch.vat,
+      vatPercentRaw: branch.vatPercent,
+    );
   }
 
   /// [CartItem.discount] for `percentage` lines stores the **money** discounted (see [CartCubit.updateCartItemDiscount]),
@@ -451,6 +448,7 @@ class PrintService {
     final refRaw = referenceNumber.trim();
     final invRaw = (invoiceNumber ?? '').trim();
     final orderDate = orderedAt ?? DateTime.now();
+    final orderTypeLabel = _orderTypeLabel(order?.orderType);
     // Resolve cashier name from session if not provided by caller.
     final resolvedCashier = cashierName?.trim().isNotEmpty == true
         ? cashierName!.trim()
@@ -487,6 +485,7 @@ class PrintService {
           kitchenName: previewKitchenName,
           referenceNumber: refRaw,
           invoiceNumber: invRaw,
+          orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
           cashierName: resolvedCashier,
         ),
@@ -513,6 +512,7 @@ class PrintService {
           kitchenName: kitchenName,
           referenceNumber: refRaw,
           invoiceNumber: invRaw,
+          orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
           cashierName: resolvedCashier,
         );
@@ -693,6 +693,31 @@ class PrintService {
       try {
         final root = jsonDecode(hm);
         if (root is Map<String, dynamic>) {
+          // LAN hub envelope: { orderId, snapshot: { items, ... }, updatedAt }
+          final snap = root['snapshot'];
+          if (snap is Map<String, dynamic>) {
+            final snapItems = snap['items'];
+            if (snapItems is List && snapItems.isNotEmpty) {
+              final from = _printLinesFromSnapshotItemsList(snapItems);
+              if (from.isNotEmpty) return from;
+            }
+            final snapMeta = snap['metadata'];
+            if (snapMeta is Map<String, dynamic>) {
+              final cl = snapMeta['cart_lines'];
+              if (cl is List && cl.isNotEmpty) {
+                final from = _printLinesFromSnapshotItemsList(cl);
+                if (from.isNotEmpty) return from;
+              }
+              final flutter = snapMeta['flutter'];
+              if (flutter is Map<String, dynamic>) {
+                final fi = flutter['items'];
+                if (fi is List && fi.isNotEmpty) {
+                  final from = _printLinesFromSnapshotItemsList(fi);
+                  if (from.isNotEmpty) return from;
+                }
+              }
+            }
+          }
           final meta = root['metadata'];
           if (meta is Map<String, dynamic>) {
             final cl = meta['cart_lines'];
@@ -740,8 +765,8 @@ class PrintService {
       final qtyRaw = m['quantity'] ?? m['qty'];
       final qty = qtyRaw is int ? qtyRaw : (qtyRaw is num ? qtyRaw.toInt() : int.tryParse('$qtyRaw') ?? 1);
       if (qty <= 0) continue;
-      final totalRaw = m['total'];
-      var total = totalRaw is num ? totalRaw.toDouble() : double.tryParse('$totalRaw') ?? 0.0;
+      final totalDyn = m['total'] ?? m['line_total'] ?? m['lineTotal'] ?? m['subtotal'] ?? m['amount'];
+      var total = totalDyn is num ? totalDyn.toDouble() : double.tryParse('$totalDyn') ?? 0.0;
       if (total <= 0) {
         final centsRaw = m['unitPriceCents'] ?? m['unit_price_cents'];
         final cents = centsRaw is num ? centsRaw.round() : int.tryParse('$centsRaw');
@@ -1053,6 +1078,7 @@ class PrintService {
     required String kitchenName,
     required String referenceNumber,
     required String invoiceNumber,
+    required String orderTypeLabel,
     required DateTime orderedAt,
     String? cashierName,
   }) {
@@ -1061,6 +1087,7 @@ class PrintService {
     if (safeBranch.isNotEmpty) out.add(_sanitize(safeBranch));
     out.add('--- new order ---'.padLeft(28).padRight(42));
     out.add('Kitchen: ${_sanitize(kitchenName)}');
+    if (orderTypeLabel.isNotEmpty) out.add('Order type: ${_sanitize(orderTypeLabel)}');
     _appendKotPreviewRefInvoice(out, referenceNumber: referenceNumber, invoiceNumber: invoiceNumber);
     out.add('');
     out.add('ITEM'.padRight(38) + 'QTY'.padLeft(4));
@@ -1467,10 +1494,12 @@ class PrintService {
       }
 
       final listUnit = (variant?.price ?? item?.price ?? 0).toDouble();
-      final caption = _receiptLineDiscountCaption(ci, listUnit, ci.total);
+      final derivedListUnit = ci.quantity > 0 ? ci.total / ci.quantity : 0.0;
+      final effectiveListUnit = listUnit > 0.001 ? listUnit : derivedListUnit;
+      final caption = _receiptLineDiscountCaption(ci, effectiveListUnit, ci.total);
       final lineDisc = caption.isEmpty
           ? 0.0
-          : (listUnit * ci.quantity - ci.total).clamp(0.0, double.infinity);
+          : (effectiveListUnit * ci.quantity - ci.total).clamp(0.0, double.infinity);
 
       lines.add(_PrintLine(
         itemName: _sanitize(
@@ -1480,7 +1509,7 @@ class PrintService {
         toppingInfo: toppingInfo?.isNotEmpty == true ? _sanitize(toppingInfo!) : null,
         kotToppings: kotToppings,
         quantity: ci.quantity,
-        unitPrice: listUnit,
+        unitPrice: effectiveListUnit,
         total: ci.total,
         notes: ci.notes,
         kitchenId: item?.kitchenId,
@@ -1566,16 +1595,10 @@ class PrintService {
     required String referenceNumber,
     required String invoiceNumber,
   }) {
-    final ref = referenceNumber.trim();
+    final rawRef = referenceNumber.trim();
     final inv = invoiceNumber.trim();
+    final ref = inv.isNotEmpty && rawRef == inv ? '' : rawRef;
     const w = 42;
-    if (ref.isNotEmpty && inv.isNotEmpty && ref == inv) {
-      final s = _sanitize(ref);
-      out.add(s.padLeft((w + s.length) ~/ 2).padRight(w));
-      final r = 'Receipt: ${_sanitize(inv)}';
-      out.add(r.padLeft((w + r.length) ~/ 2).padRight(w));
-      return;
-    }
     if (ref.isNotEmpty) {
       final s = _sanitize(ref);
       out.add(s.padLeft((w + s.length) ~/ 2).padRight(w));
@@ -1596,8 +1619,9 @@ class PrintService {
     bool referenceBold = true,
   }) {
     List<int> chunk = [];
-    final ref = referenceNumber.trim();
+    final rawRef = referenceNumber.trim();
     final inv = invoiceNumber.trim();
+    final ref = inv.isNotEmpty && rawRef == inv ? '' : rawRef;
     // Center + bold + double-height for the reference so it stands out prominently.
     const centeredBoldBig = PosStyles(
       bold: true,
@@ -1607,11 +1631,6 @@ class PrintService {
     );
     const centeredBold = PosStyles(bold: true, align: PosAlign.center);
     const centeredNormal = PosStyles(align: PosAlign.center);
-    if (ref.isNotEmpty && inv.isNotEmpty && ref == inv) {
-      chunk += generator.text(_sanitize(ref), styles: centeredBoldBig);
-      chunk += generator.text('Receipt: ${_sanitize(inv)}', styles: centeredNormal);
-      return chunk;
-    }
     if (ref.isNotEmpty) {
       chunk += generator.text(_sanitize(ref), styles: centeredBoldBig);
     }
@@ -1685,8 +1704,11 @@ class PrintService {
       final product = productCell.isEmpty ? ' ' : productCell;
       final productCol = product.length >= 20 ? product.substring(0, 20) : product.padRight(20);
       final qtyCol = qtyCell.padRight(4);
-      final unitCell = (i == 0 ? u : '').padLeft(8);
-      final totalCell = (i == 0 ? t : '').padLeft(10);
+      // Put price/subtotal on the **last** wrapped row so continuation lines are not mistaken
+      // for separate items with blank amounts (common on 80mm thermal).
+      final last = i == wrapped.length - 1;
+      final unitCell = (last ? u : '').padLeft(8);
+      final totalCell = (last ? t : '').padLeft(10);
       bytes.addAll(generator.text('$qtyCol$productCol$unitCell$totalCell'));
     }
   }
@@ -1771,6 +1793,7 @@ class PrintService {
     required String kitchenName,
     required String referenceNumber,
     required String invoiceNumber,
+    required String orderTypeLabel,
     required DateTime orderedAt,
     String? cashierName,
   }) async {
@@ -1787,6 +1810,9 @@ class PrintService {
       'Kitchen: ${_sanitize(kitchenName)}',
       styles: leftBold,
     );
+    if (orderTypeLabel.isNotEmpty) {
+      bytes += generator.text('Order type: ${_sanitize(orderTypeLabel)}');
+    }
     bytes += _kotThermalRefInvoiceHeader(
       generator,
       referenceNumber: referenceNumber,
@@ -2196,21 +2222,25 @@ class PrintService {
   void _dayClosingEmitMoneyPair(Generator generator, List<int> bytes, String label, double amount) {
     final upper = _sanitize(label.toUpperCase());
     for (final line in _wrapReceiptLine(upper, 42)) {
-      bytes += generator.text(line, styles: const PosStyles(align: PosAlign.left));
+      bytes.addAll(generator.text(line, styles: const PosStyles(align: PosAlign.left)));
     }
-    bytes += generator.text(
-      '$_currency${_fmtMoney(amount)}'.padLeft(42),
-      styles: const PosStyles(align: PosAlign.left),
+    bytes.addAll(
+      generator.text(
+        '$_currency${_fmtMoney(amount)}'.padLeft(42),
+        styles: const PosStyles(align: PosAlign.left),
+      ),
     );
   }
 
   void _dayClosingEmitSectionTitle(Generator generator, List<int> bytes, String title) {
-    bytes += generator.feed(1);
-    bytes += generator.text(
-      _sanitize(title.toUpperCase()),
-      styles: const PosStyles(bold: true, align: PosAlign.left),
+    bytes.addAll(generator.feed(1));
+    bytes.addAll(
+      generator.text(
+        _sanitize(title.toUpperCase()),
+        styles: const PosStyles(bold: true, align: PosAlign.left),
+      ),
     );
-    bytes += generator.hr();
+    bytes.addAll(generator.hr());
   }
 
   Future<List<int>> _generateDayClosingTicket({
