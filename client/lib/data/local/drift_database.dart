@@ -92,7 +92,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(_openMemory());
 
   @override
-  int get schemaVersion => 51;
+  int get schemaVersion => 52;
 
   @override
   MigrationStrategy get migration {
@@ -274,6 +274,9 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 51) {
           await safeAddColumn(orders, orders.pickupToken);
+        }
+        if (from < 52) {
+          await safeAddColumn(orders, orders.customerAddress);
         }
       },
       // Legacy rows (or partial inserts) can leave NULL in NOT NULL columns; Drift’s

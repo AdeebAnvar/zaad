@@ -336,7 +336,7 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
   final _usersController = TextEditingController();
   int? _filterUserId;
 
-  /// Cubit-aligned: `all` | `pending` | `out_for_delivery` | `delivered` | `reject`
+  /// Cubit-aligned: `all` | `pending` | `out_for_delivery` | `delivered` | `cancelled`
 
   Future<void> _applyFiltersInner({String? deliveryStatusBucket}) async {
     final c = context.read<DeliveryLogCubit>();
@@ -413,35 +413,25 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
                       ('Pending', 'pending'),
                       ('Out for delivery', 'out_for_delivery'),
                       ('Delivered', 'delivered'),
-                      ('Reject', 'reject'),
+                      ('Cancelled', 'cancelled'),
                     ];
                     final valid = items.any((e) => e.$2 == key) ? key : 'all';
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Delivery status',
-                          style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
-                        ),
-                        const SizedBox(height: 4),
-                        DropdownButtonFormField<String>(
-                          value: valid,
-                          isExpanded: true,
-                          decoration: CustomFormFieldDecoration.dropdownDecoration(context),
-                          items: items
-                              .map(
-                                (e) => DropdownMenuItem<String>(
-                                  value: e.$2,
-                                  child: Text(e.$1, style: AppStyles.getRegularTextStyle(fontSize: 14)),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (v) {
-                            if (v == null) return;
-                            unawaited(_applyFiltersInner(deliveryStatusBucket: v));
-                          },
-                        ),
-                      ],
+                    return DropdownButtonFormField<String>(
+                      value: valid,
+                      isExpanded: true,
+                      decoration: CustomFormFieldDecoration.dropdownDecoration(context),
+                      items: items
+                          .map(
+                            (e) => DropdownMenuItem<String>(
+                              value: e.$2,
+                              child: Text(e.$1, style: AppStyles.getRegularTextStyle(fontSize: 14)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) {
+                        if (v == null) return;
+                        unawaited(_applyFiltersInner(deliveryStatusBucket: v));
+                      },
                     );
                   },
                 ),
@@ -774,7 +764,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     'assigned': 'Out for delivery',
     'delivered': 'Delivered',
     'completed': 'Delivered',
-    'cancelled': 'Reject',
+    'cancelled': 'Cancelled',
   };
 
   // Partner (aggregator): Dispatched hides row from log; still mapped for legacy rows / sync.
@@ -782,7 +772,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     ('Pending', 'pending'),
     ('Out for delivery', 'dispatched'),
     ('Delivered', 'completed'),
-    ('Reject', 'cancelled'),
+    ('Cancelled', 'cancelled'),
   ];
 
   // NORMAL fleet: Delivered persists as completed (bill closed).
@@ -790,7 +780,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     ('Pending', 'pending'),
     ('Out for delivery', 'out_of_delivery'),
     ('Delivered', 'completed'),
-    ('Reject', 'cancelled'),
+    ('Cancelled', 'cancelled'),
   ];
 
   bool _hasDriverAssigned(Order o) => o.driverId != null && (o.driverName?.trim().isNotEmpty ?? false);
@@ -800,7 +790,9 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     final st = o.status.toLowerCase();
     const all = _normalStatusOptions;
     if (!hasDriver) {
-      return all.where((e) => e.$2 == 'pending' || e.$2 == 'cancelled').toList();
+      return all
+          .where((e) => e.$2 == 'pending' || e.$2 == 'cancelled' || e.$2 == 'completed')
+          .toList();
     }
     if (st == 'assigned' ||
         st == 'out_of_delivery' ||

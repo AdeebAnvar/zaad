@@ -19,6 +19,12 @@ import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 
 part 'cart_state.dart';
 
+String? _trimmedCustomerDetail(dynamic v) {
+  if (v is! String) return null;
+  final t = v.trim();
+  return t.isEmpty ? null : t;
+}
+
 class CartCubit extends Cubit<CartState> {
   CartCubit(
     this.cartRepo,
@@ -115,6 +121,7 @@ class CartCubit extends Cubit<CartState> {
       "phone": order.customerPhone,
       "email": order.customerEmail,
       "gender": order.customerGender,
+      "address": order.customerAddress,
       "onlineOrderNumber": order.referenceNumber,
       "cash": order.cashAmount,
       "credit": order.creditAmount,
@@ -467,6 +474,7 @@ class CartCubit extends Cubit<CartState> {
         customerEmail: null,
         customerPhone: null,
         customerGender: null,
+        customerAddress: null,
         cashAmount: 0,
         creditAmount: 0,
         cardAmount: 0,
@@ -800,6 +808,7 @@ class CartCubit extends Cubit<CartState> {
       customerEmail: customerDetails['email'] as String?,
       customerPhone: customerDetails['phone'] as String?,
       customerGender: customerDetails['gender'] as String?,
+      customerAddress: _trimmedCustomerDetail(customerDetails['address']),
       cashAmount: payments['cash'] ?? 0.0,
       creditAmount: payments['credit'] ?? 0.0,
       cardAmount: payments['card'] ?? 0.0,
@@ -891,6 +900,7 @@ class CartCubit extends Cubit<CartState> {
       customerEmail: existingOrder.customerEmail,
       customerPhone: existingOrder.customerPhone,
       customerGender: existingOrder.customerGender,
+      customerAddress: existingOrder.customerAddress,
       cashAmount: existingOrder.cashAmount,
       creditAmount: existingOrder.creditAmount,
       cardAmount: existingOrder.cardAmount,
@@ -969,6 +979,7 @@ class CartCubit extends Cubit<CartState> {
       customerEmail: customerDetails['email'] as String?,
       customerPhone: customerDetails['phone'] as String?,
       customerGender: customerDetails['gender'] as String?,
+      customerAddress: _trimmedCustomerDetail(customerDetails['address']),
       cashAmount: payments['cash'] ?? 0.0,
       creditAmount: payments['credit'] ?? 0.0,
       cardAmount: payments['card'] ?? 0.0,

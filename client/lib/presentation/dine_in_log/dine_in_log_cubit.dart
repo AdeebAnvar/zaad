@@ -217,6 +217,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         customerEmail: source.customerEmail,
         customerPhone: source.customerPhone,
         customerGender: source.customerGender,
+        customerAddress: source.customerAddress,
         cashAmount: 0,
         creditAmount: 0,
         cardAmount: 0,

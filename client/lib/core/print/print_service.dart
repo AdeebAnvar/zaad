@@ -2089,6 +2089,13 @@ class PrintService {
       'Contact: ${_sanitize(contact.isNotEmpty ? contact : '-')}',
       styles: leftInvoice,
     );
+    final addrLine = (order.customerAddress ?? '').trim();
+    if (addrLine.isNotEmpty) {
+      bytes += generator.text(
+        'Address: ${_sanitize(addrLine)}',
+        styles: leftInvoice,
+      );
+    }
 
     final totalPayable = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
     final paidSum = order.cashAmount + order.cardAmount + order.creditAmount + order.onlineAmount;

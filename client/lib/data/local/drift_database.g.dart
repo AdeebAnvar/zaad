@@ -4662,6 +4662,12 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
   late final GeneratedColumn<String> customerGender = GeneratedColumn<String>(
       'customer_gender', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _customerAddressMeta =
+      const VerificationMeta('customerAddress');
+  @override
+  late final GeneratedColumn<String> customerAddress = GeneratedColumn<String>(
+      'customer_address', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _cashAmountMeta =
       const VerificationMeta('cashAmount');
   @override
@@ -4792,6 +4798,7 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
         customerEmail,
         customerPhone,
         customerGender,
+        customerAddress,
         cashAmount,
         creditAmount,
         cardAmount,
@@ -4893,6 +4900,12 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           _customerGenderMeta,
           customerGender.isAcceptableOrUnknown(
               data['customer_gender']!, _customerGenderMeta));
+    }
+    if (data.containsKey('customer_address')) {
+      context.handle(
+          _customerAddressMeta,
+          customerAddress.isAcceptableOrUnknown(
+              data['customer_address']!, _customerAddressMeta));
     }
     if (data.containsKey('cash_amount')) {
       context.handle(
@@ -5013,6 +5026,8 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           .read(DriftSqlType.string, data['${effectivePrefix}customer_phone']),
       customerGender: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}customer_gender']),
+      customerAddress: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}customer_address']),
       cashAmount: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}cash_amount'])!,
       creditAmount: attachedDatabase.typeMapping
@@ -5067,6 +5082,7 @@ class Order extends DataClass implements Insertable<Order> {
   final String? customerEmail;
   final String? customerPhone;
   final String? customerGender;
+  final String? customerAddress;
   final double cashAmount;
   final double creditAmount;
   final double cardAmount;
@@ -5110,6 +5126,7 @@ class Order extends DataClass implements Insertable<Order> {
       this.customerEmail,
       this.customerPhone,
       this.customerGender,
+      this.customerAddress,
       required this.cashAmount,
       required this.creditAmount,
       required this.cardAmount,
@@ -5152,6 +5169,9 @@ class Order extends DataClass implements Insertable<Order> {
     }
     if (!nullToAbsent || customerGender != null) {
       map['customer_gender'] = Variable<String>(customerGender);
+    }
+    if (!nullToAbsent || customerAddress != null) {
+      map['customer_address'] = Variable<String>(customerAddress);
     }
     map['cash_amount'] = Variable<double>(cashAmount);
     map['credit_amount'] = Variable<double>(creditAmount);
@@ -5214,6 +5234,9 @@ class Order extends DataClass implements Insertable<Order> {
       customerGender: customerGender == null && nullToAbsent
           ? const Value.absent()
           : Value(customerGender),
+      customerAddress: customerAddress == null && nullToAbsent
+          ? const Value.absent()
+          : Value(customerAddress),
       cashAmount: Value(cashAmount),
       creditAmount: Value(creditAmount),
       cardAmount: Value(cardAmount),
@@ -5264,6 +5287,7 @@ class Order extends DataClass implements Insertable<Order> {
       customerEmail: serializer.fromJson<String?>(json['customerEmail']),
       customerPhone: serializer.fromJson<String?>(json['customerPhone']),
       customerGender: serializer.fromJson<String?>(json['customerGender']),
+      customerAddress: serializer.fromJson<String?>(json['customerAddress']),
       cashAmount: serializer.fromJson<double>(json['cashAmount']),
       creditAmount: serializer.fromJson<double>(json['creditAmount']),
       cardAmount: serializer.fromJson<double>(json['cardAmount']),
@@ -5298,6 +5322,7 @@ class Order extends DataClass implements Insertable<Order> {
       'customerEmail': serializer.toJson<String?>(customerEmail),
       'customerPhone': serializer.toJson<String?>(customerPhone),
       'customerGender': serializer.toJson<String?>(customerGender),
+      'customerAddress': serializer.toJson<String?>(customerAddress),
       'cashAmount': serializer.toJson<double>(cashAmount),
       'creditAmount': serializer.toJson<double>(creditAmount),
       'cardAmount': serializer.toJson<double>(cardAmount),
@@ -5330,6 +5355,7 @@ class Order extends DataClass implements Insertable<Order> {
           Value<String?> customerEmail = const Value.absent(),
           Value<String?> customerPhone = const Value.absent(),
           Value<String?> customerGender = const Value.absent(),
+          Value<String?> customerAddress = const Value.absent(),
           double? cashAmount,
           double? creditAmount,
           double? cardAmount,
@@ -5366,6 +5392,9 @@ class Order extends DataClass implements Insertable<Order> {
             customerPhone.present ? customerPhone.value : this.customerPhone,
         customerGender:
             customerGender.present ? customerGender.value : this.customerGender,
+        customerAddress: customerAddress.present
+            ? customerAddress.value
+            : this.customerAddress,
         cashAmount: cashAmount ?? this.cashAmount,
         creditAmount: creditAmount ?? this.creditAmount,
         cardAmount: cardAmount ?? this.cardAmount,
@@ -5418,6 +5447,9 @@ class Order extends DataClass implements Insertable<Order> {
       customerGender: data.customerGender.present
           ? data.customerGender.value
           : this.customerGender,
+      customerAddress: data.customerAddress.present
+          ? data.customerAddress.value
+          : this.customerAddress,
       cashAmount:
           data.cashAmount.present ? data.cashAmount.value : this.cashAmount,
       creditAmount: data.creditAmount.present
@@ -5467,6 +5499,7 @@ class Order extends DataClass implements Insertable<Order> {
           ..write('customerEmail: $customerEmail, ')
           ..write('customerPhone: $customerPhone, ')
           ..write('customerGender: $customerGender, ')
+          ..write('customerAddress: $customerAddress, ')
           ..write('cashAmount: $cashAmount, ')
           ..write('creditAmount: $creditAmount, ')
           ..write('cardAmount: $cardAmount, ')
@@ -5501,6 +5534,7 @@ class Order extends DataClass implements Insertable<Order> {
         customerEmail,
         customerPhone,
         customerGender,
+        customerAddress,
         cashAmount,
         creditAmount,
         cardAmount,
@@ -5534,6 +5568,7 @@ class Order extends DataClass implements Insertable<Order> {
           other.customerEmail == this.customerEmail &&
           other.customerPhone == this.customerPhone &&
           other.customerGender == this.customerGender &&
+          other.customerAddress == this.customerAddress &&
           other.cashAmount == this.cashAmount &&
           other.creditAmount == this.creditAmount &&
           other.cardAmount == this.cardAmount &&
@@ -5565,6 +5600,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
   final Value<String?> customerEmail;
   final Value<String?> customerPhone;
   final Value<String?> customerGender;
+  final Value<String?> customerAddress;
   final Value<double> cashAmount;
   final Value<double> creditAmount;
   final Value<double> cardAmount;
@@ -5594,6 +5630,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.customerEmail = const Value.absent(),
     this.customerPhone = const Value.absent(),
     this.customerGender = const Value.absent(),
+    this.customerAddress = const Value.absent(),
     this.cashAmount = const Value.absent(),
     this.creditAmount = const Value.absent(),
     this.cardAmount = const Value.absent(),
@@ -5624,6 +5661,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.customerEmail = const Value.absent(),
     this.customerPhone = const Value.absent(),
     this.customerGender = const Value.absent(),
+    this.customerAddress = const Value.absent(),
     this.cashAmount = const Value.absent(),
     this.creditAmount = const Value.absent(),
     this.cardAmount = const Value.absent(),
@@ -5658,6 +5696,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     Expression<String>? customerEmail,
     Expression<String>? customerPhone,
     Expression<String>? customerGender,
+    Expression<String>? customerAddress,
     Expression<double>? cashAmount,
     Expression<double>? creditAmount,
     Expression<double>? cardAmount,
@@ -5688,6 +5727,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       if (customerEmail != null) 'customer_email': customerEmail,
       if (customerPhone != null) 'customer_phone': customerPhone,
       if (customerGender != null) 'customer_gender': customerGender,
+      if (customerAddress != null) 'customer_address': customerAddress,
       if (cashAmount != null) 'cash_amount': cashAmount,
       if (creditAmount != null) 'credit_amount': creditAmount,
       if (cardAmount != null) 'card_amount': cardAmount,
@@ -5720,6 +5760,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       Value<String?>? customerEmail,
       Value<String?>? customerPhone,
       Value<String?>? customerGender,
+      Value<String?>? customerAddress,
       Value<double>? cashAmount,
       Value<double>? creditAmount,
       Value<double>? cardAmount,
@@ -5749,6 +5790,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       customerEmail: customerEmail ?? this.customerEmail,
       customerPhone: customerPhone ?? this.customerPhone,
       customerGender: customerGender ?? this.customerGender,
+      customerAddress: customerAddress ?? this.customerAddress,
       cashAmount: cashAmount ?? this.cashAmount,
       creditAmount: creditAmount ?? this.creditAmount,
       cardAmount: cardAmount ?? this.cardAmount,
@@ -5806,6 +5848,9 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     }
     if (customerGender.present) {
       map['customer_gender'] = Variable<String>(customerGender.value);
+    }
+    if (customerAddress.present) {
+      map['customer_address'] = Variable<String>(customerAddress.value);
     }
     if (cashAmount.present) {
       map['cash_amount'] = Variable<double>(cashAmount.value);
@@ -5873,6 +5918,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
           ..write('customerEmail: $customerEmail, ')
           ..write('customerPhone: $customerPhone, ')
           ..write('customerGender: $customerGender, ')
+          ..write('customerAddress: $customerAddress, ')
           ..write('cashAmount: $cashAmount, ')
           ..write('creditAmount: $creditAmount, ')
           ..write('cardAmount: $cardAmount, ')
@@ -18474,6 +18520,7 @@ typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
   Value<String?> customerEmail,
   Value<String?> customerPhone,
   Value<String?> customerGender,
+  Value<String?> customerAddress,
   Value<double> cashAmount,
   Value<double> creditAmount,
   Value<double> cardAmount,
@@ -18504,6 +18551,7 @@ typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<String?> customerEmail,
   Value<String?> customerPhone,
   Value<String?> customerGender,
+  Value<String?> customerAddress,
   Value<double> cashAmount,
   Value<double> creditAmount,
   Value<double> cardAmount,
@@ -18612,6 +18660,10 @@ class $$OrdersTableFilterComposer
 
   ColumnFilters<String> get customerGender => $composableBuilder(
       column: $table.customerGender,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get customerAddress => $composableBuilder(
+      column: $table.customerAddress,
       builder: (column) => ColumnFilters(column));
 
   ColumnFilters<double> get cashAmount => $composableBuilder(
@@ -18769,6 +18821,10 @@ class $$OrdersTableOrderingComposer
       column: $table.customerGender,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get customerAddress => $composableBuilder(
+      column: $table.customerAddress,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<double> get cashAmount => $composableBuilder(
       column: $table.cashAmount, builder: (column) => ColumnOrderings(column));
 
@@ -18919,6 +18975,9 @@ class $$OrdersTableAnnotationComposer
   GeneratedColumn<String> get customerGender => $composableBuilder(
       column: $table.customerGender, builder: (column) => column);
 
+  GeneratedColumn<String> get customerAddress => $composableBuilder(
+      column: $table.customerAddress, builder: (column) => column);
+
   GeneratedColumn<double> get cashAmount => $composableBuilder(
       column: $table.cashAmount, builder: (column) => column);
 
@@ -19057,6 +19116,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<String?> customerEmail = const Value.absent(),
             Value<String?> customerPhone = const Value.absent(),
             Value<String?> customerGender = const Value.absent(),
+            Value<String?> customerAddress = const Value.absent(),
             Value<double> cashAmount = const Value.absent(),
             Value<double> creditAmount = const Value.absent(),
             Value<double> cardAmount = const Value.absent(),
@@ -19087,6 +19147,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             customerEmail: customerEmail,
             customerPhone: customerPhone,
             customerGender: customerGender,
+            customerAddress: customerAddress,
             cashAmount: cashAmount,
             creditAmount: creditAmount,
             cardAmount: cardAmount,
@@ -19117,6 +19178,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<String?> customerEmail = const Value.absent(),
             Value<String?> customerPhone = const Value.absent(),
             Value<String?> customerGender = const Value.absent(),
+            Value<String?> customerAddress = const Value.absent(),
             Value<double> cashAmount = const Value.absent(),
             Value<double> creditAmount = const Value.absent(),
             Value<double> cardAmount = const Value.absent(),
@@ -19147,6 +19209,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             customerEmail: customerEmail,
             customerPhone: customerPhone,
             customerGender: customerGender,
+            customerAddress: customerAddress,
             cashAmount: cashAmount,
             creditAmount: creditAmount,
             cardAmount: cardAmount,

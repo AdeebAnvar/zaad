@@ -35,6 +35,7 @@ class SalesCsvBackup {
     'customer_email',
     'customer_phone',
     'customer_gender',
+    'customer_address',
     'cash_amount',
     'credit_amount',
     'card_amount',
@@ -79,16 +80,17 @@ class SalesCsvBackup {
         sheet.getRangeByIndex(r, 10).setText(o.customerEmail ?? '');
         sheet.getRangeByIndex(r, 11).setText(o.customerPhone ?? '');
         sheet.getRangeByIndex(r, 12).setText(o.customerGender ?? '');
-        sheet.getRangeByIndex(r, 13).setNumber(o.cashAmount);
-        sheet.getRangeByIndex(r, 14).setNumber(o.creditAmount);
-        sheet.getRangeByIndex(r, 15).setNumber(o.cardAmount);
-        sheet.getRangeByIndex(r, 16).setNumber(o.onlineAmount);
-        sheet.getRangeByIndex(r, 17).setText(o.createdAt.toIso8601String());
-        sheet.getRangeByIndex(r, 18).setText(o.status);
-        sheet.getRangeByIndex(r, 19).setText(o.orderType);
-        sheet.getRangeByIndex(r, 20).setText(o.deliveryPartner ?? '');
-        sheet.getRangeByIndex(r, 21).setText(o.driverId?.toString() ?? '');
-        sheet.getRangeByIndex(r, 22).setText(o.driverName ?? '');
+        sheet.getRangeByIndex(r, 13).setText(o.customerAddress ?? '');
+        sheet.getRangeByIndex(r, 14).setNumber(o.cashAmount);
+        sheet.getRangeByIndex(r, 15).setNumber(o.creditAmount);
+        sheet.getRangeByIndex(r, 16).setNumber(o.cardAmount);
+        sheet.getRangeByIndex(r, 17).setNumber(o.onlineAmount);
+        sheet.getRangeByIndex(r, 18).setText(o.createdAt.toIso8601String());
+        sheet.getRangeByIndex(r, 19).setText(o.status);
+        sheet.getRangeByIndex(r, 20).setText(o.orderType);
+        sheet.getRangeByIndex(r, 21).setText(o.deliveryPartner ?? '');
+        sheet.getRangeByIndex(r, 22).setText(o.driverId?.toString() ?? '');
+        sheet.getRangeByIndex(r, 23).setText(o.driverName ?? '');
       }
 
       final bytes = workbook.saveAsStream();

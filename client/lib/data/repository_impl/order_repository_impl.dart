@@ -89,6 +89,7 @@ class OrderRepositoryImpl implements OrderRepository {
         customerEmail: Value(order.customerEmail),
         customerPhone: Value(order.customerPhone),
         customerGender: Value(order.customerGender),
+        customerAddress: Value(order.customerAddress),
         cashAmount: Value(order.cashAmount),
         creditAmount: Value(order.creditAmount),
         cardAmount: Value(order.cardAmount),

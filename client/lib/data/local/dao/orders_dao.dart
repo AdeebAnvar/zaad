@@ -15,6 +15,7 @@ class Orders extends Table {
   TextColumn get customerEmail => text().nullable()();
   TextColumn get customerPhone => text().nullable()();
   TextColumn get customerGender => text().nullable()();
+  TextColumn get customerAddress => text().nullable()();
   
   // Payment Details
   RealColumn get cashAmount => real().withDefault(const Constant(0))();

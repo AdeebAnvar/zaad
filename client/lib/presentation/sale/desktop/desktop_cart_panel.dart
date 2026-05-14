@@ -229,6 +229,7 @@ Future<void> showCartStylePaymentDialogForOrder(
     'phone': order.customerPhone,
     'email': order.customerEmail,
     'gender': order.customerGender,
+    'address': order.customerAddress,
     'onlineOrderNumber': order.referenceNumber,
     'discountAmount': order.discountAmount,
     'discountType': order.discountType,
@@ -270,6 +271,9 @@ Future<void> showCartStylePaymentDialogForOrder(
         final finalAmount = (freshOrder.totalAmount - totalDiscount).clamp(0.0, double.infinity);
         final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
         final updatedRef = freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : freshOrder.referenceNumber;
+        final addrRaw = customerDetails['address'];
+        final customerAddr =
+            addrRaw is String && addrRaw.trim().isNotEmpty ? addrRaw.trim() : null;
         String? hubMetadataWithOffer = freshOrder.hubMetadata;
         if (offer != null) {
           final cleanedOffer = <String, dynamic>{
@@ -305,6 +309,7 @@ Future<void> showCartStylePaymentDialogForOrder(
           customerEmail: Value(customerDetails['email'] as String?),
           customerPhone: Value(customerDetails['phone'] as String?),
           customerGender: Value(customerDetails['gender'] as String?),
+          customerAddress: Value(customerAddr),
           cashAmount: payments['cash'] ?? 0.0,
           creditAmount: payments['credit'] ?? 0.0,
           cardAmount: payments['card'] ?? 0.0,
@@ -978,6 +983,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _genderController = TextEditingController();
+  final _addressController = TextEditingController();
 
   final _cashController = TextEditingController();
   final _creditController = TextEditingController();
@@ -1027,6 +1033,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
       _phoneController.text = (prefill['phone'] as String?)?.trim() ?? '';
       _emailController.text = (prefill['email'] as String?)?.trim() ?? '';
       _genderController.text = (prefill['gender'] as String?)?.trim() ?? '';
+      _addressController.text = (prefill['address'] as String?)?.trim() ?? '';
       _onlineOrderNumberController.text = (prefill['onlineOrderNumber'] as String?)?.trim() ?? '';
     }
 
@@ -1349,6 +1356,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
       _phoneController.text = customer.phone ?? '';
       _emailController.text = customer.email ?? '';
       _genderController.text = customer.gender ?? '';
+      _addressController.text = customer.address ?? '';
     });
   }
 
@@ -1358,6 +1366,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     final phone = _phoneController.text.trim();
     final email = _emailController.text.trim();
     final gender = _genderController.text.trim();
+    final address = _addressController.text.trim();
 
     if (name.isEmpty && phone.isEmpty && email.isEmpty) return;
 
@@ -1382,7 +1391,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
           customerName: name.isEmpty ? (phone.isNotEmpty ? phone : 'Customer') : name,
           customerNumber: phone,
           customerEmail: email,
-          customerAddress: '',
+          customerAddress: address,
           customerGender: gender,
           cardNo: '',
           createdAt: now,
@@ -1736,6 +1745,15 @@ class _PaymentDialogState extends State<PaymentDialog> {
           onChanged: (v) {
             setState(() => _genderController.text = v ?? '');
           },
+        ),
+        const SizedBox(height: 12),
+        CustomTextField(
+          controller: _addressController,
+          labelText: 'Address',
+          keyBoardType: TextInputType.streetAddress,
+          maxLines: 3,
+          minLines: 2,
+          onChanged: (_) => setState(() {}),
         ),
       ],
     );
@@ -2156,6 +2174,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                               'phone': _phoneController.text,
                               'email': _emailController.text,
                               'gender': _genderController.text,
+                              'address': _addressController.text,
                               'onlineOrderNumber': _onlineOrderNumberController.text.trim().isEmpty ? null : _onlineOrderNumberController.text.trim(),
                             },
                             {
@@ -2263,6 +2282,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _phoneController.dispose();
     _emailController.dispose();
     _genderController.dispose();
+    _addressController.dispose();
     _cashController.dispose();
     _creditController.dispose();
     _cardController.dispose();

@@ -260,10 +260,12 @@ class _ScrollBody extends StatelessWidget {
   }
 
   static bool _hasCustomer(Order order) {
+    final addr = order.customerAddress?.trim();
     return order.customerName != null ||
         order.customerPhone != null ||
         order.customerEmail != null ||
-        order.customerGender != null;
+        order.customerGender != null ||
+        (addr != null && addr.isNotEmpty);
   }
 }
 
@@ -378,6 +380,8 @@ class _CustomerBlock extends StatelessWidget {
       if (order.customerPhone != null) _KeyValueRow(label: 'Phone', value: order.customerPhone!),
       if (order.customerEmail != null) _KeyValueRow(label: 'Email', value: order.customerEmail!),
       if (order.customerGender != null) _KeyValueRow(label: 'Gender', value: order.customerGender!),
+      if (order.customerAddress != null && order.customerAddress!.trim().isNotEmpty)
+        _KeyValueRow(label: 'Address', value: order.customerAddress!.trim()),
     ];
     if (rows.isEmpty) {
       return Text('—', style: AppStyles.getRegularTextStyle(fontSize: 14, color: AppColors.hintFontColor));

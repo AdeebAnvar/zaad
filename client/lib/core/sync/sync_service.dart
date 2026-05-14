@@ -465,6 +465,7 @@ class SyncService {
             'customerEmail': order.customerEmail,
             'customerPhone': order.customerPhone,
             'customerGender': order.customerGender,
+            'customerAddress': order.customerAddress,
             'cashAmount': order.cashAmount,
             'creditAmount': order.creditAmount,
             'cardAmount': order.cardAmount,

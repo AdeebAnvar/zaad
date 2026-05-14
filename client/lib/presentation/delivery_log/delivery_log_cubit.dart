@@ -45,6 +45,7 @@ List<String>? _deliveryStatusBucketToAnyOf(String? bucket) {
       return ['out_of_delivery', 'assigned', 'dispatched'];
     case 'delivered':
       return ['completed', 'delivered'];
+    case 'cancelled':
     case 'reject':
       return ['cancelled'];
     default:
@@ -95,7 +96,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
   String? _selectedPartner;
   final Set<int> _normalSelection = {};
 
-  /// `all` | `pending` | `out_for_delivery` | `delivered` | `reject`
+  /// `all` | `pending` | `out_for_delivery` | `delivered` | `cancelled`
   String? _deliveryStatusBucket;
 
   void selectPartnerTab(String? partner) {
@@ -150,7 +151,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
   String? get deliveryStatusBucket =>
       (_deliveryStatusBucket == null || _deliveryStatusBucket == 'all') ? null : _deliveryStatusBucket;
 
-  /// Filter bar value: `all` | `pending` | `out_for_delivery` | `delivered` | `reject`
+  /// Filter bar value: `all` | `pending` | `out_for_delivery` | `delivered` | `cancelled`
   String get deliveryStatusFilterKey => deliveryStatusBucket ?? 'all';
 
   Future<void> loadOrders() async {
