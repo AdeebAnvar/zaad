@@ -21,6 +21,7 @@ class OrderRepositoryImpl implements OrderRepository {
 
   /// Shared across instances so parallel UI flows cannot read the same max suffix before another inserts a cart.
   static final Lock _invoiceAllocLock = Lock();
+  static final Lock _pickupTokenLock = Lock();
 
   Future<int> _activeBranchId() async {
     final session = await db.sessionDao.getActiveSession();
@@ -47,6 +48,7 @@ class OrderRepositoryImpl implements OrderRepository {
       'invoice_number': order.invoiceNumber,
       'created_at': order.createdAt.toIso8601String(),
       'status': order.status,
+      if (order.pickupToken != null) 'pickup_token': order.pickupToken,
       ...flutter,
       if (cashierName != null) 'cashier_name': cashierName,
       'items': HubOrdersPayloadBuilder.cartLinesToJson(cartItems),
@@ -68,6 +70,11 @@ class OrderRepositoryImpl implements OrderRepository {
   @override
   Future<int> createOrder(Order order) async {
     final branchId = await _activeBranchId();
+    final nextToken = await _pickupTokenLock.synchronized(() async {
+      final after = await db.dayClosingCheckpointDao.lastSettledAtForBranch(branchId);
+      final maxTok = await db.ordersDao.maxPickupTokenForBranchSince(branchId, after);
+      return (maxTok ?? 0) + 1;
+    });
     final newId = await db.ordersDao.createOrder(
       OrdersCompanion.insert(
         cartId: order.cartId,
@@ -94,6 +101,7 @@ class OrderRepositoryImpl implements OrderRepository {
         driverName: Value(order.driverName),
         userId: Value(order.userId),
         hubSyncPending: const Value(false),
+        pickupToken: Value(nextToken),
       ),
     );
     final saved = await db.ordersDao.getOrderById(newId);
@@ -193,6 +201,7 @@ class OrderRepositoryImpl implements OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
   }) async {
     final bid = await _activeBranchId();
     return db.ordersDao.filterOrders(
@@ -207,6 +216,7 @@ class OrderRepositoryImpl implements OrderRepository {
       endDate: endDate,
       driverId: driverId,
       userId: userId,
+      pickupToken: pickupToken,
       branchId: bid,
     );
   }

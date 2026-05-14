@@ -16,6 +16,7 @@ class SettleSalePushMapper {
     required int branchId,
     required int userId,
     required DateTime at,
+    DayClosingCloseCashReconciliation? cashCloseReconciliation,
   }) {
     final orderTypeSummary = <String, dynamic>{};
     for (final row in s.typeRows) {
@@ -34,6 +35,19 @@ class SettleSalePushMapper {
 
     final expense = s.purchase + s.salary;
     final ts = PushLocalToPushRecordsMapper.formatApiDateTime(at);
+
+    final cashSaleForPayload = cashCloseReconciliation != null
+        ? cashCloseReconciliation.actualCashSale
+        : s.cashSale;
+    final excessForPayload =
+        cashCloseReconciliation != null ? cashCloseReconciliation.manualExcess : s.excessAmount;
+    final shortForPayload =
+        cashCloseReconciliation != null ? cashCloseReconciliation.manualShort : s.shortAmount;
+    final cashInForPayload = cashCloseReconciliation != null
+        ? (s.openingCash + cashCloseReconciliation.actualCashSale)
+        : s.cashIn;
+    final cashDrawerForPayload =
+        cashCloseReconciliation != null ? (cashInForPayload - s.cashOut) : s.cashDrawer;
 
     final categoryWise = s.categoryRows
         .map(
@@ -59,7 +73,7 @@ class SettleSalePushMapper {
       'branch_id': branchId,
       'user_id': userId,
       'cash_at_starting': s.openingCash,
-      'cash_sale': s.cashSale,
+      'cash_sale': cashSaleForPayload,
       'card_sale': s.cardSale,
       'credit_sale': s.creditSale,
       'delivery_sale': s.deliverySale,
@@ -67,7 +81,7 @@ class SettleSalePushMapper {
       'credit_recover': s.creditRecovery,
       'discount': s.discount,
       'net_total': s.netTotal,
-      'cash_drawer': s.cashDrawer.toString(),
+      'cash_drawer': cashDrawerForPayload.toString(),
       'gross_total_tax': '0',
       'expense': expense.toString(),
       'pay_back': 0,
@@ -78,10 +92,10 @@ class SettleSalePushMapper {
       'outstanding_credit': s.outstandingCredit,
       'purchasePaymentWise': '[]',
       'expensepayment_wise': '[]',
-      'cash_in': s.cashIn,
+      'cash_in': cashInForPayload,
       'cash_out': s.cashOut,
-      'excess': s.excessAmount,
-      'short': s.shortAmount,
+      'excess': excessForPayload,
+      'short': shortForPayload,
       'order_type_summary': jsonEncode(orderTypeSummary),
       'category_wise_product_list': jsonEncode(categoryWise),
       'item_wise_product_list': jsonEncode(itemWise),

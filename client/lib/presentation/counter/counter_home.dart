@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -30,6 +31,41 @@ class CounterHome extends StatefulWidget {
 }
 
 class _CounterHomeState extends State<CounterHome> {
+  StreamSubscription<Order?>? _tokenBoardSub;
+  int? _lastPickupToken;
+
+  @override
+  void initState() {
+    super.initState();
+    _bindPickupTokenStream();
+  }
+
+  Future<void> _bindPickupTokenStream() async {
+    await _tokenBoardSub?.cancel();
+    final db = locator<AppDatabase>();
+    final session = await db.sessionDao.getActiveSession();
+    final bid = session?.branchId ?? 1;
+    if (!mounted) return;
+    _tokenBoardSub = db.dayClosingCheckpointDao
+        .watchLastSettledAtForBranch(bid)
+        .asyncExpand(
+          (cutoff) => db.ordersDao.watchLatestOrderWithPickupToken(
+                branchId: bid,
+                createdAfterExclusive: cutoff,
+              ),
+        )
+        .listen((order) {
+      if (!mounted) return;
+      setState(() => _lastPickupToken = order?.pickupToken);
+    });
+  }
+
+  @override
+  void dispose() {
+    _tokenBoardSub?.cancel();
+    super.dispose();
+  }
+
   List<_DashboardTile> _tilesForAccess(CounterAccess access) {
     final list = <_DashboardTile>[];
     if (access.canTakeAwayCounter) {
@@ -166,38 +202,63 @@ class _CounterHomeState extends State<CounterHome> {
           }
 
           final width = constraints.maxWidth;
+          final height = constraints.maxHeight;
           final maxColsByWidth = width >= 1200 ? 3 : (width >= 760 ? 2 : 1);
           // Fewer tiles than columns left empty trailing cells — looks left-heavy on wide dashboards.
           final crossAxisCount = math.max(1, math.min(maxColsByWidth, tiles.length));
-          final maxWidth = width >= 1400 ? 1120.0 : (width >= 760 ? 980.0 : width);
-          final contentWidth = math.min(maxWidth, width);
-          final gap = width >= 760 ? 12.0 : 10.0;
-          final horizontalPad = width >= 760 ? 200.0 : 10.0;
-          final verticalPad = width >= 760 ? 29.0 : 12.0;
+          final gap = width >= 760 ? 14.0 : 10.0;
+          final horizontalPad = math.max(12.0, math.min(28.0, width * 0.03));
+          final verticalPad = math.max(10.0, math.min(24.0, height * 0.02));
 
-          return Center(
-            child: SizedBox(
-              width: contentWidth,
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(horizontalPad, verticalPad, horizontalPad, 12),
-                child: GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: tiles.length,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: crossAxisCount,
-                    crossAxisSpacing: gap,
-                    mainAxisSpacing: gap,
-                    mainAxisExtent: 100,
-                  ),
-                  itemBuilder: (context, index) {
-                    final t = tiles[index];
-                    return _DashboardCard(
-                      title: t.title,
-                      icon: t.icon,
-                      onTap: () => t.onTap(context),
-                    );
-                  },
+          return Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(horizontalPad, verticalPad, horizontalPad, 12),
+              child: SizedBox(
+                width: math.max(0, width - 2 * horizontalPad),
+                height: math.max(0, height - verticalPad - 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      flex: 38,
+                      child: _CounterPickupTokenStrip(token: _lastPickupToken),
+                    ),
+                    SizedBox(height: gap + 2),
+                    Expanded(
+                      flex: 62,
+                      child: LayoutBuilder(
+                        builder: (context, gridConstraints) {
+                          final rows = (tiles.length + crossAxisCount - 1) ~/ crossAxisCount;
+                          final innerH = gridConstraints.maxHeight;
+                          final tileH = rows > 0
+                              ? math.max(
+                                  72.0,
+                                  (innerH - (rows - 1) * gap) / rows,
+                                )
+                              : 100.0;
+                          return GridView.builder(
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: tiles.length,
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: crossAxisCount,
+                              crossAxisSpacing: gap,
+                              mainAxisSpacing: gap,
+                              mainAxisExtent: tileH,
+                            ),
+                            itemBuilder: (context, index) {
+                              final t = tiles[index];
+                              return _DashboardCard(
+                                title: t.title,
+                                icon: t.icon,
+                                onTap: () => t.onTap(context),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -213,6 +274,73 @@ class _DashboardTile {
   final String title;
   final IconData icon;
   final void Function(BuildContext context) onTap;
+}
+
+class _CounterPickupTokenStrip extends StatelessWidget {
+  const _CounterPickupTokenStrip({required this.token});
+  final int? token;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = token != null ? '$token' : '—';
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
+        final compact = w < 560;
+        final numberFont = (h * 0.42).clamp(44.0, 120.0);
+        final labelFont = (h * 0.075).clamp(12.0, 18.0);
+        return Container(
+          width: double.infinity,
+          height: h.isFinite ? h : null,
+          padding: EdgeInsets.symmetric(
+            vertical: math.max(8.0, h * 0.06),
+            horizontal: 12,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.shade300),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'TOKEN NO.',
+                style: AppStyles.getSemiBoldTextStyle(
+                  fontSize: compact ? math.min(labelFont, 13) : labelFont,
+                  color: AppColors.hintFontColor,
+                ).copyWith(letterSpacing: 1.2),
+              ),
+              SizedBox(height: math.max(4.0, h * 0.02)),
+              Expanded(
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      style: AppStyles.getBoldTextStyle(
+                        fontSize: numberFont,
+                        color: AppColors.primaryColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 /// -------------------- DELIVERY SERVICE DIALOG --------------------
@@ -378,46 +506,53 @@ class _DashboardCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final w = MediaQuery.sizeOf(context).width;
-    final compact = w < 560;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.primaryColor,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
+        final compact = w < 560 || h < 72;
+        final iconSize = (h * 0.32).clamp(18.0, 32.0);
+        final fontSize = (h * 0.2).clamp(14.0, 24.0);
+        return InkWell(
           borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 14),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: Colors.white.withValues(alpha: 0.96), size: compact ? 18 : 20),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: AppStyles.getSemiBoldTextStyle(
-                    fontSize: compact ? 18 : 19,
-                    color: Colors.white,
-                  ),
+          onTap: onTap,
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.primaryColor,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
+              ],
+            ),
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: compact ? 10 : math.max(10.0, w * 0.06)),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, color: Colors.white.withValues(alpha: 0.96), size: iconSize),
+                  SizedBox(width: math.max(8.0, w * 0.04)),
+                  Flexible(
+                    child: Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: AppStyles.getSemiBoldTextStyle(
+                        fontSize: compact ? math.min(fontSize, 17) : fontSize,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

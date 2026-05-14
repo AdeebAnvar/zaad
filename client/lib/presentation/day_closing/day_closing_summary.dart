@@ -121,6 +121,8 @@ class DayClosingSummary {
   final double discount;
   final double netTotal;
   final double openingCash;
+  /// Net cash from settled orders after allocated discounts (same basis as [cashIn] minus [openingCash]).
+  final double cashSaleAfterDiscount;
   final double cashSale;
   final double cardSale;
   final double creditSale;
@@ -161,6 +163,7 @@ class DayClosingSummary {
     required this.discount,
     required this.netTotal,
     required this.openingCash,
+    required this.cashSaleAfterDiscount,
     required this.cashSale,
     required this.cardSale,
     required this.creditSale,
@@ -197,6 +200,7 @@ class DayClosingSummary {
         discount: 0,
         netTotal: 0,
         openingCash: 0,
+        cashSaleAfterDiscount: 0,
         cashSale: 0,
         cardSale: 0,
         creditSale: 0,
@@ -554,6 +558,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
     discount: discount,
     netTotal: netTotal,
     openingCash: openingCash,
+    cashSaleAfterDiscount: cashSaleAfterDiscount,
     cashSale: cashSale,
     cardSale: cardSale,
     creditSale: creditSale,
@@ -581,4 +586,20 @@ Future<DayClosingSummary> computeDayClosingSummary(
     cancelledRows: cancelledRows,
     openBills: openBills,
   );
+}
+
+/// User-entered excess/short when closing the day; [actualCashSale] is sent on push and printed on the receipt.
+class DayClosingCloseCashReconciliation {
+  const DayClosingCloseCashReconciliation({
+    required this.expectedCashSaleAfterDiscount,
+    required this.manualExcess,
+    required this.manualShort,
+  });
+
+  final double expectedCashSaleAfterDiscount;
+  final double manualExcess;
+  final double manualShort;
+
+  double get actualCashSale =>
+      expectedCashSaleAfterDiscount + manualExcess - manualShort;
 }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/app/navigation.dart';
+import 'package:pos/app/routes.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/network/lan_hub_health.dart';
@@ -345,6 +347,17 @@ class _LanHubSettingsScreenState extends State<LanHubSettingsScreen> {
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         elevation: 1,
+        leading: IconButton(
+          tooltip: 'Back',
+          icon: Icon(Icons.arrow_back_rounded, color: AppColors.primaryColor),
+          onPressed: () {
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              AppNavigator.pushReplacementNamed(Routes.dashboard);
+            }
+          },
+        ),
         title: Text(
           'LAN hub',
           style: AppStyles.getSemiBoldTextStyle(fontSize: 18),

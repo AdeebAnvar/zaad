@@ -175,6 +175,66 @@ void main() {
       expect(summary.shortAmount, closeTo(0, 0.02));
     },
   );
+
+  test('SettleSalePushMapper: cash close reconciliation overrides cash_sale and drawer fields', () async {
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+
+    await _seedMinimalCatalogAndSession(db);
+
+    final cartId = await db.cartsDao.createCart('INV-R1', branchId: 1);
+    await db.into(db.cartItems).insert(
+          CartItemsCompanion.insert(
+            cartId: cartId,
+            itemId: 1,
+            quantity: 1,
+            total: const Value(90),
+            discount: const Value(10),
+            itemName: const Value('Burger'),
+          ),
+        );
+    await db.ordersDao.createOrder(
+      OrdersCompanion.insert(
+        cartId: cartId,
+        invoiceNumber: 'INV-R1',
+        totalAmount: 90,
+        finalAmount: 90,
+        discountAmount: const Value(0),
+        discountType: const Value(null),
+        createdAt: DateTime(2026, 1, 15, 10),
+        status: const Value('completed'),
+        orderType: const Value('take_away'),
+        branchId: const Value(1),
+        cashAmount: const Value(90),
+        cardAmount: const Value(0),
+        creditAmount: const Value(0),
+        onlineAmount: const Value(0),
+        userId: const Value(1),
+      ),
+    );
+
+    final summary = await computeDayClosingSummary(db);
+    expect(summary.cashSaleAfterDiscount, closeTo(90, 0.01));
+
+    final recon = DayClosingCloseCashReconciliation(
+      expectedCashSaleAfterDiscount: summary.cashSaleAfterDiscount,
+      manualExcess: 10,
+      manualShort: 2,
+    );
+    final payload = SettleSalePushMapper.buildSettleSalePayload(
+      summary,
+      uuid: 'u',
+      branchId: 1,
+      userId: 1,
+      at: DateTime.utc(2026, 1, 15, 10),
+      cashCloseReconciliation: recon,
+    );
+    expect((payload['cash_sale'] as num).toDouble(), closeTo(98, 0.01));
+    expect((payload['excess'] as num).toDouble(), 10);
+    expect((payload['short'] as num).toDouble(), 2);
+    expect((payload['cash_in'] as num).toDouble(), closeTo(98, 0.01));
+    expect(double.parse(payload['cash_drawer'] as String), closeTo(98, 0.01));
+  });
 }
 
 Future<void> _seedMinimalCatalogAndSession(AppDatabase db) async {

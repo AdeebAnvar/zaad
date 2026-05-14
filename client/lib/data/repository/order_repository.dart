@@ -21,6 +21,7 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
   });
 
   Future<List<Order>> getDeliveryOrdersWithDriver();

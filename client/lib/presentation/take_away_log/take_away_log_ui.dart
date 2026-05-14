@@ -155,6 +155,7 @@ class _FilterBar extends StatefulWidget {
 class _FilterBarState extends State<_FilterBar> {
   final _invoiceController = TextEditingController();
   final _referenceController = TextEditingController();
+  final _tokenController = TextEditingController();
   final _usersController = TextEditingController();
   int? _filterUserId;
 
@@ -162,8 +163,16 @@ class _FilterBarState extends State<_FilterBar> {
   void dispose() {
     _invoiceController.dispose();
     _referenceController.dispose();
+    _tokenController.dispose();
     _usersController.dispose();
     super.dispose();
+  }
+
+  int? _parsePickupToken(String raw) {
+    final s = raw.trim();
+    if (s.isEmpty) return null;
+    final stripped = s.startsWith('#') ? s.substring(1).trim() : s;
+    return int.tryParse(stripped);
   }
 
   void _applyFilters() {
@@ -172,6 +181,7 @@ class _FilterBarState extends State<_FilterBar> {
       invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
       referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
       userId: _filterUserId,
+      pickupToken: _parsePickupToken(_tokenController.text),
     );
   }
 
@@ -179,6 +189,7 @@ class _FilterBarState extends State<_FilterBar> {
     setState(() {
       _invoiceController.clear();
       _referenceController.clear();
+      _tokenController.clear();
       _usersController.clear();
       _filterUserId = null;
     });
@@ -192,7 +203,7 @@ class _FilterBarState extends State<_FilterBar> {
         final m = LogFilterLayout(constraints.maxWidth);
         return LogFilterShell(
           title: 'Filters',
-          subtitle: 'Receipt No, Reference No, and Users',
+          subtitle: 'Receipt No., reference, token no., and users',
           icon: Icons.filter_alt_outlined,
           body: Wrap(
             spacing: 8,
@@ -211,6 +222,15 @@ class _FilterBarState extends State<_FilterBar> {
                 child: CustomTextField(
                   controller: _referenceController,
                   labelText: 'Reference No.',
+                  onChanged: (_) => _applyFilters(),
+                ),
+              ),
+              SizedBox(
+                width: m.compactFieldWidth,
+                child: CustomTextField(
+                  controller: _tokenController,
+                  labelText: 'Token No.',
+                  keyBoardType: TextInputType.number,
                   onChanged: (_) => _applyFilters(),
                 ),
               ),
@@ -283,6 +303,7 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
       referenceNumber: order.referenceNumber ?? '',
       createdAt: order.createdAt,
       orderTakerName: _orderUserName,
+      pickupToken: order.pickupToken,
       onDelete: canDelete ? () => _handleDelete(context, order) : null,
       actions: [
         LogCardAction(

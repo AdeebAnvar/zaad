@@ -12,8 +12,8 @@ import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository_impl/settle_sale_push_mapper.dart';
+import 'package:pos/presentation/day_closing/day_closing_reconciliation_dialog.dart';
 import 'package:pos/presentation/day_closing/day_closing_summary.dart';
-import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:uuid/uuid.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
@@ -30,6 +30,8 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
   bool _loading = true;
   bool _submitting = false;
   DayClosingSummary _summary = DayClosingSummary.empty();
+  /// Last successful close reconciliation (for re-print until next close).
+  DayClosingCloseCashReconciliation? _lastCloseCashReconciliation;
 
   CounterAccess get _counterAccess => locator<CurrentCounterSession>().access;
 
@@ -81,6 +83,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       final failed = await printService.printDayClosingReport(
         summary: _summary,
         counterAccess: _counterAccess,
+        closeCashReconciliation: _lastCloseCashReconciliation,
       );
       if (!mounted) return;
       if (failed.isEmpty) {
@@ -94,17 +97,6 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
     }
   }
 
-  Future<bool> _confirmSubmitDayClosing() async {
-    final result = await showAppConfirmDialog(
-      context,
-      title: 'Close day?',
-      message: 'Are you sure you want to close the day?',
-      cancelText: 'Cancel',
-      confirmText: 'Yes, close day',
-    );
-    return result == true;
-  }
-
   Future<void> _onSubmit() async {
     if (_submitting) return;
     if (_summary.unpaidAmount > 0.009) {
@@ -113,8 +105,11 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       );
       return;
     }
-    final ok = await _confirmSubmitDayClosing();
-    if (!mounted || !ok) return;
+    final recon = await showDayClosingReconciliationDialog(
+      context,
+      expectedCashSaleAfterDiscount: _summary.cashSaleAfterDiscount,
+    );
+    if (!mounted || recon == null) return;
     setState(() => _submitting = true);
     try {
       final db = locator<AppDatabase>();
@@ -141,6 +136,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         branchId: branchId,
         userId: userId,
         at: at,
+        cashCloseReconciliation: recon,
       );
 
       await db.settleSalesOutboxDao.insertPending(
@@ -157,6 +153,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         openingCashValue: 0,
       );
       if (!mounted) return;
+      setState(() => _lastCloseCashReconciliation = recon);
       CustomSnackBar.showSuccess(message: 'Day closed successfully.');
       await _load();
     } catch (e) {

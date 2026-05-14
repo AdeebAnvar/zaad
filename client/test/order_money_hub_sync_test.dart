@@ -186,6 +186,7 @@ void main() {
       expect(f['total_amount'], 30);
       expect(f['final_amount'], 27);
       expect(f['discount_amount'], 3);
+      expect(f['branch_id'], 1);
     });
 
     test('decodeEnvelopeMetadata parses hubMetadata wrapper', () {

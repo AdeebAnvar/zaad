@@ -497,6 +497,24 @@ class _ReceiptPaper extends StatelessWidget {
       children.add(Text('Order type: $otLabel', style: monoBold, textAlign: TextAlign.center));
     }
 
+    if (order.pickupToken != null) {
+      children.add(const SizedBox(height: 8));
+      children.add(
+        Text(
+          'Token No.: ${order.pickupToken}',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 23,
+            height: 1.12,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.0,
+            color: Colors.black,
+          ),
+        ),
+      );
+    }
+
     children.add(const SizedBox(height: 10));
     children.add(Text(itemHeaderPreview, style: monoBold));
     children.add(Text('-' * 42, style: mono));
@@ -673,6 +691,14 @@ class _RawTicketPaper extends StatelessWidget {
       height: 1.25,
       color: Colors.black87,
     );
+    const tokenMono = TextStyle(
+      fontFamily: 'monospace',
+      fontSize: 23,
+      height: 1.12,
+      fontWeight: FontWeight.w900,
+      letterSpacing: 1.0,
+      color: Colors.black,
+    );
 
     final branch = data.branch;
     final branchNameLc = branch?.branchName.trim().toLowerCase() ?? '';
@@ -744,7 +770,8 @@ class _RawTicketPaper extends StatelessWidget {
           for (final line in data.rawLines)
             Text(
               line,
-              style: mono,
+              style: line.trimLeft().startsWith('Token No.:') ? tokenMono : mono,
+              textAlign: line.trimLeft().startsWith('Token No.:') ? TextAlign.center : TextAlign.start,
               softWrap: false,
             ),
         ],

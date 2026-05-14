@@ -316,6 +316,7 @@ class _DineInLogCardState extends State<DineInLogCard> {
       referenceNumber: _dineInLogReferenceLabel(order),
       createdAt: order.createdAt,
       orderTakerName: _orderUserName,
+      pickupToken: order.pickupToken,
       onDelete: () => _handleDelete(context, order),
       actions: [
         LogCardAction(

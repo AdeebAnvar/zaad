@@ -82,6 +82,7 @@ OrdersCompanion _mirroredCustomerPaymentCompanion(Map<String, dynamic> snap, Map
     deliveryPartner: _mirrorOptStr(snap, xf, 'delivery_partner', 'deliveryPartner'),
     driverId: _mirrorOptInt(snap, xf, 'driver_id', 'driverId'),
     driverName: _mirrorOptStr(snap, xf, 'driver_name', 'driverName'),
+    pickupToken: _mirrorOptInt(snap, xf, 'pickup_token', 'pickupToken'),
   );
 }
 
@@ -434,7 +435,19 @@ class SyncInboxApplier {
     final mirroredUserId = coerceUserId(snap['user_id']) ??
         coerceUserId(flutterSnap?['user_id']);
 
+    final sess = await db.sessionDao.getActiveSession();
     final mirroredExtra = _mirroredCustomerPaymentCompanion(snap, flutterSnap);
+
+    final branchFromSnap = _snapshotPick(snap, flutterSnap, 'branch_id', 'branchId');
+    var branchBid = sess?.branchId ?? 1;
+    if (branchFromSnap != null) {
+      final parsed = branchFromSnap is int
+          ? branchFromSnap
+          : (branchFromSnap is num ? branchFromSnap.toInt() : int.tryParse(branchFromSnap.toString()));
+      if (parsed != null && parsed > 0) {
+        branchBid = parsed;
+      }
+    }
 
     if (existing != null) {
       await (db.update(db.orders)..where((o) => o.serverOrderId.equals(sid))).write(
@@ -447,11 +460,10 @@ class SyncInboxApplier {
           referenceNumber: ref != null && ref.isNotEmpty ? Value(ref) : null,
           userId: mirroredUserId != null ? Value(mirroredUserId) : null,
           hubMetadata: Value(hubMeta),
+          branchId: Value(branchBid),
         ),
       );
     } else {
-      final sess = await db.sessionDao.getActiveSession();
-      final branchBid = sess?.branchId ?? 1;
       final cartId = await _ensureShadowCart();
       await db.into(db.orders).insert(
             OrdersCompanion.insert(
@@ -481,6 +493,7 @@ class SyncInboxApplier {
               deliveryPartner: mirroredExtra.deliveryPartner,
               driverId: mirroredExtra.driverId,
               driverName: mirroredExtra.driverName,
+              pickupToken: mirroredExtra.pickupToken,
             ),
           );
     }

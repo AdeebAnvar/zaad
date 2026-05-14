@@ -516,6 +516,7 @@ class CartCubit extends Cubit<CartState> {
                 invoiceNumber: inv,
                 branchId: bid,
                 orderedAt: ordAt,
+                pickupToken: kotOrder?.pickupToken,
               );
       } else {
         final itemsToPrint = state.items.where((i) => !_kotPrintedCartItemIds.contains(i.id)).toList();
@@ -903,6 +904,7 @@ class CartCubit extends Cubit<CartState> {
       serverOrderId: existingOrder.serverOrderId,
       hubMetadata: existingOrder.hubMetadata,
       hubSyncPending: existingOrder.hubSyncPending,
+      pickupToken: existingOrder.pickupToken,
     );
 
     // Update order in database
@@ -980,6 +982,7 @@ class CartCubit extends Cubit<CartState> {
       serverOrderId: existingOrder.serverOrderId,
       hubMetadata: _withOfferMetadata(existingOrder.hubMetadata, offer),
       hubSyncPending: existingOrder.hubSyncPending,
+      pickupToken: existingOrder.pickupToken,
     );
 
     // Update order in database
@@ -1000,6 +1003,7 @@ class CartCubit extends Cubit<CartState> {
               invoiceNumber: updatedOrder.invoiceNumber,
               branchId: updatedOrder.branchId,
               orderedAt: updatedOrder.createdAt,
+              pickupToken: updatedOrder.pickupToken,
             ),
           );
         }

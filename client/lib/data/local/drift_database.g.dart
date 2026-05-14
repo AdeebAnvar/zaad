@@ -4772,6 +4772,12 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'CHECK ("hub_sync_pending" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _pickupTokenMeta =
+      const VerificationMeta('pickupToken');
+  @override
+  late final GeneratedColumn<int> pickupToken = GeneratedColumn<int>(
+      'pickup_token', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -4800,7 +4806,8 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
         branchId,
         serverOrderId,
         hubMetadata,
-        hubSyncPending
+        hubSyncPending,
+        pickupToken
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4967,6 +4974,12 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           hubSyncPending.isAcceptableOrUnknown(
               data['hub_sync_pending']!, _hubSyncPendingMeta));
     }
+    if (data.containsKey('pickup_token')) {
+      context.handle(
+          _pickupTokenMeta,
+          pickupToken.isAcceptableOrUnknown(
+              data['pickup_token']!, _pickupTokenMeta));
+    }
     return context;
   }
 
@@ -5030,6 +5043,8 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           .read(DriftSqlType.string, data['${effectivePrefix}hub_metadata']),
       hubSyncPending: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}hub_sync_pending'])!,
+      pickupToken: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}pickup_token']),
     );
   }
 
@@ -5079,6 +5094,9 @@ class Order extends DataClass implements Insertable<Order> {
 
   /// LOCAL offline: row exists locally but POST /orders not confirmed yet.
   final bool hubSyncPending;
+
+  /// Daily pickup / queue number; resets after [DayClosingCheckpoint.lastSettledAt] for the branch.
+  final int? pickupToken;
   const Order(
       {required this.id,
       required this.cartId,
@@ -5106,7 +5124,8 @@ class Order extends DataClass implements Insertable<Order> {
       required this.branchId,
       this.serverOrderId,
       this.hubMetadata,
-      required this.hubSyncPending});
+      required this.hubSyncPending,
+      this.pickupToken});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -5163,6 +5182,9 @@ class Order extends DataClass implements Insertable<Order> {
       map['hub_metadata'] = Variable<String>(hubMetadata);
     }
     map['hub_sync_pending'] = Variable<bool>(hubSyncPending);
+    if (!nullToAbsent || pickupToken != null) {
+      map['pickup_token'] = Variable<int>(pickupToken);
+    }
     return map;
   }
 
@@ -5220,6 +5242,9 @@ class Order extends DataClass implements Insertable<Order> {
           ? const Value.absent()
           : Value(hubMetadata),
       hubSyncPending: Value(hubSyncPending),
+      pickupToken: pickupToken == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pickupToken),
     );
   }
 
@@ -5254,6 +5279,7 @@ class Order extends DataClass implements Insertable<Order> {
       serverOrderId: serializer.fromJson<String?>(json['serverOrderId']),
       hubMetadata: serializer.fromJson<String?>(json['hubMetadata']),
       hubSyncPending: serializer.fromJson<bool>(json['hubSyncPending']),
+      pickupToken: serializer.fromJson<int?>(json['pickupToken']),
     );
   }
   @override
@@ -5287,6 +5313,7 @@ class Order extends DataClass implements Insertable<Order> {
       'serverOrderId': serializer.toJson<String?>(serverOrderId),
       'hubMetadata': serializer.toJson<String?>(hubMetadata),
       'hubSyncPending': serializer.toJson<bool>(hubSyncPending),
+      'pickupToken': serializer.toJson<int?>(pickupToken),
     };
   }
 
@@ -5317,7 +5344,8 @@ class Order extends DataClass implements Insertable<Order> {
           int? branchId,
           Value<String?> serverOrderId = const Value.absent(),
           Value<String?> hubMetadata = const Value.absent(),
-          bool? hubSyncPending}) =>
+          bool? hubSyncPending,
+          Value<int?> pickupToken = const Value.absent()}) =>
       Order(
         id: id ?? this.id,
         cartId: cartId ?? this.cartId,
@@ -5356,6 +5384,7 @@ class Order extends DataClass implements Insertable<Order> {
             serverOrderId.present ? serverOrderId.value : this.serverOrderId,
         hubMetadata: hubMetadata.present ? hubMetadata.value : this.hubMetadata,
         hubSyncPending: hubSyncPending ?? this.hubSyncPending,
+        pickupToken: pickupToken.present ? pickupToken.value : this.pickupToken,
       );
   Order copyWithCompanion(OrdersCompanion data) {
     return Order(
@@ -5418,6 +5447,8 @@ class Order extends DataClass implements Insertable<Order> {
       hubSyncPending: data.hubSyncPending.present
           ? data.hubSyncPending.value
           : this.hubSyncPending,
+      pickupToken:
+          data.pickupToken.present ? data.pickupToken.value : this.pickupToken,
     );
   }
 
@@ -5450,7 +5481,8 @@ class Order extends DataClass implements Insertable<Order> {
           ..write('branchId: $branchId, ')
           ..write('serverOrderId: $serverOrderId, ')
           ..write('hubMetadata: $hubMetadata, ')
-          ..write('hubSyncPending: $hubSyncPending')
+          ..write('hubSyncPending: $hubSyncPending, ')
+          ..write('pickupToken: $pickupToken')
           ..write(')'))
         .toString();
   }
@@ -5483,7 +5515,8 @@ class Order extends DataClass implements Insertable<Order> {
         branchId,
         serverOrderId,
         hubMetadata,
-        hubSyncPending
+        hubSyncPending,
+        pickupToken
       ]);
   @override
   bool operator ==(Object other) =>
@@ -5515,7 +5548,8 @@ class Order extends DataClass implements Insertable<Order> {
           other.branchId == this.branchId &&
           other.serverOrderId == this.serverOrderId &&
           other.hubMetadata == this.hubMetadata &&
-          other.hubSyncPending == this.hubSyncPending);
+          other.hubSyncPending == this.hubSyncPending &&
+          other.pickupToken == this.pickupToken);
 }
 
 class OrdersCompanion extends UpdateCompanion<Order> {
@@ -5546,6 +5580,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
   final Value<String?> serverOrderId;
   final Value<String?> hubMetadata;
   final Value<bool> hubSyncPending;
+  final Value<int?> pickupToken;
   const OrdersCompanion({
     this.id = const Value.absent(),
     this.cartId = const Value.absent(),
@@ -5574,6 +5609,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.serverOrderId = const Value.absent(),
     this.hubMetadata = const Value.absent(),
     this.hubSyncPending = const Value.absent(),
+    this.pickupToken = const Value.absent(),
   });
   OrdersCompanion.insert({
     this.id = const Value.absent(),
@@ -5603,6 +5639,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.serverOrderId = const Value.absent(),
     this.hubMetadata = const Value.absent(),
     this.hubSyncPending = const Value.absent(),
+    this.pickupToken = const Value.absent(),
   })  : cartId = Value(cartId),
         invoiceNumber = Value(invoiceNumber),
         totalAmount = Value(totalAmount),
@@ -5636,6 +5673,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     Expression<String>? serverOrderId,
     Expression<String>? hubMetadata,
     Expression<bool>? hubSyncPending,
+    Expression<int>? pickupToken,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -5665,6 +5703,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       if (serverOrderId != null) 'server_order_id': serverOrderId,
       if (hubMetadata != null) 'hub_metadata': hubMetadata,
       if (hubSyncPending != null) 'hub_sync_pending': hubSyncPending,
+      if (pickupToken != null) 'pickup_token': pickupToken,
     });
   }
 
@@ -5695,7 +5734,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       Value<int>? branchId,
       Value<String?>? serverOrderId,
       Value<String?>? hubMetadata,
-      Value<bool>? hubSyncPending}) {
+      Value<bool>? hubSyncPending,
+      Value<int?>? pickupToken}) {
     return OrdersCompanion(
       id: id ?? this.id,
       cartId: cartId ?? this.cartId,
@@ -5724,6 +5764,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       serverOrderId: serverOrderId ?? this.serverOrderId,
       hubMetadata: hubMetadata ?? this.hubMetadata,
       hubSyncPending: hubSyncPending ?? this.hubSyncPending,
+      pickupToken: pickupToken ?? this.pickupToken,
     );
   }
 
@@ -5811,6 +5852,9 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     if (hubSyncPending.present) {
       map['hub_sync_pending'] = Variable<bool>(hubSyncPending.value);
     }
+    if (pickupToken.present) {
+      map['pickup_token'] = Variable<int>(pickupToken.value);
+    }
     return map;
   }
 
@@ -5843,7 +5887,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
           ..write('branchId: $branchId, ')
           ..write('serverOrderId: $serverOrderId, ')
           ..write('hubMetadata: $hubMetadata, ')
-          ..write('hubSyncPending: $hubSyncPending')
+          ..write('hubSyncPending: $hubSyncPending, ')
+          ..write('pickupToken: $pickupToken')
           ..write(')'))
         .toString();
   }
@@ -18444,6 +18489,7 @@ typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
   Value<String?> serverOrderId,
   Value<String?> hubMetadata,
   Value<bool> hubSyncPending,
+  Value<int?> pickupToken,
 });
 typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<int> id,
@@ -18473,6 +18519,7 @@ typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<String?> serverOrderId,
   Value<String?> hubMetadata,
   Value<bool> hubSyncPending,
+  Value<int?> pickupToken,
 });
 
 final class $$OrdersTableReferences
@@ -18607,6 +18654,9 @@ class $$OrdersTableFilterComposer
   ColumnFilters<bool> get hubSyncPending => $composableBuilder(
       column: $table.hubSyncPending,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get pickupToken => $composableBuilder(
+      column: $table.pickupToken, builder: (column) => ColumnFilters(column));
 
   $$CartsTableFilterComposer get cartId {
     final $$CartsTableFilterComposer composer = $composerBuilder(
@@ -18763,6 +18813,9 @@ class $$OrdersTableOrderingComposer
       column: $table.hubSyncPending,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get pickupToken => $composableBuilder(
+      column: $table.pickupToken, builder: (column) => ColumnOrderings(column));
+
   $$CartsTableOrderingComposer get cartId {
     final $$CartsTableOrderingComposer composer = $composerBuilder(
         composer: this,
@@ -18905,6 +18958,9 @@ class $$OrdersTableAnnotationComposer
   GeneratedColumn<bool> get hubSyncPending => $composableBuilder(
       column: $table.hubSyncPending, builder: (column) => column);
 
+  GeneratedColumn<int> get pickupToken => $composableBuilder(
+      column: $table.pickupToken, builder: (column) => column);
+
   $$CartsTableAnnotationComposer get cartId {
     final $$CartsTableAnnotationComposer composer = $composerBuilder(
         composer: this,
@@ -19016,6 +19072,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<String?> serverOrderId = const Value.absent(),
             Value<String?> hubMetadata = const Value.absent(),
             Value<bool> hubSyncPending = const Value.absent(),
+            Value<int?> pickupToken = const Value.absent(),
           }) =>
               OrdersCompanion(
             id: id,
@@ -19045,6 +19102,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             serverOrderId: serverOrderId,
             hubMetadata: hubMetadata,
             hubSyncPending: hubSyncPending,
+            pickupToken: pickupToken,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -19074,6 +19132,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<String?> serverOrderId = const Value.absent(),
             Value<String?> hubMetadata = const Value.absent(),
             Value<bool> hubSyncPending = const Value.absent(),
+            Value<int?> pickupToken = const Value.absent(),
           }) =>
               OrdersCompanion.insert(
             id: id,
@@ -19103,6 +19162,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             serverOrderId: serverOrderId,
             hubMetadata: hubMetadata,
             hubSyncPending: hubSyncPending,
+            pickupToken: pickupToken,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>

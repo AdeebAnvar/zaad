@@ -73,6 +73,7 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
+    int? pickupToken,
   }) async {
     emit(TakeAwayLogLoading());
     try {
@@ -84,6 +85,7 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
         startDate: startDate,
         endDate: endDate,
         userId: _scopedUserId(uiUserId: userId),
+        pickupToken: pickupToken,
       );
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where((o) => o.status == 'kot').toList();

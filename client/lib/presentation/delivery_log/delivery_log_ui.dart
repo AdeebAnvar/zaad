@@ -669,6 +669,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
       referenceNumber: order.referenceNumber ?? '',
       createdAt: order.createdAt,
       orderTakerName: _orderUserName,
+      pickupToken: order.pickupToken,
       leadingHeader: widget.showNormalBulkCheckbox
           ? Checkbox(
               value: widget.selected,

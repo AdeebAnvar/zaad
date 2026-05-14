@@ -44,6 +44,9 @@ class Orders extends Table {
   /// LOCAL offline: row exists locally but POST /orders not confirmed yet.
   BoolColumn get hubSyncPending =>
       boolean().withDefault(const Constant(false))();
+
+  /// Daily pickup / queue number; resets after [DayClosingCheckpoint.lastSettledAt] for the branch.
+  IntColumn get pickupToken => integer().nullable()();
 }
 
 class OrderLogs extends Table {
@@ -186,6 +189,45 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
         .write(order);
   }
 
+  /// Max [Orders.pickupToken] for [branchId] with `created_at` strictly after [createdAfterExclusive]
+  /// (when null, all time). Ignores null tokens.
+  Future<int?> maxPickupTokenForBranchSince(int branchId, DateTime? createdAfterExclusive) async {
+    final maxExpr = orders.pickupToken.max();
+    final q = selectOnly(orders)..addColumns([maxExpr]);
+    q.where(orders.branchId.equals(branchId));
+    q.where(orders.pickupToken.isNotNull());
+    if (createdAfterExclusive != null) {
+      q.where(orders.createdAt.isBiggerThanValue(createdAfterExclusive));
+    }
+    final row = await q.map((r) => r.read(maxExpr)).getSingleOrNull();
+    return row;
+  }
+
+  /// Latest order with a token (for counter display). Scoped to current business period when [createdAfterExclusive] is set.
+  Stream<Order?> watchLatestOrderWithPickupToken({
+    required int branchId,
+    DateTime? createdAfterExclusive,
+  }) {
+    if (createdAfterExclusive != null) {
+      final after = createdAfterExclusive;
+      return (select(orders)
+            ..where((o) => o.branchId.equals(branchId))
+            ..where((o) => o.pickupToken.isNotNull())
+            ..where((o) => o.createdAt.isBiggerThanValue(after))
+            ..orderBy([(o) => OrderingTerm.desc(o.id)])
+            ..limit(1))
+          .watch()
+          .map((rows) => rows.isEmpty ? null : rows.first);
+    }
+    return (select(orders)
+          ..where((o) => o.branchId.equals(branchId))
+          ..where((o) => o.pickupToken.isNotNull())
+          ..orderBy([(o) => OrderingTerm.desc(o.id)])
+          ..limit(1))
+        .watch()
+        .map((rows) => rows.isEmpty ? null : rows.first);
+  }
+
   Future<int> insertOrderLog(String orderJson) {
     return into(orderLogs).insert(
       OrderLogsCompanion.insert(
@@ -300,6 +342,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     int? branchId,
   }) {
     var query = select(orders);
@@ -354,6 +397,10 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
 
     if (userId != null) {
       query = query..where((o) => o.userId.equals(userId));
+    }
+
+    if (pickupToken != null) {
+      query = query..where((o) => o.pickupToken.equals(pickupToken));
     }
 
     return (query

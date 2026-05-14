@@ -488,6 +488,7 @@ class PrintService {
           orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
           cashierName: resolvedCashier,
+          pickupToken: order?.pickupToken,
         ),
       );
       previewDocs.add('');
@@ -515,6 +516,7 @@ class PrintService {
           orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
           cashierName: resolvedCashier,
+          pickupToken: order?.pickupToken,
         );
         final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
         await _sendToPrinter(
@@ -555,6 +557,7 @@ class PrintService {
     int? branchId,
     DateTime? orderedAt,
     String? cashierName,
+    int? pickupToken,
   }) async {
     final failed = <String>[];
     final previewDocs = <String>[];
@@ -613,6 +616,7 @@ class PrintService {
           orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
           cashierName: resolvedCashier,
+          pickupToken: pickupToken,
         ),
       );
       previewDocs.add('');
@@ -639,6 +643,7 @@ class PrintService {
           orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
           cashierName: resolvedCashier,
+          pickupToken: pickupToken,
         );
         final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
         await _sendToPrinter(
@@ -1072,6 +1077,13 @@ class PrintService {
     );
   }
 
+  void _appendKotPreviewTokenLine(List<String> out, int? pickupToken) {
+    if (pickupToken == null) return;
+    final t = 'Token No.: $pickupToken';
+    out.add(t.padLeft((42 + t.length) ~/ 2).padRight(42));
+    out.add('');
+  }
+
   List<String> _buildKotPreviewLines({
     required List<_PrintLine> items,
     required String branchName,
@@ -1081,6 +1093,7 @@ class PrintService {
     required String orderTypeLabel,
     required DateTime orderedAt,
     String? cashierName,
+    int? pickupToken,
   }) {
     final out = <String>[];
     final safeBranch = branchName.trim();
@@ -1088,6 +1101,7 @@ class PrintService {
     out.add('--- new order ---'.padLeft(28).padRight(42));
     out.add('Kitchen: ${_sanitize(kitchenName)}');
     if (orderTypeLabel.isNotEmpty) out.add('Order type: ${_sanitize(orderTypeLabel)}');
+    _appendKotPreviewTokenLine(out, pickupToken);
     _appendKotPreviewRefInvoice(out, referenceNumber: referenceNumber, invoiceNumber: invoiceNumber);
     out.add('');
     out.add('ITEM'.padRight(38) + 'QTY'.padLeft(4));
@@ -1112,6 +1126,7 @@ class PrintService {
     required String orderTypeLabel,
     required DateTime orderedAt,
     String? cashierName,
+    int? pickupToken,
   }) {
     final out = <String>[];
     final safeBranch = branchName.trim();
@@ -1119,6 +1134,7 @@ class PrintService {
     out.add('--- update order ---'.padLeft(28).padRight(42));
     out.add('Kitchen: ${_sanitize(kitchenName)}');
     if (orderTypeLabel.isNotEmpty) out.add(orderTypeLabel);
+    _appendKotPreviewTokenLine(out, pickupToken);
     _appendKotPreviewRefInvoice(out, referenceNumber: referenceNumber, invoiceNumber: invoiceNumber);
     out.add('');
     out.add('ITEM'.padRight(38) + 'QTY'.padLeft(4));
@@ -1147,6 +1163,7 @@ class PrintService {
     required DayClosingSummary summary,
     required CounterAccess counterAccess,
     required String closedBy,
+    DayClosingCloseCashReconciliation? closeCashReconciliation,
   }) {
     final out = <String>[];
     void hr() => out.add('-' * 42);
@@ -1189,6 +1206,14 @@ class PrintService {
     pair('ONLINE SALE', summary.onlineSale);
     pair('DELIVERY SALE', summary.deliverySale);
     pair('CASH DRAWER BALANCE', summary.cashDrawer);
+
+    if (closeCashReconciliation != null) {
+      secTitle('DAY CLOSING CASH RECONCILIATION');
+      pair('EXPECTED CASH SALE (AFTER DISCOUNT)', closeCashReconciliation.expectedCashSaleAfterDiscount);
+      pair('EXCESS (+)', closeCashReconciliation.manualExcess);
+      pair('SHORT (-)', closeCashReconciliation.manualShort);
+      pair('ACTUAL CASH SALE (TOTAL)', closeCashReconciliation.actualCashSale);
+    }
 
     secTitle('2. SALES SUMMARY & ADJUSTMENTS');
     out.add('${'TYPE'.padRight(12)}${'COUNT'.padLeft(4)}${'DISCOUNT'.padRight(11)}${'AMOUNT'.padLeft(13)}');
@@ -1381,6 +1406,7 @@ class PrintService {
   Future<List<String>> printDayClosingReport({
     required DayClosingSummary summary,
     required CounterAccess counterAccess,
+    DayClosingCloseCashReconciliation? closeCashReconciliation,
   }) async {
     final failed = <String>[];
     final billPrinter = await _db.itemDao.getBillPrinter();
@@ -1405,6 +1431,7 @@ class PrintService {
         branch: branch,
         logoImage: logoImg,
         closedBy: closedBy,
+        closeCashReconciliation: closeCashReconciliation,
       );
       if (kDebugMode) {
         Uint8List? logoPng;
@@ -1418,6 +1445,7 @@ class PrintService {
             summary: summary,
             counterAccess: counterAccess,
             closedBy: closedBy,
+            closeCashReconciliation: closeCashReconciliation,
           ),
           branch: branch,
           logoPngBytes: logoPng,
@@ -1796,6 +1824,7 @@ class PrintService {
     required String orderTypeLabel,
     required DateTime orderedAt,
     String? cashierName,
+    int? pickupToken,
   }) async {
     final profile = await CapabilityProfile.load();
     final generator = Generator(PaperSize.mm80, profile);
@@ -1812,6 +1841,18 @@ class PrintService {
     );
     if (orderTypeLabel.isNotEmpty) {
       bytes += generator.text('Order type: ${_sanitize(orderTypeLabel)}');
+    }
+    if (pickupToken != null) {
+      bytes += generator.feed(1);
+      bytes += generator.text(
+        'Token No.: $pickupToken',
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          height: PosTextSize.size3,
+          width: PosTextSize.size3,
+        ),
+      );
     }
     bytes += _kotThermalRefInvoiceHeader(
       generator,
@@ -1866,6 +1907,7 @@ class PrintService {
     required String orderTypeLabel,
     required DateTime orderedAt,
     String? cashierName,
+    int? pickupToken,
   }) async {
     final profile = await CapabilityProfile.load();
     final generator = Generator(PaperSize.mm80, profile);
@@ -1886,6 +1928,18 @@ class PrintService {
     );
     if (orderTypeLabel.isNotEmpty) {
       bytes += generator.text(orderTypeLabel);
+    }
+    if (pickupToken != null) {
+      bytes += generator.feed(1);
+      bytes += generator.text(
+        'Token No.: $pickupToken',
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          height: PosTextSize.size3,
+          width: PosTextSize.size3,
+        ),
+      );
     }
     bytes += _kotThermalRefInvoiceHeader(
       generator,
@@ -2042,6 +2096,18 @@ class PrintService {
     final otLabel = _orderTypeLabel(order.orderType);
     if (otLabel.isNotEmpty) {
       bytes += generator.text('Order type: $otLabel', styles: centerBold);
+    }
+    if (order.pickupToken != null) {
+      bytes += generator.feed(1);
+      bytes += generator.text(
+        'Token No.: ${order.pickupToken}',
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          height: PosTextSize.size3,
+          width: PosTextSize.size3,
+        ),
+      );
     }
 
     bytes += generator.feed(1);
@@ -2249,6 +2315,7 @@ class PrintService {
     required BranchModel? branch,
     required img.Image? logoImage,
     required String closedBy,
+    DayClosingCloseCashReconciliation? closeCashReconciliation,
   }) async {
     final profile = await CapabilityProfile.load();
     final generator = Generator(PaperSize.mm80, profile);
@@ -2328,6 +2395,24 @@ class PrintService {
     _dayClosingEmitMoneyPair(generator, bytes, 'ONLINE SALE', summary.onlineSale);
     _dayClosingEmitMoneyPair(generator, bytes, 'DELIVERY SALE', summary.deliverySale);
     _dayClosingEmitMoneyPair(generator, bytes, 'CASH DRAWER BALANCE', summary.cashDrawer);
+
+    if (closeCashReconciliation != null) {
+      _dayClosingEmitSectionTitle(generator, bytes, 'DAY CLOSING CASH RECONCILIATION');
+      _dayClosingEmitMoneyPair(
+        generator,
+        bytes,
+        'EXPECTED CASH SALE (AFTER DISCOUNT)',
+        closeCashReconciliation.expectedCashSaleAfterDiscount,
+      );
+      _dayClosingEmitMoneyPair(generator, bytes, 'EXCESS (+)', closeCashReconciliation.manualExcess);
+      _dayClosingEmitMoneyPair(generator, bytes, 'SHORT (-)', closeCashReconciliation.manualShort);
+      _dayClosingEmitMoneyPair(
+        generator,
+        bytes,
+        'ACTUAL CASH SALE (TOTAL)',
+        closeCashReconciliation.actualCashSale,
+      );
+    }
 
     _dayClosingEmitSectionTitle(generator, bytes, '2. SALES SUMMARY & ADJUSTMENTS');
     bytes += generator.text(
