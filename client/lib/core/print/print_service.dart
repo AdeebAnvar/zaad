@@ -18,15 +18,18 @@ import 'package:pos/core/print/receipt_preview_data.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/presentation/day_closing/day_closing_summary.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
+import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/domain/models/branch_model.dart';
 
 /// Handles KOT (per-kitchen) and final bill printing.
 class PrintService {
-  PrintService(this._db, this._itemRepo);
+  PrintService(this._db, this._itemRepo, this._cartRepo);
 
   final AppDatabase _db;
   final ItemRepository _itemRepo;
+  final CartRepository _cartRepo;
 
   static const int _defaultPort = 9100;
   static const Duration _connectionTimeout = Duration(seconds: 15);
@@ -389,6 +392,14 @@ class PrintService {
       return _buildPrintLines(cartItems);
     }
     if (order == null) return [];
+    final resolved = await OrderLogCartFallback.resolve(
+      order: order,
+      db: _db,
+      cartRepo: _cartRepo,
+    );
+    if (resolved.isNotEmpty) {
+      return _buildPrintLines(resolved);
+    }
     var lines = await _fallbackPrintLinesWhenCartEmpty(order);
     if (lines.isEmpty) {
       final payable = order.finalAmount > 0.009 ? order.finalAmount : order.totalAmount;
@@ -741,21 +752,6 @@ class PrintService {
             final from = _printLinesFromSnapshotItemsList(hubItems);
             if (from.isNotEmpty) return from;
           }
-          final md = root['metadata'];
-          if (md is Map<String, dynamic>) {
-            final flutter = md['flutter'];
-            if (flutter is Map<String, dynamic>) {
-              final cartIdRaw = flutter['cart_id'];
-              final cartId = cartIdRaw is int ? cartIdRaw : int.tryParse('$cartIdRaw');
-              if (cartId != null && cartId > 0) {
-                final byFlutterCart = await _db.cartsDao.getItemsByCart(cartId);
-                if (byFlutterCart.isNotEmpty) {
-                  final from = await _buildPrintLines(byFlutterCart);
-                  if (from.isNotEmpty) return from;
-                }
-              }
-            }
-          }
         }
       } catch (_) {}
     }
@@ -890,9 +886,17 @@ class PrintService {
       },
     );
     // #endregion
-    // Call sites sometimes pass an empty list after UI cleared state; lines still live on order.cartId.
+    // Call sites sometimes pass an empty list after UI cleared state. Hub SUB mirrors share a shadow
+    // [cartId] — never read that cart by id before hub snapshot ([OrderLogCartFallback]).
     var effectiveCart = cartItems;
     if (effectiveCart.isEmpty) {
+      effectiveCart = await OrderLogCartFallback.resolve(
+        order: order,
+        db: _db,
+        cartRepo: _cartRepo,
+      );
+    }
+    if (effectiveCart.isEmpty && !OrderLogCartFallback.isLanHubShadowCart(order.cartId)) {
       effectiveCart = await _db.cartsDao.getItemsByCart(order.cartId);
     }
     var lines = await _buildPrintLines(effectiveCart);

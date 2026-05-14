@@ -215,7 +215,11 @@ class ZaadDI {
 
     if (!locator.isRegistered<PrintService>()) {
       locator.registerLazySingleton<PrintService>(
-        () => PrintService(locator<AppDatabase>(), locator<ItemRepository>()),
+        () => PrintService(
+              locator<AppDatabase>(),
+              locator<ItemRepository>(),
+              locator<CartRepository>(),
+            ),
       );
     }
 

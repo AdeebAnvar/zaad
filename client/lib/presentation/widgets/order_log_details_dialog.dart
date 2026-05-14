@@ -39,6 +39,21 @@ String _referenceLineForOrder(Order order) {
   return raw;
 }
 
+/// On LAN SUB (and other hub mirrors), local [itemId] may not match this device's catalog.
+/// When the stored line has no snapshot [item_name], do not substitute another product's menu name.
+bool _orderLineTitleShouldAvoidCatalogFallback(Order order) {
+  if ((order.serverOrderId ?? '').trim().isNotEmpty) return true;
+  final hm = order.hubMetadata?.trim();
+  if (hm == null || hm.isEmpty) return false;
+  try {
+    final root = jsonDecode(hm);
+    if (root is! Map<String, dynamic>) return false;
+    return root.containsKey('snapshot');
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Shared order line-item dialog used by Take Away Log, Dine In Log, etc.
 class OrderLogDetailsDialog extends StatelessWidget {
   const OrderLogDetailsDialog({
@@ -237,7 +252,7 @@ class _ScrollBody extends StatelessWidget {
           const SizedBox(height: 6),
           ...itemsWithDetails.map((d) => Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                child: _ItemCard(data: d),
+                child: _ItemCard(order: order, data: d),
               )),
         ],
       ),
@@ -437,8 +452,9 @@ String _orderLogLineDiscountOffText(CartItem cartItem, double listUnitPrice) {
 }
 
 class _ItemCard extends StatelessWidget {
-  const _ItemCard({required this.data});
+  const _ItemCard({required this.order, required this.data});
 
+  final Order order;
   final Map<String, dynamic> data;
 
   List<Map<String, dynamic>>? _decodeToppings(String? jsonStr) {
@@ -484,8 +500,12 @@ class _ItemCard extends StatelessWidget {
     final snapName = cartItem.itemName.trim();
     // Snapshot name is what was sold (hub / other terminal). Local [itemId] can point at a different
     // catalog row on LAN SUB devices, which previously made the title look like a "random" item.
-    final displayName =
-        snapName.isNotEmpty ? snapName : (catalogName.isNotEmpty ? catalogName : 'Unknown item');
+    final avoidCatalog = _orderLineTitleShouldAvoidCatalogFallback(order);
+    final displayName = snapName.isNotEmpty
+        ? snapName
+        : avoidCatalog
+            ? 'Item'
+            : (catalogName.isNotEmpty ? catalogName : 'Unknown item');
 
     final hasDiscount = cartItem.discount > 0;
     final derivedUnit = cartItem.quantity > 0 ? cartItem.total / cartItem.quantity : 0.0;

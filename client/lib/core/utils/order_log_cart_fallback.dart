@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:get_it/get_it.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
@@ -9,7 +11,18 @@ import 'package:pos/data/repository/item_repository.dart';
 class OrderLogCartFallback {
   OrderLogCartFallback._();
 
-  /// Prefer SQLite cart lines; otherwise snapshot `items` / `cart_lines` from hub payload or cloud log.
+  /// SUB terminals reuse one SQLite cart row for all hub-mirrored orders; never treat its lines as authoritative.
+  static bool isLanHubShadowCart(int cartId) {
+    try {
+      if (!GetIt.instance.isRegistered<LocalHubSettings>()) return false;
+      final sid = GetIt.instance<LocalHubSettings>().shadowCartRowIdOrNull();
+      return sid != null && sid == cartId;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Prefer hub snapshot JSON, then normal SQLite cart lines, then [`OrderLog`] snapshot (never the LAN shadow cart alone).
   static Future<List<CartItem>> resolve({
     required Order order,
     required AppDatabase db,
@@ -23,9 +36,11 @@ class OrderLogCartFallback {
       if (fromHub.isNotEmpty) return fromHub;
     }
 
-    final fromDb = await cartRepo.getCartItemsByCartId(order.cartId);
-    final list = fromDb ?? [];
-    if (list.isNotEmpty) return list;
+    if (!isLanHubShadowCart(order.cartId)) {
+      final fromDb = await cartRepo.getCartItemsByCartId(order.cartId);
+      final list = fromDb ?? [];
+      if (list.isNotEmpty) return list;
+    }
 
     final log = await db.ordersDao.findLatestOrderLogByLocalOrderId(order.id);
     if (log != null) {
