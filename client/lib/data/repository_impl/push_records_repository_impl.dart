@@ -347,7 +347,13 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       final sourceItemId = (line['item_id'] as num?)?.toInt() ?? int.tryParse('${line['item_id']}') ?? 0;
       if (sourceItemId <= 0) continue;
 
+      // Snapshots usually omit category_id; without it, stale-id remap matched only by name can pick
+      // the wrong pull_item_rows row when names collide — admin then shows a different item than the POS log.
       int? categoryId = (line['category_id'] as num?)?.toInt();
+      if (categoryId == null || categoryId <= 0) {
+        final preLocal = await _db.itemDao.getItemById(sourceItemId);
+        categoryId = preLocal?.categoryId;
+      }
       String? itemName = line['item_name']?.toString().trim();
       if (itemName != null && itemName.isEmpty) itemName = null;
 
@@ -493,15 +499,19 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
     final candidates = await (_db.select(_db.pullItemRows)
           ..where((t) => t.branchId.equals(branchId) | t.branchId.equals(0)))
         .get();
-    final matchedByName = candidates.where((r) => r.itemName.trim().toLowerCase() == name).toList();
+    final matchedByName = candidates
+        .where((r) => r.itemName.trim().toLowerCase() == name)
+        .toList()
+      ..sort((a, b) => a.id.compareTo(b.id));
     if (matchedByName.isEmpty) return null;
+    if (matchedByName.length == 1) return matchedByName.first;
 
     if (categoryId != null && categoryId > 0) {
-      for (final c in matchedByName) {
-        if (c.categoryId == categoryId) return c;
-      }
+      final byCat = matchedByName.where((c) => c.categoryId == categoryId).toList();
+      if (byCat.length == 1) return byCat.first;
     }
-    return matchedByName.first;
+    // More than one catalog row shares this name (or category could not disambiguate) — do not guess.
+    return null;
   }
 
   static const double _kItemPriceMatchTol = 0.02;
