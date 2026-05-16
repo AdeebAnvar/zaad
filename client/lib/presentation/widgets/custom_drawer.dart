@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,8 @@ import 'package:pos/core/print/print_service.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/settings_repository.dart';
 import 'package:pos/domain/models/user_model.dart';
+import 'package:pos/presentation/financial/financial_create_launcher.dart';
+import 'package:pos/presentation/financial/financial_records_state.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 import '../../core/constants/colors.dart';
 import '../../core/constants/styles.dart';
@@ -78,6 +81,42 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
           visibleWhen: (_) => true,
         ),
         DrawerMenuItem(
+          icon: Icons.receipt_long_outlined,
+          title: 'Expense',
+          route: _Routes.createExpense,
+          visibleWhen: (a) => a.canExpense,
+        ),
+        DrawerMenuItem(
+          icon: Icons.list_alt_outlined,
+          title: 'Expense Log',
+          route: Routes.expenseLog,
+          visibleWhen: (a) => a.canExpense,
+        ),
+        DrawerMenuItem(
+          icon: Icons.payments_outlined,
+          title: 'Salary',
+          route: _Routes.createSalary,
+          visibleWhen: (a) => a.canExpense,
+        ),
+        DrawerMenuItem(
+          icon: Icons.list_alt_outlined,
+          title: 'Salary Log',
+          route: Routes.salaryLog,
+          visibleWhen: (a) => a.canExpense,
+        ),
+        DrawerMenuItem(
+          icon: Icons.trending_up_outlined,
+          title: 'Other Income',
+          route: _Routes.createOtherIncome,
+          visibleWhen: (a) => a.canExpense,
+        ),
+        DrawerMenuItem(
+          icon: Icons.list_alt_outlined,
+          title: 'Other Income Log',
+          route: Routes.otherIncomeLog,
+          visibleWhen: (a) => a.canExpense,
+        ),
+        DrawerMenuItem(
           icon: Icons.event_available_rounded,
           title: 'Day Closing',
           route: Routes.dayClosing,
@@ -130,26 +169,29 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
         backgroundColor: Colors.white,
         child: Column(
           children: [
-            _header(),
-            if (access.canOpeningBalance) _openingBalanceTile(),
-            if (access.canOpenDrawer) _openCashDrawerTile(),
             Expanded(
-              child: ListView.separated(
+              child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                itemCount: menus.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 6),
-                itemBuilder: (context, index) {
-                  final item = menus[index];
-                  return _menuItem(
-                    icon: item.icon,
-                    title: item.title,
-                    onTap: () => _navigate(item.route, arguments: item.arguments),
-                    color: item.color ?? AppColors.textColor,
-                  );
-                },
+                children: [
+                  _header(),
+                  if (access.canOpeningBalance) _openingBalanceTile(),
+                  if (access.canOpenDrawer) _openCashDrawerTile(),
+                  ...List.generate(menus.length, (index) {
+                    final item = menus[index];
+                    return Padding(
+                      padding: EdgeInsets.only(bottom: index < menus.length - 1 ? 6 : 0),
+                      child: _menuItem(
+                        icon: item.icon,
+                        title: item.title,
+                        onTap: () => _navigate(item.route, arguments: item.arguments),
+                        color: item.color ?? AppColors.textColor,
+                      ),
+                    );
+                  }),
+                ],
               ),
             ),
-            const Divider(),
+            const Divider(height: 1),
             _menuItem(
               icon: Icons.logout,
               title: "Logout",
@@ -295,12 +337,33 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
       _showOpeningBalanceDialog();
       return;
     }
+    if (route == _Routes.createExpense) {
+      _openFinancialCreate(FinancialFormConfig.expense);
+      return;
+    }
+    if (route == _Routes.createSalary) {
+      _openFinancialCreate(FinancialFormConfig.salary);
+      return;
+    }
+    if (route == _Routes.createOtherIncome) {
+      _openFinancialCreate(FinancialFormConfig.otherIncome);
+      return;
+    }
     AppNavigator.pop(); // close drawer
 
     // Same route without args (e.g. dashboard): avoid redundant replace.
     if (arguments == null && AppNavigator.currentRoute == route) return;
 
     AppNavigator.pushReplacementNamed(route, args: arguments);
+  }
+
+  void _openFinancialCreate(FinancialFormConfig config) {
+    final host = context;
+    AppNavigator.pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!host.mounted) return;
+      unawaited(showFinancialCreatePopup(host, config));
+    });
   }
 
   Future<void> _showOpeningBalanceDialog() async {
@@ -707,6 +770,13 @@ class _CashDrawerPasswordDialogContentState extends State<_CashDrawerPasswordDia
       ),
     );
   }
+}
+
+/// Drawer-only routes that open overlays instead of [Routes.map] screens.
+class _Routes {
+  static const createExpense = '__create_expense__';
+  static const createSalary = '__create_salary__';
+  static const createOtherIncome = '__create_other_income__';
 }
 
 class DrawerMenuItem {

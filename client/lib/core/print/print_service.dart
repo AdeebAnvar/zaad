@@ -1251,6 +1251,22 @@ class PrintService {
     );
     pair('DIFFERENCE (SECTION 3 TOTAL − MODELED DRAWER)', summary.difference.abs());
 
+    secTitle('3c. OTHER INCOME SUMMARY');
+    if (summary.otherIncomeRows.isEmpty) {
+      pair('OTHER INCOME (RECORDED)', summary.otherIncome);
+    } else {
+      out.add('${'DESCRIPTION'.padRight(18)}${'PAYMENT'.padRight(10)}${'AMOUNT'.padLeft(12)}');
+      hr();
+      for (final r in summary.otherIncomeRows) {
+        out.add(
+          '${_sanitize(r.description).padRight(18)}'
+          '${_sanitize(r.payment.toUpperCase()).padRight(10)}'
+          '${('$_currency${_fmtMoney(r.amount)}').padLeft(12)}',
+        );
+      }
+      pair('TOTAL OTHER INCOME (+)', summary.otherIncome);
+    }
+
     if (summary.openBills.isNotEmpty) {
       secTitle('3b. OPEN BILLS (SETTLE THESE FIRST)');
       out.add('${'INVOICE'.padRight(12)}${'STATUS'.padRight(10)}${'TYPE'.padRight(10)}${'AMOUNT'.padLeft(8)}');
@@ -1272,7 +1288,8 @@ class PrintService {
     pair('DINE-IN SALES', summary.dineInSales);
     pair('DELIVERY SALES', summary.deliverySale);
     pair('TAKEAWAY SALES', summary.takeAwaySales);
-    pair('CASH IN (OPENING + CASH SALE AFTER DISCOUNT)', summary.cashIn);
+    pair('OTHER INCOME (+)', summary.otherIncome);
+    pair('CASH IN (OPENING + CASH SALE + OTHER INCOME)', summary.cashIn);
     pair('CASH OUT (EXPENSES FROM CASH)', summary.cashOut);
     pair('TOTAL CASH DRAWER', summary.cashDrawer);
     final hint = _dayClosingCashDrawerHint(summary.difference);
@@ -2473,6 +2490,26 @@ class PrintService {
       summary.difference.abs(),
     );
 
+    _dayClosingEmitSectionTitle(generator, bytes, '3c. OTHER INCOME SUMMARY');
+    if (summary.otherIncomeRows.isEmpty) {
+      _dayClosingEmitMoneyPair(generator, bytes, 'OTHER INCOME (RECORDED)', summary.otherIncome);
+    } else {
+      bytes += generator.text(
+        '${'DESCRIPTION'.padRight(14)}${'PAYMENT'.padRight(10)}${'AMOUNT'.padLeft(14)}',
+        styles: leftBold,
+      );
+      bytes += generator.hr(ch: '-');
+      for (final r in summary.otherIncomeRows) {
+        bytes += generator.text(
+          '${_sanitize(r.description).padRight(14)}'
+          '${_sanitize(r.payment.toUpperCase()).padRight(10)}'
+          '${('$_currency${_fmtMoney(r.amount)}').padLeft(14)}',
+          styles: const PosStyles(align: PosAlign.left),
+        );
+      }
+      _dayClosingEmitMoneyPair(generator, bytes, 'TOTAL OTHER INCOME (+)', summary.otherIncome);
+    }
+
     if (summary.openBills.isNotEmpty) {
       _dayClosingEmitSectionTitle(generator, bytes, '3b. OPEN BILLS (SETTLE THESE FIRST)');
       bytes += generator.text(
@@ -2498,7 +2535,8 @@ class PrintService {
     _dayClosingEmitMoneyPair(generator, bytes, 'DINE-IN SALES', summary.dineInSales);
     _dayClosingEmitMoneyPair(generator, bytes, 'DELIVERY SALES', summary.deliverySale);
     _dayClosingEmitMoneyPair(generator, bytes, 'TAKEAWAY SALES', summary.takeAwaySales);
-    _dayClosingEmitMoneyPair(generator, bytes, 'CASH IN (OPENING + CASH SALE AFTER DISCOUNT)', summary.cashIn);
+    _dayClosingEmitMoneyPair(generator, bytes, 'OTHER INCOME (+)', summary.otherIncome);
+    _dayClosingEmitMoneyPair(generator, bytes, 'CASH IN (OPENING + CASH SALE + OTHER INCOME)', summary.cashIn);
     _dayClosingEmitMoneyPair(generator, bytes, 'CASH OUT (EXPENSES FROM CASH)', summary.cashOut);
     _dayClosingEmitMoneyPair(generator, bytes, 'TOTAL CASH DRAWER', summary.cashDrawer);
     final hint = _dayClosingCashDrawerHint(summary.difference);

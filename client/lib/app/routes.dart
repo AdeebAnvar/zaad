@@ -36,6 +36,8 @@ import 'package:pos/presentation/settings/settings_screen.dart';
 import 'package:pos/presentation/settings/printer_settings_screen.dart';
 import 'package:pos/presentation/credit_sales/credit_sales_screen.dart';
 import 'package:pos/presentation/day_closing/day_closing_screen.dart';
+import 'package:pos/presentation/financial/financial_log_screen.dart';
+import 'package:pos/presentation/financial/financial_records_state.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -59,6 +61,9 @@ class Routes {
   static const creditSales = "/credit_sales";
   static const dayClosing = "/day_closing";
   static const lanHubSettings = "/lan_hub_settings";
+  static const expenseLog = "/expense_log";
+  static const salaryLog = "/salary_log";
+  static const otherIncomeLog = "/other_income_log";
 
   static Map<String, WidgetBuilder> map = {
     login: (_) => const LoginScreen(),
@@ -79,6 +84,9 @@ class Routes {
     creditSales: (_) => const CreditSalesScreen(),
     dayClosing: (_) => const DayClosingScreen(),
     lanHubSettings: (_) => const LanHubSettingsScreen(),
+    expenseLog: (_) => const FinancialLogScreen(config: FinancialFormConfig.expense),
+    salaryLog: (_) => const FinancialLogScreen(config: FinancialFormConfig.salary),
+    otherIncomeLog: (_) => const FinancialLogScreen(config: FinancialFormConfig.otherIncome),
     counter: (context) {
       final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       final orderId = args?['orderId'] as int?;

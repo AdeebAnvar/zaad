@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/order/move_order_logic.dart';
-import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/models/pos_customer.dart';
@@ -105,7 +103,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
   final _custName = TextEditingController();
   final _email = TextEditingController();
   final _onlineOrderRef = TextEditingController();
-  final _pax = TextEditingController(text: '1');
 
   String? _gender;
   String? _deliveryPartner;
@@ -116,7 +113,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
   List<DiningTable> _tables = [];
 
   bool _submitting = false;
-  bool _seatHandlingEnabled = true;
 
   static const _genderOptions = ['Male', 'Female', 'Other'];
 
@@ -146,7 +142,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
       _loadError = null;
     });
     try {
-      final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
       final floors = await _db.diningTablesDao.getFloors();
       final drivers = await _driverRepo.getAll();
       final customers = await _customerRepo.getAllLocalCustomers();
@@ -159,7 +154,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
 
       if (!mounted) return;
       setState(() {
-        _seatHandlingEnabled = seatHandling;
         _floors = floors;
         _drivers = drivers;
         _allCustomers = customers;
@@ -216,7 +210,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
     _custName.dispose();
     _email.dispose();
     _onlineOrderRef.dispose();
-    _pax.dispose();
     super.dispose();
   }
 
@@ -294,14 +287,12 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
             err = 'Invalid table';
             break;
           }
-          final pax = int.tryParse(_pax.text.trim()) ?? 0;
           err = await moveOrderToDineIn(
             orderRepo: _orderRepo,
             cartRepo: _cartRepo,
             order: widget.order,
             floorId: fid,
             table: table,
-            pax: pax,
           );
           break;
       }
@@ -698,15 +689,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
                 .toList(),
             onChanged: (v) => setState(() => _tableId = v),
           ),
-        if (_seatHandlingEnabled) ...[
-          const SizedBox(height: 12),
-          CustomTextField(
-            controller: _pax,
-            labelText: 'Pax',
-            keyBoardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          ),
-        ],
       ],
     );
   }

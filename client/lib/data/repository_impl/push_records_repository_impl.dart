@@ -9,6 +9,7 @@ import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/core/network/cloud_sync_prerequisites.dart';
 import 'package:pos/data/repository/push_records_repository.dart';
+import 'package:pos/data/repository_impl/expense_push_mapper.dart';
 import 'package:pos/data/repository_impl/push_local_to_push_records_mapper.dart';
 import 'package:pos/core/sync/company_bootstrap_persist.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
@@ -90,6 +91,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         ordersPosted: 0,
         creditRowsPosted: 0,
         settleRowsPosted: 0,
+        expensesPosted: 0,
         httpStatus: null,
         message: '$e',
       );
@@ -110,9 +112,10 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       final customers = await _mapCustomersForPush(unsyncedCustomers);
       final settleSales = settlePending.maps;
       final settleIds = settlePending.ids;
+      final expenseBundle = await _pendingExpensesForBranch(branchId);
       // Always hit the push endpoint after pull so proxies / server logs show the call.
       final empty = <String, dynamic>{
-        'expenses': <dynamic>[],
+        'expenses': expenseBundle.maps,
         'customers': customers,
         'sales': <dynamic>[],
         'credit_sales': <dynamic>[],
@@ -121,7 +124,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       final cleanedEmpty = _removeNullsDeep(empty);
       if (kDebugMode) {
         debugPrint(
-          '[pushRecords] no unsynced order logs — ping with settle_sales=${settleSales.length}, customers=${customers.length}',
+          '[pushRecords] no unsynced order logs — ping expenses=${expenseBundle.maps.length}, settle_sales=${settleSales.length}, customers=${customers.length}',
         );
       }
       try {
@@ -131,11 +134,13 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         if (ok) {
           await _fetchBootstrapMirrorBestEffort();
           await _db.settleSalesOutboxDao.markSynced(settleIds);
+          await _db.financialRecordsDao.markSynced(expenseBundle.ids);
         }
         return PushRecordsOutcome(
           ordersPosted: 0,
           creditRowsPosted: 0,
           settleRowsPosted: settleSales.length,
+          expensesPosted: expenseBundle.maps.length,
           httpStatus: code,
           message: ok ? 'Push OK (no pending sales)' : 'Push failed (HTTP $code)',
         );
@@ -144,6 +149,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
           ordersPosted: 0,
           creditRowsPosted: 0,
           settleRowsPosted: settleSales.length,
+          expensesPosted: expenseBundle.maps.length,
           httpStatus: e.response?.statusCode,
           message: e.message ?? '$e',
         );
@@ -152,6 +158,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
           ordersPosted: 0,
           creditRowsPosted: 0,
           settleRowsPosted: settleSales.length,
+          expensesPosted: expenseBundle.maps.length,
           httpStatus: null,
           message: '$e',
         );
@@ -216,9 +223,10 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
 
     final settleSales = settlePending.maps;
     final settleIds = settlePending.ids;
+    final expenseBundle = await _pendingExpensesForBranch(branchId);
 
     final body = <String, dynamic>{
-      'expenses': <dynamic>[],
+      'expenses': expenseBundle.maps,
       'customers': customers,
       'sales': sales,
       'credit_sales': creditSales,
@@ -227,13 +235,13 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
     final cleanedBody = _removeNullsDeep(body);
     if (kDebugMode) {
       debugPrint(
-        '[pushRecords] prepared payload expenses=0, customers=${customers.length}, sales=${sales.length}, credit_sales=${creditSales.length}, settle_sales=${settleSales.length}',
+        '[pushRecords] prepared payload expenses=${expenseBundle.maps.length}, customers=${customers.length}, sales=${sales.length}, credit_sales=${creditSales.length}, settle_sales=${settleSales.length}',
       );
-      if (_debugPrintSamplePayload && sales.isNotEmpty) {
+      if (_debugPrintSamplePayload && (sales.isNotEmpty || expenseBundle.maps.isNotEmpty)) {
         final sample = {
-          'expenses': const <dynamic>[],
+          'expenses': expenseBundle.maps.isNotEmpty ? [expenseBundle.maps.first] : const <dynamic>[],
           'customers': customers.isNotEmpty ? [customers.first] : const <dynamic>[],
-          'sales': [sales.first],
+          'sales': sales.isNotEmpty ? [sales.first] : <Map<String, dynamic>>[],
           'credit_sales': creditSales.isNotEmpty ? [creditSales.first] : <Map<String, dynamic>>[],
           'settle_sales': settleSales.isNotEmpty ? [settleSales.first] : <Map<String, dynamic>>[],
         };
@@ -254,11 +262,13 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
           await _db.customersDao.markAsSynced(c.id);
         }
         await _db.settleSalesOutboxDao.markSynced(settleIds);
+        await _db.financialRecordsDao.markSynced(expenseBundle.ids);
       }
       return PushRecordsOutcome(
         ordersPosted: sales.length,
         creditRowsPosted: creditSales.length,
         settleRowsPosted: settleSales.length,
+        expensesPosted: expenseBundle.maps.length,
         httpStatus: code,
         message: ok ? 'Push accepted' : 'Push failed (HTTP $code)',
       );
@@ -267,6 +277,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         ordersPosted: sales.length,
         creditRowsPosted: creditSales.length,
         settleRowsPosted: settleSales.length,
+        expensesPosted: expenseBundle.maps.length,
         httpStatus: e.response?.statusCode,
         message: e.message ?? '$e',
       );
@@ -275,6 +286,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         ordersPosted: sales.length,
         creditRowsPosted: creditSales.length,
         settleRowsPosted: settleSales.length,
+        expensesPosted: expenseBundle.maps.length,
         httpStatus: null,
         message: '$e',
       );
@@ -299,6 +311,14 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       }
     }
     return (maps: maps, ids: ids);
+  }
+
+  Future<({List<Map<String, dynamic>> maps, List<int> ids})> _pendingExpensesForBranch(
+    int branchId,
+  ) async {
+    final rows = await _db.financialRecordsDao.getUnsyncedForBranch(branchId);
+    final maps = ExpensePushMapper.mapRecords(rows);
+    return (maps: maps, ids: rows.map((r) => r.id).toList());
   }
 
   Future<List<Map<String, dynamic>>> _mapCustomersForPush(

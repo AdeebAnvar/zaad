@@ -50,9 +50,9 @@ class _CounterHomeState extends State<CounterHome> {
         .watchLastSettledAtForBranch(bid)
         .asyncExpand(
           (cutoff) => db.ordersDao.watchLatestOrderWithPickupToken(
-                branchId: bid,
-                createdAfterExclusive: cutoff,
-              ),
+            branchId: bid,
+            createdAfterExclusive: cutoff,
+          ),
         )
         .listen((order) {
       if (!mounted) return;
@@ -220,13 +220,24 @@ class _CounterHomeState extends State<CounterHome> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      flex: 38,
-                      child: _CounterPickupTokenStrip(token: _lastPickupToken),
+                    Container(
+                      height: 100,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Center(
+                          child: Text(
+                            'Token no.: ${_lastPickupToken ?? '—'}',
+                            textAlign: TextAlign.center,
+                            style: AppStyles.getSemiBoldTextStyle(fontSize: 20, color: AppColors.textColor),
+                          ),
+                        ),
+                      ),
                     ),
-                    SizedBox(height: gap + 2),
                     Expanded(
-                      flex: 62,
                       child: LayoutBuilder(
                         builder: (context, gridConstraints) {
                           final rows = (tiles.length + crossAxisCount - 1) ~/ crossAxisCount;
@@ -274,73 +285,6 @@ class _DashboardTile {
   final String title;
   final IconData icon;
   final void Function(BuildContext context) onTap;
-}
-
-class _CounterPickupTokenStrip extends StatelessWidget {
-  const _CounterPickupTokenStrip({required this.token});
-  final int? token;
-
-  @override
-  Widget build(BuildContext context) {
-    final label = token != null ? '$token' : '—';
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        final h = constraints.maxHeight;
-        final compact = w < 560;
-        final numberFont = (h * 0.42).clamp(44.0, 120.0);
-        final labelFont = (h * 0.075).clamp(12.0, 18.0);
-        return Container(
-          width: double.infinity,
-          height: h.isFinite ? h : null,
-          padding: EdgeInsets.symmetric(
-            vertical: math.max(8.0, h * 0.06),
-            horizontal: 12,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.grey.shade300),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'TOKEN NO.',
-                style: AppStyles.getSemiBoldTextStyle(
-                  fontSize: compact ? math.min(labelFont, 13) : labelFont,
-                  color: AppColors.hintFontColor,
-                ).copyWith(letterSpacing: 1.2),
-              ),
-              SizedBox(height: math.max(4.0, h * 0.02)),
-              Expanded(
-                child: Center(
-                  child: FittedBox(
-                    fit: BoxFit.contain,
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      style: AppStyles.getBoldTextStyle(
-                        fontSize: numberFont,
-                        color: AppColors.primaryColor,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 }
 
 /// -------------------- DELIVERY SERVICE DIALOG --------------------

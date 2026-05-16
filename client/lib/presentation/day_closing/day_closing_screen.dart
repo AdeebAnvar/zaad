@@ -7,6 +7,8 @@ import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/diagnostics/day_closing_reconcile_log.dart';
+import 'package:pos/core/services/backup_service.dart';
+import 'package:pos/core/utils/sales_csv_backup.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
@@ -148,6 +150,9 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       );
       final settledAt = DateTime.now();
       await db.dayClosingCheckpointDao.upsertLastSettledAt(branchId, settledAt);
+      await BackupService.instance.maintainDatabase(db, vacuum: true);
+      await SalesCsvBackup.refreshNow(db);
+      await BackupService.instance.backupNow(db, force: true);
       await db.branchesDao.updateOpeningCash(
         branchId: branchId,
         openingCashValue: 0,
@@ -246,6 +251,37 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 14),
+                      _sectionCard(
+                        title: '3c. Other Income Summary',
+                        headers: _summary.otherIncomeRows.isEmpty
+                            ? const ['SOURCE', 'AMOUNT']
+                            : const ['DESCRIPTION', 'PAYMENT', 'AMOUNT'],
+                        rows: _summary.otherIncomeRows.isEmpty
+                            ? [
+                                _row(
+                                  'OTHER INCOME (RECORDED)',
+                                  RuntimeAppSettings.money(_summary.otherIncome),
+                                  color: Colors.green.shade700,
+                                  emphasize: true,
+                                ),
+                              ]
+                            : [
+                                ..._summary.otherIncomeRows.map(
+                                  (r) => [
+                                    r.description,
+                                    r.payment.toUpperCase(),
+                                    RuntimeAppSettings.money(r.amount),
+                                  ],
+                                ),
+                                _row(
+                                  'TOTAL OTHER INCOME (+)',
+                                  RuntimeAppSettings.money(_summary.otherIncome),
+                                  color: Colors.green.shade700,
+                                  emphasize: true,
+                                ),
+                              ],
+                      ),
                       if (_summary.openBills.isNotEmpty) ...[
                         const SizedBox(height: 14),
                         _sectionCard(
@@ -274,7 +310,16 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                           _row('DINE-IN SALES', RuntimeAppSettings.money(_summary.dineInSales)),
                           _row('DELIVERY SALES', RuntimeAppSettings.money(_summary.deliverySale)),
                           _row('TAKEAWAY SALES', RuntimeAppSettings.money(_summary.takeAwaySales)),
-                          _row('CASH IN (OPENING + CASH SALE AFTER DISCOUNT)', RuntimeAppSettings.money(_summary.cashIn), emphasize: true),
+                          _row(
+                            'OTHER INCOME (+)',
+                            RuntimeAppSettings.money(_summary.otherIncome),
+                            color: Colors.green.shade700,
+                          ),
+                          _row(
+                            'CASH IN (OPENING + CASH SALE + OTHER INCOME)',
+                            RuntimeAppSettings.money(_summary.cashIn),
+                            emphasize: true,
+                          ),
                           _row('CASH OUT (EXPENSES FROM CASH)', RuntimeAppSettings.money(_summary.cashOut), emphasize: true),
                         ],
                         footerLabel: 'TOTAL CASH DRAWER',

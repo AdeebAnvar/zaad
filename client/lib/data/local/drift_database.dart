@@ -28,6 +28,7 @@ part 'dao/pending_actions_dao.dart';
 part 'dao/sync_queue_dao.dart';
 part 'dao/settle_sales_outbox_dao.dart';
 part 'dao/day_closing_checkpoint_dao.dart';
+part 'dao/financial_records_dao.dart';
 
 /// Used from `branches_dao` part; wraps [ImageUtils.downloadImage].
 Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.downloadImage(url, fileName);
@@ -64,6 +65,7 @@ Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.
     SyncInbox,
     SettleSalesOutbox,
     DayClosingCheckpoint,
+    FinancialRecords,
   ],
   daos: [
     UsersDao,
@@ -83,6 +85,7 @@ Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.
     SyncQueueDao,
     SettleSalesOutboxDao,
     DayClosingCheckpointDao,
+    FinancialRecordsDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -92,7 +95,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(_openMemory());
 
   @override
-  int get schemaVersion => 52;
+  int get schemaVersion => 53;
 
   @override
   MigrationStrategy get migration {
@@ -277,6 +280,9 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 52) {
           await safeAddColumn(orders, orders.customerAddress);
+        }
+        if (from < 53) {
+          await m.createTable(financialRecords);
         }
       },
       // Legacy rows (or partial inserts) can leave NULL in NOT NULL columns; Drift’s

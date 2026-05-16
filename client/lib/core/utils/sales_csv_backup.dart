@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -5,19 +6,40 @@ import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:syncfusion_flutter_xlsio/xlsio.dart';
 
+/// Single `media/sales_backup.xlsx` — debounced so busy counters do not rewrite on every tap.
 class SalesCsvBackup {
   SalesCsvBackup._();
 
   static const String fileName = 'sales_backup.xlsx';
+  static const Duration _minRefreshInterval = Duration(minutes: 30);
+
   static Future<void> _writeQueue = Future<void>.value();
+  static DateTime _lastRefreshAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static Timer? _debounceTimer;
 
   static Future<String> backupPath() async {
     final mediaDir = await AppDirectories.media();
     return p.join(mediaDir.path, fileName);
   }
 
+  /// Coalesces rapid order saves — at most one rewrite per [_minRefreshInterval].
   static Future<void> refreshFromDatabase(AppDatabase db) async {
-    // Queue writes to avoid concurrent access from rapid order updates.
+    final now = DateTime.now();
+    final elapsed = now.difference(_lastRefreshAt);
+    if (elapsed >= _minRefreshInterval) {
+      _debounceTimer?.cancel();
+      _writeQueue = _writeQueue.then((_) => _safeRefresh(db));
+      await _writeQueue;
+      return;
+    }
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_minRefreshInterval - elapsed, () {
+      _writeQueue = _writeQueue.then((_) => _safeRefresh(db));
+    });
+  }
+
+  /// Bypass debounce (day close).
+  static Future<void> refreshNow(AppDatabase db) async {
     _writeQueue = _writeQueue.then((_) => _safeRefresh(db));
     await _writeQueue;
   }
@@ -59,12 +81,10 @@ class SalesCsvBackup {
       final sheet = workbook.worksheets[0];
       sheet.name = 'Sales';
 
-      // Header row
       for (var c = 0; c < _headers.length; c++) {
         sheet.getRangeByIndex(1, c + 1).setText(_headers[c]);
       }
 
-      // Data rows
       for (var i = 0; i < orders.length; i++) {
         final o = orders[i];
         final r = i + 2;
@@ -96,21 +116,16 @@ class SalesCsvBackup {
       final bytes = workbook.saveAsStream();
       workbook.dispose();
 
-      // If another process (e.g. Excel) locks the file, avoid crashing flow.
       for (var attempt = 0; attempt < 3; attempt++) {
         try {
           await file.writeAsBytes(bytes, flush: true);
+          _lastRefreshAt = DateTime.now();
           return;
         } on FileSystemException {
-          if (attempt == 2) {
-            // Best-effort backup only; do not throw into UI/business flow.
-            return;
-          }
+          if (attempt == 2) return;
           await Future<void>.delayed(const Duration(milliseconds: 150));
         }
       }
-    } catch (_) {
-      // Best-effort backup only; suppress failures.
-    }
+    } catch (_) {}
   }
 }

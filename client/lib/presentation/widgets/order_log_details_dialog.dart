@@ -30,12 +30,14 @@ double _effectiveOrderDiscountForDisplay(Order o) {
 }
 
 String _referenceLineForOrder(Order order) {
-  final raw = (order.referenceNumber ?? '').trim();
-  if (raw.isEmpty) return '—';
   if ((order.orderType ?? '').trim().toLowerCase() == 'dine_in') {
-    final s = DineInRefParser.stripLeadingFloorId(raw).trim();
+    final a = DineInRefParser.dineInAnchorForMatching(order);
+    if (a == null || a.isEmpty) return '—';
+    final s = DineInRefParser.stripLeadingFloorId(a).trim();
     return s.isEmpty ? '—' : s;
   }
+  final raw = (order.referenceNumber ?? '').trim();
+  if (raw.isEmpty) return '—';
   return raw;
 }
 

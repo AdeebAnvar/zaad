@@ -6,61 +6,144 @@ import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite;
 
+/// Local SQLite safety copies under `Documents/ZaadPOS/backup`.
+///
+/// - [`_rollingBackupName`] is overwritten each time (fast recovery, 1 file).
+/// - Timestamped copies only on [backupNow] `force: true` (day close, updates).
+/// - Periodic timer only (no backup on every order).
+/// - Skips copy when DB size/mtime unchanged since last successful backup.
 class BackupService {
   BackupService._();
   static final BackupService instance = BackupService._();
 
-  static const int _orderThreshold = 10;
-  static const Duration _timeThreshold = Duration(minutes: 2);
-  int _pendingOrderMutations = 0;
+  static const String _rollingBackupName = 'latest.db';
+
+  static const int _maxTimestampedBackups = 2;
+
+  static const Duration _maxBackupAge = Duration(days: 7);
+
+  static const Duration _minIntervalBetweenBackups = Duration(hours: 6);
+
+  static const Duration _periodicCheckInterval = Duration(hours: 6);
+
+  int? _lastBackedUpSize;
+  DateTime? _lastBackedUpSourceModified;
   DateTime _lastBackupAt = DateTime.fromMillisecondsSinceEpoch(0);
   Future<void> _queue = Future<void>.value();
   Timer? _periodicTimer;
 
   Future<Directory> _backupDir() => AppDirectories.backupDir();
 
-  String _fileName(DateTime now) {
+  String _timestampedName(DateTime now) {
     String two(int v) => v.toString().padLeft(2, '0');
     return 'backup_${now.year}_${two(now.month)}_${two(now.day)}_${two(now.hour)}_${two(now.minute)}.db';
   }
 
-  Future<void> recordOrderMutation(AppDatabase db) async {
-    _pendingOrderMutations += 1;
-    final now = DateTime.now();
-    final shouldBackup = _pendingOrderMutations >= _orderThreshold || now.difference(_lastBackupAt) >= _timeThreshold;
-    if (!shouldBackup) return;
-    await backupNow(db);
-  }
-
   void startAutoBackup(AppDatabase db) {
     _periodicTimer?.cancel();
-    _periodicTimer = Timer.periodic(_timeThreshold, (_) {
+    unawaited(_pruneOldBackups());
+    _periodicTimer = Timer.periodic(_periodicCheckInterval, (_) {
       backupNow(db);
     });
   }
 
-  Future<void> backupNow(AppDatabase db) {
-    _queue = _queue.then((_) => _doBackup(db));
+  /// Queued backup. Use `force: true` for day close / pre-update (adds timestamped file).
+  Future<void> backupNow(AppDatabase db, {bool force = false}) {
+    _queue = _queue.then((_) => _doBackup(db, force: force));
     return _queue;
   }
 
-  Future<void> _doBackup(AppDatabase db) async {
+  /// WAL checkpoint + optional `VACUUM` to reclaim free pages (run on day close).
+  Future<void> maintainDatabase(AppDatabase db, {bool vacuum = false}) async {
     try {
+      await db.customStatement('PRAGMA wal_checkpoint(TRUNCATE);');
+      if (vacuum) {
+        await db.customStatement('VACUUM;');
+      } else {
+        await db.customStatement('PRAGMA optimize;');
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _doBackup(AppDatabase db, {required bool force}) async {
+    try {
+      final now = DateTime.now();
+      if (!force && now.difference(_lastBackupAt) < _minIntervalBetweenBackups) return;
+
       final localDir = await AppDirectories.local();
       final dbFile = File(p.join(localDir.path, 'pos.sqlite'));
       if (!await dbFile.exists()) return;
 
+      final sourceStat = await dbFile.stat();
+      if (!force && _isUnchangedSinceLastBackup(sourceStat)) return;
+
+      try {
+        await db.customStatement('PRAGMA wal_checkpoint(TRUNCATE);');
+      } catch (_) {}
+
       final backupDir = await _backupDir();
-      final target = File(p.join(backupDir.path, _fileName(DateTime.now())));
-      await dbFile.copy(target.path);
-      _pendingOrderMutations = 0;
-      _lastBackupAt = DateTime.now();
-    } catch (_) {
-      // Best-effort backup only.
-    }
+      final rolling = File(p.join(backupDir.path, _rollingBackupName));
+      await dbFile.copy(rolling.path);
+
+      if (force) {
+        await dbFile.copy(p.join(backupDir.path, _timestampedName(now)));
+      }
+
+      _lastBackedUpSize = sourceStat.size;
+      _lastBackedUpSourceModified = sourceStat.modified;
+      _lastBackupAt = now;
+      await _pruneOldBackups();
+    } catch (_) {}
+  }
+
+  bool _isUnchangedSinceLastBackup(FileStat sourceStat) {
+    if (_lastBackedUpSize == null || _lastBackedUpSourceModified == null) return false;
+    if (sourceStat.size != _lastBackedUpSize) return false;
+    return !sourceStat.modified.isAfter(_lastBackedUpSourceModified!);
+  }
+
+  Future<void> _pruneOldBackups() async {
+    try {
+      final backupDir = await _backupDir();
+      if (!await backupDir.exists()) return;
+
+      final rolling = File(p.join(backupDir.path, _rollingBackupName));
+      final timestamped = <File>[];
+
+      await for (final entity in backupDir.list()) {
+        if (entity is! File) continue;
+        if (p.extension(entity.path).toLowerCase() != '.db') continue;
+        final name = p.basename(entity.path);
+        if (name == _rollingBackupName) continue;
+        if (name.startsWith('backup_')) timestamped.add(entity);
+      }
+
+      timestamped.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+
+      final cutoff = DateTime.now().subtract(_maxBackupAge);
+      for (var i = 0; i < timestamped.length; i++) {
+        final file = timestamped[i];
+        final modified = file.statSync().modified;
+        if (i >= _maxTimestampedBackups || modified.isBefore(cutoff)) {
+          try {
+            await file.delete();
+          } catch (_) {}
+        }
+      }
+
+      if (await rolling.exists()) {
+        final rollingAge = (await rolling.stat()).modified;
+        if (rollingAge.isBefore(cutoff)) {
+          try {
+            await rolling.delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> validateAndRecoverIfNeeded() async {
+    await _pruneOldBackups();
     try {
       final localDir = await AppDirectories.local();
       final dbFile = File(p.join(localDir.path, 'pos.sqlite'));
@@ -83,10 +166,22 @@ class BackupService {
   Future<bool> restoreLatestBackupIfAvailable() async {
     try {
       final backupDir = await _backupDir();
-      final files = await backupDir.list().where((e) => e is File && p.extension(e.path).toLowerCase() == '.db').cast<File>().toList();
-      if (files.isEmpty) return false;
-      files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
-      final latest = files.first;
+      final candidates = <File>[];
+
+      final rolling = File(p.join(backupDir.path, _rollingBackupName));
+      if (await rolling.exists()) candidates.add(rolling);
+
+      await for (final entity in backupDir.list()) {
+        if (entity is File &&
+            p.extension(entity.path).toLowerCase() == '.db' &&
+            p.basename(entity.path) != _rollingBackupName) {
+          candidates.add(entity);
+        }
+      }
+      if (candidates.isEmpty) return false;
+
+      candidates.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      final latest = candidates.first;
 
       final localDir = await AppDirectories.local();
       final target = File(p.join(localDir.path, 'pos.sqlite'));

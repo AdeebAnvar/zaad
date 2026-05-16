@@ -9,7 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 /// App-managed folders under **user-visible Documents/ZaadPOS** when possible:
 /// - …/ZaadPOS/local   -> sqlite (`pos.sqlite`)
 /// - …/ZaadPOS/media   -> images + `sales_backup.xlsx`
-/// - …/ZaadPOS/backup  -> SQLite copies (`BackupService`)
+/// - …/ZaadPOS/backup  -> `latest.db` + up to 2 dated copies (`BackupService`, pruned on startup)
 /// - …/ZaadPOS/exports -> XLSX exports (`ExportService`)
 ///
 /// **Windows**: same as before — path_provider’s application documents (your `Documents` folder).

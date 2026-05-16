@@ -2,14 +2,9 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
-import 'package:pos/core/auth/counter_access.dart';
-import 'package:pos/core/network/local_hub_settings.dart';
-import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/constants/colors.dart';
-import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
-import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_log_cubit.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 import 'package:pos/presentation/widgets/app_snackbar.dart';
@@ -47,11 +42,9 @@ class _DineInMoveFloorTableBody extends StatefulWidget {
 
 class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
   final _db = locator<AppDatabase>();
-  final _orderRepo = locator<OrderRepository>();
 
   bool _loading = true;
   String? _error;
-  bool? _seatHandlingEnabled;
   List<DiningFloor> _floors = [];
   List<DiningTable> _tables = [];
   int? _floorId;
@@ -69,7 +62,6 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       _error = null;
     });
     try {
-      final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
       final floors = await _db.diningTablesDao.getFloors();
       if (floors.isEmpty) {
         setState(() {
@@ -100,7 +92,6 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
 
       if (!mounted) return;
       setState(() {
-        _seatHandlingEnabled = seatHandling;
         _floors = floors;
         _floorId = startFloor.id;
         _tables = tables;
@@ -139,44 +130,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       return;
     }
 
-    final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInAnchorForMatching(widget.order));
-    final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
-    final active = await _orderRepo.filterOrders(
-      orderType: 'dine_in',
-      userId: HubLogOrderUserScope.effectiveFilterUserId(
-        hub: locator<LocalHubSettings>(),
-        sessionUser: locator<CurrentCounterSession>().user,
-        uiSelectedUserId: null,
-      ),
-    );
-    final activeList = active.where((o) {
-      final s = o.status.toLowerCase();
-      return s != 'completed' && s != 'cancelled';
-    }).toList();
-
-    if (seatHandling) {
-      final used = await DineInRefParser.occupiedPaxOnTableExcluding(
-        floorId: fid,
-        tableCodeUpper: DineInRefParser.tableKey(table.code),
-        excludeOrderId: widget.order.id,
-        db: _db,
-        activeDineInOrders: activeList,
-      );
-
-      if (used + pax > table.chairs) {
-        if (!context.mounted) return;
-        showAppSnackBar(
-          context,
-          'Not enough seats on ${table.code} ($used + $pax pax needed, ${table.chairs} seats).',
-          isError: true,
-        );
-        return;
-      }
-    }
-
-    final newRef = seatHandling
-        ? DineInRefParser.buildReference(fid, table.code, pax)
-        : DineInRefParser.buildTableOnlyReference(fid, table.code);
+    final newRef = DineInRefParser.buildTableOnlyReference(fid, table.code);
     final cubit = context.read<DineInLogCubit>();
     final nav = Navigator.of(context);
     final err = await cubit.moveDineInOrderToTable(
@@ -184,12 +138,13 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       newReferenceNumber: newRef,
     );
 
-    if (!mounted) return;
+    if (!context.mounted) return;
     if (err != null) {
       showAppSnackBar(context, err, isError: true);
       return;
     }
     nav.pop();
+    if (!context.mounted) return;
     showAppSnackBar(context, 'Order moved to selected floor / table');
   }
 
@@ -207,9 +162,6 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       );
     }
 
-    final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInAnchorForMatching(widget.order));
-    final seatHandling = _seatHandlingEnabled ?? true;
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
       child: Column(
@@ -221,9 +173,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
           ),
           const SizedBox(height: 4),
           Text(
-            seatHandling
-                ? 'Keeps $pax pax on the new table.'
-                : 'Seat allocation is off; order moves to the new table without seat limits.',
+            'Assigns this bill to the selected table (floor + table only).',
             style: AppStyles.getRegularTextStyle(fontSize: 13, color: AppColors.hintFontColor),
           ),
           const SizedBox(height: 16),

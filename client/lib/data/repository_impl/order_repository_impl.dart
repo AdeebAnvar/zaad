@@ -1,7 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
-import 'package:pos/core/services/backup_service.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:pos/core/sync/cloud_order_push_queue.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
@@ -29,8 +29,7 @@ class OrderRepositoryImpl implements OrderRepository {
   }
 
   Future<void> _afterMutation() async {
-    await SalesCsvBackup.refreshFromDatabase(db);
-    await BackupService.instance.recordOrderMutation(db);
+    unawaited(SalesCsvBackup.refreshFromDatabase(db));
   }
 
   Future<Map<String, dynamic>> _orderSnapshotMap(Order order, List<CartItem> cartItems) async {
@@ -103,6 +102,7 @@ class OrderRepositoryImpl implements OrderRepository {
         userId: Value(order.userId),
         hubSyncPending: const Value(false),
         pickupToken: Value(nextToken),
+        hubMetadata: Value(order.hubMetadata),
       ),
     );
     final saved = await db.ordersDao.getOrderById(newId);

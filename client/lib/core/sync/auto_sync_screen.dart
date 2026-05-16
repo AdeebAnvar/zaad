@@ -118,7 +118,7 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> {
 
       if (kDebugMode) {
         debugPrint(
-          '[auto_sync] push outcome ok=${pushOut.ok} orders=${pushOut.ordersPosted} http=${pushOut.httpStatus}',
+          '[auto_sync] push outcome ok=${pushOut.ok} sales=${pushOut.ordersPosted} expenses=${pushOut.expensesPosted} http=${pushOut.httpStatus}',
         );
       }
 
@@ -128,9 +128,9 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> {
         pushProgress = 1.0;
         message = !pushOut.ok
             ? 'Pull OK · push failed (${pushOut.message})'
-            : pushOut.ordersPosted <= 0
-                ? 'Sync completed · push OK (no pending sales)'
-                : 'Sync completed · pushed ${pushOut.ordersPosted} sale(s)';
+            : pushOut.ordersPosted <= 0 && pushOut.expensesPosted <= 0
+                ? 'Sync completed · push OK (nothing pending)'
+                : 'Sync completed · pushed ${pushOut.ordersPosted} sale(s), ${pushOut.expensesPosted} expense/salary/income';
       });
 
       await Future.delayed(const Duration(milliseconds: 600));

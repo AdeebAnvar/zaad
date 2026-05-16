@@ -44,7 +44,7 @@ class SettleSalePushMapper {
     final shortForPayload =
         cashCloseReconciliation != null ? cashCloseReconciliation.manualShort : s.shortAmount;
     final cashInForPayload = cashCloseReconciliation != null
-        ? (s.openingCash + cashCloseReconciliation.actualCashSale)
+        ? (s.openingCash + cashCloseReconciliation.actualCashSale + s.otherIncome)
         : s.cashIn;
     final cashDrawerForPayload =
         cashCloseReconciliation != null ? (cashInForPayload - s.cashOut) : s.cashDrawer;
@@ -88,6 +88,8 @@ class SettleSalePushMapper {
       'pay_back_vat': 0,
       'staff_id': null,
       'purchase': s.purchase,
+      'other_income': s.otherIncome,
+      'salary': s.salary,
       'creditrecovery_payment_wise': '[]',
       'outstanding_credit': s.outstandingCredit,
       'purchasePaymentWise': '[]',

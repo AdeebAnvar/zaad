@@ -1,5 +1,6 @@
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/domain/models/financial_record_type.dart';
 
 double _sumOrders(Iterable<Order> list, double Function(Order o) pick) =>
     list.fold<double>(0, (acc, e) => acc + pick(e));
@@ -154,6 +155,7 @@ class DayClosingSummary {
   final List<DayClosingCancelledRow> cancelledRows;
   /// Open bills the user may review (same log permissions as [unsettledFromAccessibleLogs]).
   final List<DayClosingOpenBill> openBills;
+  final List<DayClosingOtherIncomeRow> otherIncomeRows;
 
   const DayClosingSummary({
     required this.generatedAt,
@@ -190,6 +192,7 @@ class DayClosingSummary {
     required this.itemRows,
     required this.cancelledRows,
     required this.openBills,
+    required this.otherIncomeRows,
   });
 
   factory DayClosingSummary.empty() => DayClosingSummary(
@@ -227,7 +230,22 @@ class DayClosingSummary {
         itemRows: const [],
         cancelledRows: const [],
         openBills: const [],
+        otherIncomeRows: const [],
       );
+}
+
+class DayClosingOtherIncomeRow {
+  final String description;
+  final String payment;
+  final double amount;
+  final DateTime createdAt;
+
+  const DayClosingOtherIncomeRow({
+    required this.description,
+    required this.payment,
+    required this.amount,
+    required this.createdAt,
+  });
 }
 
 class DayClosingOpenBill {
@@ -408,13 +426,35 @@ Future<DayClosingSummary> computeDayClosingSummary(
   final openingCash = (branch?.openingCash ?? 0).toDouble();
   const creditRecovery = 0.0;
   const deliveryRecovery = 0.0;
-  const purchase = 0.0;
-  const salary = 0.0;
-  const otherIncome = 0.0;
+  final purchase = await db.financialRecordsDao.sumFinalAmount(
+    branchId: branchId,
+    recordType: FinancialRecordType.expense.storageKey,
+    lastSettledAt: cutoff,
+  );
+  final salary = await db.financialRecordsDao.sumFinalAmount(
+    branchId: branchId,
+    recordType: FinancialRecordType.salary.storageKey,
+    lastSettledAt: cutoff,
+  );
+  final otherIncomeRecords = await db.financialRecordsDao.listSinceClose(
+    branchId: branchId,
+    recordType: FinancialRecordType.otherIncome.storageKey,
+    lastSettledAt: cutoff,
+  );
+  final otherIncome = otherIncomeRecords.fold<double>(0, (s, r) => s + r.finalAmount);
+  final otherIncomeRows = otherIncomeRecords
+      .map(
+        (r) => DayClosingOtherIncomeRow(
+          description: (r.description ?? '').trim().isEmpty ? '—' : r.description!.trim(),
+          payment: (r.paymentMethodName ?? '—').trim(),
+          amount: r.finalAmount,
+          createdAt: r.createdAt,
+        ),
+      )
+      .toList();
   final expUnpaidTotal = purchase + salary + unpaidAmount - otherIncome;
-  // Modeled drawer per requirement:
-  // opening cash + cash sales (after discount) - expenses paid from cash.
-  final cashIn = openingCash + cashSaleAfterDiscount;
+  // Modeled drawer: opening + net cash sales + other income (cash in) − expenses from cash.
+  final cashIn = openingCash + cashSaleAfterDiscount + otherIncome;
   final cashOut = purchase + salary;
   final cashDrawer = cashIn - cashOut;
   final difference = expUnpaidTotal - cashDrawer;
@@ -585,6 +625,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
     itemRows: itemRows,
     cancelledRows: cancelledRows,
     openBills: openBills,
+    otherIncomeRows: otherIncomeRows,
   );
 }
 

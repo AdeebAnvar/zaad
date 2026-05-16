@@ -15196,6 +15196,1084 @@ class DayClosingCheckpointCompanion
   }
 }
 
+class $FinancialRecordsTable extends FinancialRecords
+    with TableInfo<$FinancialRecordsTable, FinancialRecord> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $FinancialRecordsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _uuidMeta = const VerificationMeta('uuid');
+  @override
+  late final GeneratedColumn<String> uuid = GeneratedColumn<String>(
+      'uuid', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _branchIdMeta =
+      const VerificationMeta('branchId');
+  @override
+  late final GeneratedColumn<int> branchId = GeneratedColumn<int>(
+      'branch_id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _recordTypeMeta =
+      const VerificationMeta('recordType');
+  @override
+  late final GeneratedColumn<String> recordType = GeneratedColumn<String>(
+      'record_type', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _expenseCategoryIdMeta =
+      const VerificationMeta('expenseCategoryId');
+  @override
+  late final GeneratedColumn<int> expenseCategoryId = GeneratedColumn<int>(
+      'expense_category_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _expenseCategoryNameMeta =
+      const VerificationMeta('expenseCategoryName');
+  @override
+  late final GeneratedColumn<String> expenseCategoryName =
+      GeneratedColumn<String>('expense_category_name', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _expenseCategorySlugMeta =
+      const VerificationMeta('expenseCategorySlug');
+  @override
+  late final GeneratedColumn<String> expenseCategorySlug =
+      GeneratedColumn<String>('expense_category_slug', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _paymentMethodIdMeta =
+      const VerificationMeta('paymentMethodId');
+  @override
+  late final GeneratedColumn<int> paymentMethodId = GeneratedColumn<int>(
+      'payment_method_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _paymentMethodNameMeta =
+      const VerificationMeta('paymentMethodName');
+  @override
+  late final GeneratedColumn<String> paymentMethodName =
+      GeneratedColumn<String>('payment_method_name', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _companyNameMeta =
+      const VerificationMeta('companyName');
+  @override
+  late final GeneratedColumn<String> companyName = GeneratedColumn<String>(
+      'company_name', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _companyTrnMeta =
+      const VerificationMeta('companyTrn');
+  @override
+  late final GeneratedColumn<String> companyTrn = GeneratedColumn<String>(
+      'company_trn', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _invoiceNoMeta =
+      const VerificationMeta('invoiceNo');
+  @override
+  late final GeneratedColumn<String> invoiceNo = GeneratedColumn<String>(
+      'invoice_no', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _staffNameMeta =
+      const VerificationMeta('staffName');
+  @override
+  late final GeneratedColumn<String> staffName = GeneratedColumn<String>(
+      'staff_name', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _joiningDateMeta =
+      const VerificationMeta('joiningDate');
+  @override
+  late final GeneratedColumn<DateTime> joiningDate = GeneratedColumn<DateTime>(
+      'joining_date', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _exitDateMeta =
+      const VerificationMeta('exitDate');
+  @override
+  late final GeneratedColumn<DateTime> exitDate = GeneratedColumn<DateTime>(
+      'exit_date', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _daysMeta = const VerificationMeta('days');
+  @override
+  late final GeneratedColumn<int> days = GeneratedColumn<int>(
+      'days', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _descriptionMeta =
+      const VerificationMeta('description');
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+      'description', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _amountBeforeVatMeta =
+      const VerificationMeta('amountBeforeVat');
+  @override
+  late final GeneratedColumn<double> amountBeforeVat = GeneratedColumn<double>(
+      'amount_before_vat', aliasedName, false,
+      type: DriftSqlType.double,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _vatAmountMeta =
+      const VerificationMeta('vatAmount');
+  @override
+  late final GeneratedColumn<double> vatAmount = GeneratedColumn<double>(
+      'vat_amount', aliasedName, false,
+      type: DriftSqlType.double,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _finalAmountMeta =
+      const VerificationMeta('finalAmount');
+  @override
+  late final GeneratedColumn<double> finalAmount = GeneratedColumn<double>(
+      'final_amount', aliasedName, false,
+      type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<int> userId = GeneratedColumn<int>(
+      'user_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  static const VerificationMeta _syncedMeta = const VerificationMeta('synced');
+  @override
+  late final GeneratedColumn<bool> synced = GeneratedColumn<bool>(
+      'synced', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("synced" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        uuid,
+        branchId,
+        recordType,
+        expenseCategoryId,
+        expenseCategoryName,
+        expenseCategorySlug,
+        paymentMethodId,
+        paymentMethodName,
+        companyName,
+        companyTrn,
+        invoiceNo,
+        staffName,
+        joiningDate,
+        exitDate,
+        days,
+        description,
+        amountBeforeVat,
+        vatAmount,
+        finalAmount,
+        userId,
+        createdAt,
+        synced
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'financial_records';
+  @override
+  VerificationContext validateIntegrity(Insertable<FinancialRecord> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('uuid')) {
+      context.handle(
+          _uuidMeta, uuid.isAcceptableOrUnknown(data['uuid']!, _uuidMeta));
+    } else if (isInserting) {
+      context.missing(_uuidMeta);
+    }
+    if (data.containsKey('branch_id')) {
+      context.handle(_branchIdMeta,
+          branchId.isAcceptableOrUnknown(data['branch_id']!, _branchIdMeta));
+    } else if (isInserting) {
+      context.missing(_branchIdMeta);
+    }
+    if (data.containsKey('record_type')) {
+      context.handle(
+          _recordTypeMeta,
+          recordType.isAcceptableOrUnknown(
+              data['record_type']!, _recordTypeMeta));
+    } else if (isInserting) {
+      context.missing(_recordTypeMeta);
+    }
+    if (data.containsKey('expense_category_id')) {
+      context.handle(
+          _expenseCategoryIdMeta,
+          expenseCategoryId.isAcceptableOrUnknown(
+              data['expense_category_id']!, _expenseCategoryIdMeta));
+    }
+    if (data.containsKey('expense_category_name')) {
+      context.handle(
+          _expenseCategoryNameMeta,
+          expenseCategoryName.isAcceptableOrUnknown(
+              data['expense_category_name']!, _expenseCategoryNameMeta));
+    }
+    if (data.containsKey('expense_category_slug')) {
+      context.handle(
+          _expenseCategorySlugMeta,
+          expenseCategorySlug.isAcceptableOrUnknown(
+              data['expense_category_slug']!, _expenseCategorySlugMeta));
+    }
+    if (data.containsKey('payment_method_id')) {
+      context.handle(
+          _paymentMethodIdMeta,
+          paymentMethodId.isAcceptableOrUnknown(
+              data['payment_method_id']!, _paymentMethodIdMeta));
+    }
+    if (data.containsKey('payment_method_name')) {
+      context.handle(
+          _paymentMethodNameMeta,
+          paymentMethodName.isAcceptableOrUnknown(
+              data['payment_method_name']!, _paymentMethodNameMeta));
+    }
+    if (data.containsKey('company_name')) {
+      context.handle(
+          _companyNameMeta,
+          companyName.isAcceptableOrUnknown(
+              data['company_name']!, _companyNameMeta));
+    }
+    if (data.containsKey('company_trn')) {
+      context.handle(
+          _companyTrnMeta,
+          companyTrn.isAcceptableOrUnknown(
+              data['company_trn']!, _companyTrnMeta));
+    }
+    if (data.containsKey('invoice_no')) {
+      context.handle(_invoiceNoMeta,
+          invoiceNo.isAcceptableOrUnknown(data['invoice_no']!, _invoiceNoMeta));
+    }
+    if (data.containsKey('staff_name')) {
+      context.handle(_staffNameMeta,
+          staffName.isAcceptableOrUnknown(data['staff_name']!, _staffNameMeta));
+    }
+    if (data.containsKey('joining_date')) {
+      context.handle(
+          _joiningDateMeta,
+          joiningDate.isAcceptableOrUnknown(
+              data['joining_date']!, _joiningDateMeta));
+    }
+    if (data.containsKey('exit_date')) {
+      context.handle(_exitDateMeta,
+          exitDate.isAcceptableOrUnknown(data['exit_date']!, _exitDateMeta));
+    }
+    if (data.containsKey('days')) {
+      context.handle(
+          _daysMeta, days.isAcceptableOrUnknown(data['days']!, _daysMeta));
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+          _descriptionMeta,
+          description.isAcceptableOrUnknown(
+              data['description']!, _descriptionMeta));
+    }
+    if (data.containsKey('amount_before_vat')) {
+      context.handle(
+          _amountBeforeVatMeta,
+          amountBeforeVat.isAcceptableOrUnknown(
+              data['amount_before_vat']!, _amountBeforeVatMeta));
+    }
+    if (data.containsKey('vat_amount')) {
+      context.handle(_vatAmountMeta,
+          vatAmount.isAcceptableOrUnknown(data['vat_amount']!, _vatAmountMeta));
+    }
+    if (data.containsKey('final_amount')) {
+      context.handle(
+          _finalAmountMeta,
+          finalAmount.isAcceptableOrUnknown(
+              data['final_amount']!, _finalAmountMeta));
+    } else if (isInserting) {
+      context.missing(_finalAmountMeta);
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(_userIdMeta,
+          userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    if (data.containsKey('synced')) {
+      context.handle(_syncedMeta,
+          synced.isAcceptableOrUnknown(data['synced']!, _syncedMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  FinancialRecord map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return FinancialRecord(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      uuid: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}uuid'])!,
+      branchId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}branch_id'])!,
+      recordType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}record_type'])!,
+      expenseCategoryId: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}expense_category_id']),
+      expenseCategoryName: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}expense_category_name']),
+      expenseCategorySlug: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}expense_category_slug']),
+      paymentMethodId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}payment_method_id']),
+      paymentMethodName: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}payment_method_name']),
+      companyName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}company_name']),
+      companyTrn: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}company_trn']),
+      invoiceNo: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}invoice_no']),
+      staffName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}staff_name']),
+      joiningDate: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}joining_date']),
+      exitDate: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}exit_date']),
+      days: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}days']),
+      description: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}description']),
+      amountBeforeVat: attachedDatabase.typeMapping.read(
+          DriftSqlType.double, data['${effectivePrefix}amount_before_vat'])!,
+      vatAmount: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}vat_amount'])!,
+      finalAmount: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}final_amount'])!,
+      userId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}user_id']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      synced: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}synced'])!,
+    );
+  }
+
+  @override
+  $FinancialRecordsTable createAlias(String alias) {
+    return $FinancialRecordsTable(attachedDatabase, alias);
+  }
+}
+
+class FinancialRecord extends DataClass implements Insertable<FinancialRecord> {
+  final int id;
+  final String uuid;
+  final int branchId;
+
+  /// `expense` | `salary` | `other_income`
+  final String recordType;
+  final int? expenseCategoryId;
+  final String? expenseCategoryName;
+  final String? expenseCategorySlug;
+  final int? paymentMethodId;
+  final String? paymentMethodName;
+  final String? companyName;
+  final String? companyTrn;
+  final String? invoiceNo;
+  final String? staffName;
+  final DateTime? joiningDate;
+  final DateTime? exitDate;
+  final int? days;
+  final String? description;
+  final double amountBeforeVat;
+  final double vatAmount;
+  final double finalAmount;
+  final int? userId;
+  final DateTime createdAt;
+  final bool synced;
+  const FinancialRecord(
+      {required this.id,
+      required this.uuid,
+      required this.branchId,
+      required this.recordType,
+      this.expenseCategoryId,
+      this.expenseCategoryName,
+      this.expenseCategorySlug,
+      this.paymentMethodId,
+      this.paymentMethodName,
+      this.companyName,
+      this.companyTrn,
+      this.invoiceNo,
+      this.staffName,
+      this.joiningDate,
+      this.exitDate,
+      this.days,
+      this.description,
+      required this.amountBeforeVat,
+      required this.vatAmount,
+      required this.finalAmount,
+      this.userId,
+      required this.createdAt,
+      required this.synced});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['uuid'] = Variable<String>(uuid);
+    map['branch_id'] = Variable<int>(branchId);
+    map['record_type'] = Variable<String>(recordType);
+    if (!nullToAbsent || expenseCategoryId != null) {
+      map['expense_category_id'] = Variable<int>(expenseCategoryId);
+    }
+    if (!nullToAbsent || expenseCategoryName != null) {
+      map['expense_category_name'] = Variable<String>(expenseCategoryName);
+    }
+    if (!nullToAbsent || expenseCategorySlug != null) {
+      map['expense_category_slug'] = Variable<String>(expenseCategorySlug);
+    }
+    if (!nullToAbsent || paymentMethodId != null) {
+      map['payment_method_id'] = Variable<int>(paymentMethodId);
+    }
+    if (!nullToAbsent || paymentMethodName != null) {
+      map['payment_method_name'] = Variable<String>(paymentMethodName);
+    }
+    if (!nullToAbsent || companyName != null) {
+      map['company_name'] = Variable<String>(companyName);
+    }
+    if (!nullToAbsent || companyTrn != null) {
+      map['company_trn'] = Variable<String>(companyTrn);
+    }
+    if (!nullToAbsent || invoiceNo != null) {
+      map['invoice_no'] = Variable<String>(invoiceNo);
+    }
+    if (!nullToAbsent || staffName != null) {
+      map['staff_name'] = Variable<String>(staffName);
+    }
+    if (!nullToAbsent || joiningDate != null) {
+      map['joining_date'] = Variable<DateTime>(joiningDate);
+    }
+    if (!nullToAbsent || exitDate != null) {
+      map['exit_date'] = Variable<DateTime>(exitDate);
+    }
+    if (!nullToAbsent || days != null) {
+      map['days'] = Variable<int>(days);
+    }
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
+    map['amount_before_vat'] = Variable<double>(amountBeforeVat);
+    map['vat_amount'] = Variable<double>(vatAmount);
+    map['final_amount'] = Variable<double>(finalAmount);
+    if (!nullToAbsent || userId != null) {
+      map['user_id'] = Variable<int>(userId);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['synced'] = Variable<bool>(synced);
+    return map;
+  }
+
+  FinancialRecordsCompanion toCompanion(bool nullToAbsent) {
+    return FinancialRecordsCompanion(
+      id: Value(id),
+      uuid: Value(uuid),
+      branchId: Value(branchId),
+      recordType: Value(recordType),
+      expenseCategoryId: expenseCategoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(expenseCategoryId),
+      expenseCategoryName: expenseCategoryName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(expenseCategoryName),
+      expenseCategorySlug: expenseCategorySlug == null && nullToAbsent
+          ? const Value.absent()
+          : Value(expenseCategorySlug),
+      paymentMethodId: paymentMethodId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(paymentMethodId),
+      paymentMethodName: paymentMethodName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(paymentMethodName),
+      companyName: companyName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(companyName),
+      companyTrn: companyTrn == null && nullToAbsent
+          ? const Value.absent()
+          : Value(companyTrn),
+      invoiceNo: invoiceNo == null && nullToAbsent
+          ? const Value.absent()
+          : Value(invoiceNo),
+      staffName: staffName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(staffName),
+      joiningDate: joiningDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(joiningDate),
+      exitDate: exitDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(exitDate),
+      days: days == null && nullToAbsent ? const Value.absent() : Value(days),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
+      amountBeforeVat: Value(amountBeforeVat),
+      vatAmount: Value(vatAmount),
+      finalAmount: Value(finalAmount),
+      userId:
+          userId == null && nullToAbsent ? const Value.absent() : Value(userId),
+      createdAt: Value(createdAt),
+      synced: Value(synced),
+    );
+  }
+
+  factory FinancialRecord.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return FinancialRecord(
+      id: serializer.fromJson<int>(json['id']),
+      uuid: serializer.fromJson<String>(json['uuid']),
+      branchId: serializer.fromJson<int>(json['branchId']),
+      recordType: serializer.fromJson<String>(json['recordType']),
+      expenseCategoryId: serializer.fromJson<int?>(json['expenseCategoryId']),
+      expenseCategoryName:
+          serializer.fromJson<String?>(json['expenseCategoryName']),
+      expenseCategorySlug:
+          serializer.fromJson<String?>(json['expenseCategorySlug']),
+      paymentMethodId: serializer.fromJson<int?>(json['paymentMethodId']),
+      paymentMethodName:
+          serializer.fromJson<String?>(json['paymentMethodName']),
+      companyName: serializer.fromJson<String?>(json['companyName']),
+      companyTrn: serializer.fromJson<String?>(json['companyTrn']),
+      invoiceNo: serializer.fromJson<String?>(json['invoiceNo']),
+      staffName: serializer.fromJson<String?>(json['staffName']),
+      joiningDate: serializer.fromJson<DateTime?>(json['joiningDate']),
+      exitDate: serializer.fromJson<DateTime?>(json['exitDate']),
+      days: serializer.fromJson<int?>(json['days']),
+      description: serializer.fromJson<String?>(json['description']),
+      amountBeforeVat: serializer.fromJson<double>(json['amountBeforeVat']),
+      vatAmount: serializer.fromJson<double>(json['vatAmount']),
+      finalAmount: serializer.fromJson<double>(json['finalAmount']),
+      userId: serializer.fromJson<int?>(json['userId']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      synced: serializer.fromJson<bool>(json['synced']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'uuid': serializer.toJson<String>(uuid),
+      'branchId': serializer.toJson<int>(branchId),
+      'recordType': serializer.toJson<String>(recordType),
+      'expenseCategoryId': serializer.toJson<int?>(expenseCategoryId),
+      'expenseCategoryName': serializer.toJson<String?>(expenseCategoryName),
+      'expenseCategorySlug': serializer.toJson<String?>(expenseCategorySlug),
+      'paymentMethodId': serializer.toJson<int?>(paymentMethodId),
+      'paymentMethodName': serializer.toJson<String?>(paymentMethodName),
+      'companyName': serializer.toJson<String?>(companyName),
+      'companyTrn': serializer.toJson<String?>(companyTrn),
+      'invoiceNo': serializer.toJson<String?>(invoiceNo),
+      'staffName': serializer.toJson<String?>(staffName),
+      'joiningDate': serializer.toJson<DateTime?>(joiningDate),
+      'exitDate': serializer.toJson<DateTime?>(exitDate),
+      'days': serializer.toJson<int?>(days),
+      'description': serializer.toJson<String?>(description),
+      'amountBeforeVat': serializer.toJson<double>(amountBeforeVat),
+      'vatAmount': serializer.toJson<double>(vatAmount),
+      'finalAmount': serializer.toJson<double>(finalAmount),
+      'userId': serializer.toJson<int?>(userId),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'synced': serializer.toJson<bool>(synced),
+    };
+  }
+
+  FinancialRecord copyWith(
+          {int? id,
+          String? uuid,
+          int? branchId,
+          String? recordType,
+          Value<int?> expenseCategoryId = const Value.absent(),
+          Value<String?> expenseCategoryName = const Value.absent(),
+          Value<String?> expenseCategorySlug = const Value.absent(),
+          Value<int?> paymentMethodId = const Value.absent(),
+          Value<String?> paymentMethodName = const Value.absent(),
+          Value<String?> companyName = const Value.absent(),
+          Value<String?> companyTrn = const Value.absent(),
+          Value<String?> invoiceNo = const Value.absent(),
+          Value<String?> staffName = const Value.absent(),
+          Value<DateTime?> joiningDate = const Value.absent(),
+          Value<DateTime?> exitDate = const Value.absent(),
+          Value<int?> days = const Value.absent(),
+          Value<String?> description = const Value.absent(),
+          double? amountBeforeVat,
+          double? vatAmount,
+          double? finalAmount,
+          Value<int?> userId = const Value.absent(),
+          DateTime? createdAt,
+          bool? synced}) =>
+      FinancialRecord(
+        id: id ?? this.id,
+        uuid: uuid ?? this.uuid,
+        branchId: branchId ?? this.branchId,
+        recordType: recordType ?? this.recordType,
+        expenseCategoryId: expenseCategoryId.present
+            ? expenseCategoryId.value
+            : this.expenseCategoryId,
+        expenseCategoryName: expenseCategoryName.present
+            ? expenseCategoryName.value
+            : this.expenseCategoryName,
+        expenseCategorySlug: expenseCategorySlug.present
+            ? expenseCategorySlug.value
+            : this.expenseCategorySlug,
+        paymentMethodId: paymentMethodId.present
+            ? paymentMethodId.value
+            : this.paymentMethodId,
+        paymentMethodName: paymentMethodName.present
+            ? paymentMethodName.value
+            : this.paymentMethodName,
+        companyName: companyName.present ? companyName.value : this.companyName,
+        companyTrn: companyTrn.present ? companyTrn.value : this.companyTrn,
+        invoiceNo: invoiceNo.present ? invoiceNo.value : this.invoiceNo,
+        staffName: staffName.present ? staffName.value : this.staffName,
+        joiningDate: joiningDate.present ? joiningDate.value : this.joiningDate,
+        exitDate: exitDate.present ? exitDate.value : this.exitDate,
+        days: days.present ? days.value : this.days,
+        description: description.present ? description.value : this.description,
+        amountBeforeVat: amountBeforeVat ?? this.amountBeforeVat,
+        vatAmount: vatAmount ?? this.vatAmount,
+        finalAmount: finalAmount ?? this.finalAmount,
+        userId: userId.present ? userId.value : this.userId,
+        createdAt: createdAt ?? this.createdAt,
+        synced: synced ?? this.synced,
+      );
+  FinancialRecord copyWithCompanion(FinancialRecordsCompanion data) {
+    return FinancialRecord(
+      id: data.id.present ? data.id.value : this.id,
+      uuid: data.uuid.present ? data.uuid.value : this.uuid,
+      branchId: data.branchId.present ? data.branchId.value : this.branchId,
+      recordType:
+          data.recordType.present ? data.recordType.value : this.recordType,
+      expenseCategoryId: data.expenseCategoryId.present
+          ? data.expenseCategoryId.value
+          : this.expenseCategoryId,
+      expenseCategoryName: data.expenseCategoryName.present
+          ? data.expenseCategoryName.value
+          : this.expenseCategoryName,
+      expenseCategorySlug: data.expenseCategorySlug.present
+          ? data.expenseCategorySlug.value
+          : this.expenseCategorySlug,
+      paymentMethodId: data.paymentMethodId.present
+          ? data.paymentMethodId.value
+          : this.paymentMethodId,
+      paymentMethodName: data.paymentMethodName.present
+          ? data.paymentMethodName.value
+          : this.paymentMethodName,
+      companyName:
+          data.companyName.present ? data.companyName.value : this.companyName,
+      companyTrn:
+          data.companyTrn.present ? data.companyTrn.value : this.companyTrn,
+      invoiceNo: data.invoiceNo.present ? data.invoiceNo.value : this.invoiceNo,
+      staffName: data.staffName.present ? data.staffName.value : this.staffName,
+      joiningDate:
+          data.joiningDate.present ? data.joiningDate.value : this.joiningDate,
+      exitDate: data.exitDate.present ? data.exitDate.value : this.exitDate,
+      days: data.days.present ? data.days.value : this.days,
+      description:
+          data.description.present ? data.description.value : this.description,
+      amountBeforeVat: data.amountBeforeVat.present
+          ? data.amountBeforeVat.value
+          : this.amountBeforeVat,
+      vatAmount: data.vatAmount.present ? data.vatAmount.value : this.vatAmount,
+      finalAmount:
+          data.finalAmount.present ? data.finalAmount.value : this.finalAmount,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      synced: data.synced.present ? data.synced.value : this.synced,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('FinancialRecord(')
+          ..write('id: $id, ')
+          ..write('uuid: $uuid, ')
+          ..write('branchId: $branchId, ')
+          ..write('recordType: $recordType, ')
+          ..write('expenseCategoryId: $expenseCategoryId, ')
+          ..write('expenseCategoryName: $expenseCategoryName, ')
+          ..write('expenseCategorySlug: $expenseCategorySlug, ')
+          ..write('paymentMethodId: $paymentMethodId, ')
+          ..write('paymentMethodName: $paymentMethodName, ')
+          ..write('companyName: $companyName, ')
+          ..write('companyTrn: $companyTrn, ')
+          ..write('invoiceNo: $invoiceNo, ')
+          ..write('staffName: $staffName, ')
+          ..write('joiningDate: $joiningDate, ')
+          ..write('exitDate: $exitDate, ')
+          ..write('days: $days, ')
+          ..write('description: $description, ')
+          ..write('amountBeforeVat: $amountBeforeVat, ')
+          ..write('vatAmount: $vatAmount, ')
+          ..write('finalAmount: $finalAmount, ')
+          ..write('userId: $userId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('synced: $synced')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+        id,
+        uuid,
+        branchId,
+        recordType,
+        expenseCategoryId,
+        expenseCategoryName,
+        expenseCategorySlug,
+        paymentMethodId,
+        paymentMethodName,
+        companyName,
+        companyTrn,
+        invoiceNo,
+        staffName,
+        joiningDate,
+        exitDate,
+        days,
+        description,
+        amountBeforeVat,
+        vatAmount,
+        finalAmount,
+        userId,
+        createdAt,
+        synced
+      ]);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is FinancialRecord &&
+          other.id == this.id &&
+          other.uuid == this.uuid &&
+          other.branchId == this.branchId &&
+          other.recordType == this.recordType &&
+          other.expenseCategoryId == this.expenseCategoryId &&
+          other.expenseCategoryName == this.expenseCategoryName &&
+          other.expenseCategorySlug == this.expenseCategorySlug &&
+          other.paymentMethodId == this.paymentMethodId &&
+          other.paymentMethodName == this.paymentMethodName &&
+          other.companyName == this.companyName &&
+          other.companyTrn == this.companyTrn &&
+          other.invoiceNo == this.invoiceNo &&
+          other.staffName == this.staffName &&
+          other.joiningDate == this.joiningDate &&
+          other.exitDate == this.exitDate &&
+          other.days == this.days &&
+          other.description == this.description &&
+          other.amountBeforeVat == this.amountBeforeVat &&
+          other.vatAmount == this.vatAmount &&
+          other.finalAmount == this.finalAmount &&
+          other.userId == this.userId &&
+          other.createdAt == this.createdAt &&
+          other.synced == this.synced);
+}
+
+class FinancialRecordsCompanion extends UpdateCompanion<FinancialRecord> {
+  final Value<int> id;
+  final Value<String> uuid;
+  final Value<int> branchId;
+  final Value<String> recordType;
+  final Value<int?> expenseCategoryId;
+  final Value<String?> expenseCategoryName;
+  final Value<String?> expenseCategorySlug;
+  final Value<int?> paymentMethodId;
+  final Value<String?> paymentMethodName;
+  final Value<String?> companyName;
+  final Value<String?> companyTrn;
+  final Value<String?> invoiceNo;
+  final Value<String?> staffName;
+  final Value<DateTime?> joiningDate;
+  final Value<DateTime?> exitDate;
+  final Value<int?> days;
+  final Value<String?> description;
+  final Value<double> amountBeforeVat;
+  final Value<double> vatAmount;
+  final Value<double> finalAmount;
+  final Value<int?> userId;
+  final Value<DateTime> createdAt;
+  final Value<bool> synced;
+  const FinancialRecordsCompanion({
+    this.id = const Value.absent(),
+    this.uuid = const Value.absent(),
+    this.branchId = const Value.absent(),
+    this.recordType = const Value.absent(),
+    this.expenseCategoryId = const Value.absent(),
+    this.expenseCategoryName = const Value.absent(),
+    this.expenseCategorySlug = const Value.absent(),
+    this.paymentMethodId = const Value.absent(),
+    this.paymentMethodName = const Value.absent(),
+    this.companyName = const Value.absent(),
+    this.companyTrn = const Value.absent(),
+    this.invoiceNo = const Value.absent(),
+    this.staffName = const Value.absent(),
+    this.joiningDate = const Value.absent(),
+    this.exitDate = const Value.absent(),
+    this.days = const Value.absent(),
+    this.description = const Value.absent(),
+    this.amountBeforeVat = const Value.absent(),
+    this.vatAmount = const Value.absent(),
+    this.finalAmount = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.synced = const Value.absent(),
+  });
+  FinancialRecordsCompanion.insert({
+    this.id = const Value.absent(),
+    required String uuid,
+    required int branchId,
+    required String recordType,
+    this.expenseCategoryId = const Value.absent(),
+    this.expenseCategoryName = const Value.absent(),
+    this.expenseCategorySlug = const Value.absent(),
+    this.paymentMethodId = const Value.absent(),
+    this.paymentMethodName = const Value.absent(),
+    this.companyName = const Value.absent(),
+    this.companyTrn = const Value.absent(),
+    this.invoiceNo = const Value.absent(),
+    this.staffName = const Value.absent(),
+    this.joiningDate = const Value.absent(),
+    this.exitDate = const Value.absent(),
+    this.days = const Value.absent(),
+    this.description = const Value.absent(),
+    this.amountBeforeVat = const Value.absent(),
+    this.vatAmount = const Value.absent(),
+    required double finalAmount,
+    this.userId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.synced = const Value.absent(),
+  })  : uuid = Value(uuid),
+        branchId = Value(branchId),
+        recordType = Value(recordType),
+        finalAmount = Value(finalAmount);
+  static Insertable<FinancialRecord> custom({
+    Expression<int>? id,
+    Expression<String>? uuid,
+    Expression<int>? branchId,
+    Expression<String>? recordType,
+    Expression<int>? expenseCategoryId,
+    Expression<String>? expenseCategoryName,
+    Expression<String>? expenseCategorySlug,
+    Expression<int>? paymentMethodId,
+    Expression<String>? paymentMethodName,
+    Expression<String>? companyName,
+    Expression<String>? companyTrn,
+    Expression<String>? invoiceNo,
+    Expression<String>? staffName,
+    Expression<DateTime>? joiningDate,
+    Expression<DateTime>? exitDate,
+    Expression<int>? days,
+    Expression<String>? description,
+    Expression<double>? amountBeforeVat,
+    Expression<double>? vatAmount,
+    Expression<double>? finalAmount,
+    Expression<int>? userId,
+    Expression<DateTime>? createdAt,
+    Expression<bool>? synced,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (uuid != null) 'uuid': uuid,
+      if (branchId != null) 'branch_id': branchId,
+      if (recordType != null) 'record_type': recordType,
+      if (expenseCategoryId != null) 'expense_category_id': expenseCategoryId,
+      if (expenseCategoryName != null)
+        'expense_category_name': expenseCategoryName,
+      if (expenseCategorySlug != null)
+        'expense_category_slug': expenseCategorySlug,
+      if (paymentMethodId != null) 'payment_method_id': paymentMethodId,
+      if (paymentMethodName != null) 'payment_method_name': paymentMethodName,
+      if (companyName != null) 'company_name': companyName,
+      if (companyTrn != null) 'company_trn': companyTrn,
+      if (invoiceNo != null) 'invoice_no': invoiceNo,
+      if (staffName != null) 'staff_name': staffName,
+      if (joiningDate != null) 'joining_date': joiningDate,
+      if (exitDate != null) 'exit_date': exitDate,
+      if (days != null) 'days': days,
+      if (description != null) 'description': description,
+      if (amountBeforeVat != null) 'amount_before_vat': amountBeforeVat,
+      if (vatAmount != null) 'vat_amount': vatAmount,
+      if (finalAmount != null) 'final_amount': finalAmount,
+      if (userId != null) 'user_id': userId,
+      if (createdAt != null) 'created_at': createdAt,
+      if (synced != null) 'synced': synced,
+    });
+  }
+
+  FinancialRecordsCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? uuid,
+      Value<int>? branchId,
+      Value<String>? recordType,
+      Value<int?>? expenseCategoryId,
+      Value<String?>? expenseCategoryName,
+      Value<String?>? expenseCategorySlug,
+      Value<int?>? paymentMethodId,
+      Value<String?>? paymentMethodName,
+      Value<String?>? companyName,
+      Value<String?>? companyTrn,
+      Value<String?>? invoiceNo,
+      Value<String?>? staffName,
+      Value<DateTime?>? joiningDate,
+      Value<DateTime?>? exitDate,
+      Value<int?>? days,
+      Value<String?>? description,
+      Value<double>? amountBeforeVat,
+      Value<double>? vatAmount,
+      Value<double>? finalAmount,
+      Value<int?>? userId,
+      Value<DateTime>? createdAt,
+      Value<bool>? synced}) {
+    return FinancialRecordsCompanion(
+      id: id ?? this.id,
+      uuid: uuid ?? this.uuid,
+      branchId: branchId ?? this.branchId,
+      recordType: recordType ?? this.recordType,
+      expenseCategoryId: expenseCategoryId ?? this.expenseCategoryId,
+      expenseCategoryName: expenseCategoryName ?? this.expenseCategoryName,
+      expenseCategorySlug: expenseCategorySlug ?? this.expenseCategorySlug,
+      paymentMethodId: paymentMethodId ?? this.paymentMethodId,
+      paymentMethodName: paymentMethodName ?? this.paymentMethodName,
+      companyName: companyName ?? this.companyName,
+      companyTrn: companyTrn ?? this.companyTrn,
+      invoiceNo: invoiceNo ?? this.invoiceNo,
+      staffName: staffName ?? this.staffName,
+      joiningDate: joiningDate ?? this.joiningDate,
+      exitDate: exitDate ?? this.exitDate,
+      days: days ?? this.days,
+      description: description ?? this.description,
+      amountBeforeVat: amountBeforeVat ?? this.amountBeforeVat,
+      vatAmount: vatAmount ?? this.vatAmount,
+      finalAmount: finalAmount ?? this.finalAmount,
+      userId: userId ?? this.userId,
+      createdAt: createdAt ?? this.createdAt,
+      synced: synced ?? this.synced,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (uuid.present) {
+      map['uuid'] = Variable<String>(uuid.value);
+    }
+    if (branchId.present) {
+      map['branch_id'] = Variable<int>(branchId.value);
+    }
+    if (recordType.present) {
+      map['record_type'] = Variable<String>(recordType.value);
+    }
+    if (expenseCategoryId.present) {
+      map['expense_category_id'] = Variable<int>(expenseCategoryId.value);
+    }
+    if (expenseCategoryName.present) {
+      map['expense_category_name'] =
+          Variable<String>(expenseCategoryName.value);
+    }
+    if (expenseCategorySlug.present) {
+      map['expense_category_slug'] =
+          Variable<String>(expenseCategorySlug.value);
+    }
+    if (paymentMethodId.present) {
+      map['payment_method_id'] = Variable<int>(paymentMethodId.value);
+    }
+    if (paymentMethodName.present) {
+      map['payment_method_name'] = Variable<String>(paymentMethodName.value);
+    }
+    if (companyName.present) {
+      map['company_name'] = Variable<String>(companyName.value);
+    }
+    if (companyTrn.present) {
+      map['company_trn'] = Variable<String>(companyTrn.value);
+    }
+    if (invoiceNo.present) {
+      map['invoice_no'] = Variable<String>(invoiceNo.value);
+    }
+    if (staffName.present) {
+      map['staff_name'] = Variable<String>(staffName.value);
+    }
+    if (joiningDate.present) {
+      map['joining_date'] = Variable<DateTime>(joiningDate.value);
+    }
+    if (exitDate.present) {
+      map['exit_date'] = Variable<DateTime>(exitDate.value);
+    }
+    if (days.present) {
+      map['days'] = Variable<int>(days.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    if (amountBeforeVat.present) {
+      map['amount_before_vat'] = Variable<double>(amountBeforeVat.value);
+    }
+    if (vatAmount.present) {
+      map['vat_amount'] = Variable<double>(vatAmount.value);
+    }
+    if (finalAmount.present) {
+      map['final_amount'] = Variable<double>(finalAmount.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<int>(userId.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (synced.present) {
+      map['synced'] = Variable<bool>(synced.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('FinancialRecordsCompanion(')
+          ..write('id: $id, ')
+          ..write('uuid: $uuid, ')
+          ..write('branchId: $branchId, ')
+          ..write('recordType: $recordType, ')
+          ..write('expenseCategoryId: $expenseCategoryId, ')
+          ..write('expenseCategoryName: $expenseCategoryName, ')
+          ..write('expenseCategorySlug: $expenseCategorySlug, ')
+          ..write('paymentMethodId: $paymentMethodId, ')
+          ..write('paymentMethodName: $paymentMethodName, ')
+          ..write('companyName: $companyName, ')
+          ..write('companyTrn: $companyTrn, ')
+          ..write('invoiceNo: $invoiceNo, ')
+          ..write('staffName: $staffName, ')
+          ..write('joiningDate: $joiningDate, ')
+          ..write('exitDate: $exitDate, ')
+          ..write('days: $days, ')
+          ..write('description: $description, ')
+          ..write('amountBeforeVat: $amountBeforeVat, ')
+          ..write('vatAmount: $vatAmount, ')
+          ..write('finalAmount: $finalAmount, ')
+          ..write('userId: $userId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('synced: $synced')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -15236,6 +16314,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $SettleSalesOutboxTable(this);
   late final $DayClosingCheckpointTable dayClosingCheckpoint =
       $DayClosingCheckpointTable(this);
+  late final $FinancialRecordsTable financialRecords =
+      $FinancialRecordsTable(this);
   late final UsersDao usersDao = UsersDao(this as AppDatabase);
   late final CategoryDao categoryDao = CategoryDao(this as AppDatabase);
   late final CartsDao cartsDao = CartsDao(this as AppDatabase);
@@ -15258,6 +16338,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       SettleSalesOutboxDao(this as AppDatabase);
   late final DayClosingCheckpointDao dayClosingCheckpointDao =
       DayClosingCheckpointDao(this as AppDatabase);
+  late final FinancialRecordsDao financialRecordsDao =
+      FinancialRecordsDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -15292,7 +16374,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         syncOutbox,
         syncInbox,
         settleSalesOutbox,
-        dayClosingCheckpoint
+        dayClosingCheckpoint,
+        financialRecords
       ];
 }
 
@@ -23861,6 +24944,456 @@ typedef $$DayClosingCheckpointTableProcessedTableManager
         ),
         DayClosingCheckpointData,
         PrefetchHooks Function()>;
+typedef $$FinancialRecordsTableCreateCompanionBuilder
+    = FinancialRecordsCompanion Function({
+  Value<int> id,
+  required String uuid,
+  required int branchId,
+  required String recordType,
+  Value<int?> expenseCategoryId,
+  Value<String?> expenseCategoryName,
+  Value<String?> expenseCategorySlug,
+  Value<int?> paymentMethodId,
+  Value<String?> paymentMethodName,
+  Value<String?> companyName,
+  Value<String?> companyTrn,
+  Value<String?> invoiceNo,
+  Value<String?> staffName,
+  Value<DateTime?> joiningDate,
+  Value<DateTime?> exitDate,
+  Value<int?> days,
+  Value<String?> description,
+  Value<double> amountBeforeVat,
+  Value<double> vatAmount,
+  required double finalAmount,
+  Value<int?> userId,
+  Value<DateTime> createdAt,
+  Value<bool> synced,
+});
+typedef $$FinancialRecordsTableUpdateCompanionBuilder
+    = FinancialRecordsCompanion Function({
+  Value<int> id,
+  Value<String> uuid,
+  Value<int> branchId,
+  Value<String> recordType,
+  Value<int?> expenseCategoryId,
+  Value<String?> expenseCategoryName,
+  Value<String?> expenseCategorySlug,
+  Value<int?> paymentMethodId,
+  Value<String?> paymentMethodName,
+  Value<String?> companyName,
+  Value<String?> companyTrn,
+  Value<String?> invoiceNo,
+  Value<String?> staffName,
+  Value<DateTime?> joiningDate,
+  Value<DateTime?> exitDate,
+  Value<int?> days,
+  Value<String?> description,
+  Value<double> amountBeforeVat,
+  Value<double> vatAmount,
+  Value<double> finalAmount,
+  Value<int?> userId,
+  Value<DateTime> createdAt,
+  Value<bool> synced,
+});
+
+class $$FinancialRecordsTableFilterComposer
+    extends Composer<_$AppDatabase, $FinancialRecordsTable> {
+  $$FinancialRecordsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get uuid => $composableBuilder(
+      column: $table.uuid, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get branchId => $composableBuilder(
+      column: $table.branchId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get recordType => $composableBuilder(
+      column: $table.recordType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get expenseCategoryId => $composableBuilder(
+      column: $table.expenseCategoryId,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get expenseCategoryName => $composableBuilder(
+      column: $table.expenseCategoryName,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get expenseCategorySlug => $composableBuilder(
+      column: $table.expenseCategorySlug,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get paymentMethodId => $composableBuilder(
+      column: $table.paymentMethodId,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get paymentMethodName => $composableBuilder(
+      column: $table.paymentMethodName,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get companyName => $composableBuilder(
+      column: $table.companyName, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get companyTrn => $composableBuilder(
+      column: $table.companyTrn, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get invoiceNo => $composableBuilder(
+      column: $table.invoiceNo, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get staffName => $composableBuilder(
+      column: $table.staffName, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get joiningDate => $composableBuilder(
+      column: $table.joiningDate, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get exitDate => $composableBuilder(
+      column: $table.exitDate, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get days => $composableBuilder(
+      column: $table.days, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get amountBeforeVat => $composableBuilder(
+      column: $table.amountBeforeVat,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get vatAmount => $composableBuilder(
+      column: $table.vatAmount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get finalAmount => $composableBuilder(
+      column: $table.finalAmount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get synced => $composableBuilder(
+      column: $table.synced, builder: (column) => ColumnFilters(column));
+}
+
+class $$FinancialRecordsTableOrderingComposer
+    extends Composer<_$AppDatabase, $FinancialRecordsTable> {
+  $$FinancialRecordsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get uuid => $composableBuilder(
+      column: $table.uuid, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get branchId => $composableBuilder(
+      column: $table.branchId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get recordType => $composableBuilder(
+      column: $table.recordType, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get expenseCategoryId => $composableBuilder(
+      column: $table.expenseCategoryId,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get expenseCategoryName => $composableBuilder(
+      column: $table.expenseCategoryName,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get expenseCategorySlug => $composableBuilder(
+      column: $table.expenseCategorySlug,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get paymentMethodId => $composableBuilder(
+      column: $table.paymentMethodId,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get paymentMethodName => $composableBuilder(
+      column: $table.paymentMethodName,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get companyName => $composableBuilder(
+      column: $table.companyName, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get companyTrn => $composableBuilder(
+      column: $table.companyTrn, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get invoiceNo => $composableBuilder(
+      column: $table.invoiceNo, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get staffName => $composableBuilder(
+      column: $table.staffName, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get joiningDate => $composableBuilder(
+      column: $table.joiningDate, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get exitDate => $composableBuilder(
+      column: $table.exitDate, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get days => $composableBuilder(
+      column: $table.days, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get amountBeforeVat => $composableBuilder(
+      column: $table.amountBeforeVat,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get vatAmount => $composableBuilder(
+      column: $table.vatAmount, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get finalAmount => $composableBuilder(
+      column: $table.finalAmount, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get userId => $composableBuilder(
+      column: $table.userId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get synced => $composableBuilder(
+      column: $table.synced, builder: (column) => ColumnOrderings(column));
+}
+
+class $$FinancialRecordsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $FinancialRecordsTable> {
+  $$FinancialRecordsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get uuid =>
+      $composableBuilder(column: $table.uuid, builder: (column) => column);
+
+  GeneratedColumn<int> get branchId =>
+      $composableBuilder(column: $table.branchId, builder: (column) => column);
+
+  GeneratedColumn<String> get recordType => $composableBuilder(
+      column: $table.recordType, builder: (column) => column);
+
+  GeneratedColumn<int> get expenseCategoryId => $composableBuilder(
+      column: $table.expenseCategoryId, builder: (column) => column);
+
+  GeneratedColumn<String> get expenseCategoryName => $composableBuilder(
+      column: $table.expenseCategoryName, builder: (column) => column);
+
+  GeneratedColumn<String> get expenseCategorySlug => $composableBuilder(
+      column: $table.expenseCategorySlug, builder: (column) => column);
+
+  GeneratedColumn<int> get paymentMethodId => $composableBuilder(
+      column: $table.paymentMethodId, builder: (column) => column);
+
+  GeneratedColumn<String> get paymentMethodName => $composableBuilder(
+      column: $table.paymentMethodName, builder: (column) => column);
+
+  GeneratedColumn<String> get companyName => $composableBuilder(
+      column: $table.companyName, builder: (column) => column);
+
+  GeneratedColumn<String> get companyTrn => $composableBuilder(
+      column: $table.companyTrn, builder: (column) => column);
+
+  GeneratedColumn<String> get invoiceNo =>
+      $composableBuilder(column: $table.invoiceNo, builder: (column) => column);
+
+  GeneratedColumn<String> get staffName =>
+      $composableBuilder(column: $table.staffName, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get joiningDate => $composableBuilder(
+      column: $table.joiningDate, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get exitDate =>
+      $composableBuilder(column: $table.exitDate, builder: (column) => column);
+
+  GeneratedColumn<int> get days =>
+      $composableBuilder(column: $table.days, builder: (column) => column);
+
+  GeneratedColumn<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => column);
+
+  GeneratedColumn<double> get amountBeforeVat => $composableBuilder(
+      column: $table.amountBeforeVat, builder: (column) => column);
+
+  GeneratedColumn<double> get vatAmount =>
+      $composableBuilder(column: $table.vatAmount, builder: (column) => column);
+
+  GeneratedColumn<double> get finalAmount => $composableBuilder(
+      column: $table.finalAmount, builder: (column) => column);
+
+  GeneratedColumn<int> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<bool> get synced =>
+      $composableBuilder(column: $table.synced, builder: (column) => column);
+}
+
+class $$FinancialRecordsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $FinancialRecordsTable,
+    FinancialRecord,
+    $$FinancialRecordsTableFilterComposer,
+    $$FinancialRecordsTableOrderingComposer,
+    $$FinancialRecordsTableAnnotationComposer,
+    $$FinancialRecordsTableCreateCompanionBuilder,
+    $$FinancialRecordsTableUpdateCompanionBuilder,
+    (
+      FinancialRecord,
+      BaseReferences<_$AppDatabase, $FinancialRecordsTable, FinancialRecord>
+    ),
+    FinancialRecord,
+    PrefetchHooks Function()> {
+  $$FinancialRecordsTableTableManager(
+      _$AppDatabase db, $FinancialRecordsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$FinancialRecordsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$FinancialRecordsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$FinancialRecordsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> uuid = const Value.absent(),
+            Value<int> branchId = const Value.absent(),
+            Value<String> recordType = const Value.absent(),
+            Value<int?> expenseCategoryId = const Value.absent(),
+            Value<String?> expenseCategoryName = const Value.absent(),
+            Value<String?> expenseCategorySlug = const Value.absent(),
+            Value<int?> paymentMethodId = const Value.absent(),
+            Value<String?> paymentMethodName = const Value.absent(),
+            Value<String?> companyName = const Value.absent(),
+            Value<String?> companyTrn = const Value.absent(),
+            Value<String?> invoiceNo = const Value.absent(),
+            Value<String?> staffName = const Value.absent(),
+            Value<DateTime?> joiningDate = const Value.absent(),
+            Value<DateTime?> exitDate = const Value.absent(),
+            Value<int?> days = const Value.absent(),
+            Value<String?> description = const Value.absent(),
+            Value<double> amountBeforeVat = const Value.absent(),
+            Value<double> vatAmount = const Value.absent(),
+            Value<double> finalAmount = const Value.absent(),
+            Value<int?> userId = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<bool> synced = const Value.absent(),
+          }) =>
+              FinancialRecordsCompanion(
+            id: id,
+            uuid: uuid,
+            branchId: branchId,
+            recordType: recordType,
+            expenseCategoryId: expenseCategoryId,
+            expenseCategoryName: expenseCategoryName,
+            expenseCategorySlug: expenseCategorySlug,
+            paymentMethodId: paymentMethodId,
+            paymentMethodName: paymentMethodName,
+            companyName: companyName,
+            companyTrn: companyTrn,
+            invoiceNo: invoiceNo,
+            staffName: staffName,
+            joiningDate: joiningDate,
+            exitDate: exitDate,
+            days: days,
+            description: description,
+            amountBeforeVat: amountBeforeVat,
+            vatAmount: vatAmount,
+            finalAmount: finalAmount,
+            userId: userId,
+            createdAt: createdAt,
+            synced: synced,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String uuid,
+            required int branchId,
+            required String recordType,
+            Value<int?> expenseCategoryId = const Value.absent(),
+            Value<String?> expenseCategoryName = const Value.absent(),
+            Value<String?> expenseCategorySlug = const Value.absent(),
+            Value<int?> paymentMethodId = const Value.absent(),
+            Value<String?> paymentMethodName = const Value.absent(),
+            Value<String?> companyName = const Value.absent(),
+            Value<String?> companyTrn = const Value.absent(),
+            Value<String?> invoiceNo = const Value.absent(),
+            Value<String?> staffName = const Value.absent(),
+            Value<DateTime?> joiningDate = const Value.absent(),
+            Value<DateTime?> exitDate = const Value.absent(),
+            Value<int?> days = const Value.absent(),
+            Value<String?> description = const Value.absent(),
+            Value<double> amountBeforeVat = const Value.absent(),
+            Value<double> vatAmount = const Value.absent(),
+            required double finalAmount,
+            Value<int?> userId = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<bool> synced = const Value.absent(),
+          }) =>
+              FinancialRecordsCompanion.insert(
+            id: id,
+            uuid: uuid,
+            branchId: branchId,
+            recordType: recordType,
+            expenseCategoryId: expenseCategoryId,
+            expenseCategoryName: expenseCategoryName,
+            expenseCategorySlug: expenseCategorySlug,
+            paymentMethodId: paymentMethodId,
+            paymentMethodName: paymentMethodName,
+            companyName: companyName,
+            companyTrn: companyTrn,
+            invoiceNo: invoiceNo,
+            staffName: staffName,
+            joiningDate: joiningDate,
+            exitDate: exitDate,
+            days: days,
+            description: description,
+            amountBeforeVat: amountBeforeVat,
+            vatAmount: vatAmount,
+            finalAmount: finalAmount,
+            userId: userId,
+            createdAt: createdAt,
+            synced: synced,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$FinancialRecordsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $FinancialRecordsTable,
+    FinancialRecord,
+    $$FinancialRecordsTableFilterComposer,
+    $$FinancialRecordsTableOrderingComposer,
+    $$FinancialRecordsTableAnnotationComposer,
+    $$FinancialRecordsTableCreateCompanionBuilder,
+    $$FinancialRecordsTableUpdateCompanionBuilder,
+    (
+      FinancialRecord,
+      BaseReferences<_$AppDatabase, $FinancialRecordsTable, FinancialRecord>
+    ),
+    FinancialRecord,
+    PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -23926,6 +25459,8 @@ class $AppDatabaseManager {
       $$SettleSalesOutboxTableTableManager(_db, _db.settleSalesOutbox);
   $$DayClosingCheckpointTableTableManager get dayClosingCheckpoint =>
       $$DayClosingCheckpointTableTableManager(_db, _db.dayClosingCheckpoint);
+  $$FinancialRecordsTableTableManager get financialRecords =>
+      $$FinancialRecordsTableTableManager(_db, _db.financialRecords);
 }
 
 mixin _$UsersDaoMixin on DatabaseAccessor<AppDatabase> {
@@ -24008,4 +25543,8 @@ mixin _$SettleSalesOutboxDaoMixin on DatabaseAccessor<AppDatabase> {
 mixin _$DayClosingCheckpointDaoMixin on DatabaseAccessor<AppDatabase> {
   $DayClosingCheckpointTable get dayClosingCheckpoint =>
       attachedDatabase.dayClosingCheckpoint;
+}
+mixin _$FinancialRecordsDaoMixin on DatabaseAccessor<AppDatabase> {
+  $FinancialRecordsTable get financialRecords =>
+      attachedDatabase.financialRecords;
 }

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:pos/core/network/dio_request_flags.dart';
 import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/domain/models/api/dio_client.dart';
 
@@ -133,6 +134,7 @@ class ImageUtils {
           followRedirects: true,
           maxRedirects: 5,
           validateStatus: (s) => s != null && s >= 200 && s < 300,
+          extra: const {kSuppressBadApiStatusToast: true},
         ),
       );
 

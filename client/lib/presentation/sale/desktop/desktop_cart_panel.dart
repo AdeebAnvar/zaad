@@ -12,7 +12,7 @@ import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/dine_in_sale_navigation.dart';
-import 'package:pos/core/utils/kot_reference_recents.dart';
+import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -28,7 +28,6 @@ import 'package:pos/presentation/sale/desktop/desktop_cart_item_tile.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 
 /// Rebuild the cart [SliverList] only when lines are added/removed/reordered — not on qty/total edits.
@@ -229,7 +228,7 @@ Future<void> showCartStylePaymentDialogForOrder(
     'email': order.customerEmail,
     'gender': order.customerGender,
     'address': order.customerAddress,
-    'onlineOrderNumber': order.referenceNumber,
+    'onlineOrderNumber': order.orderType == 'dine_in' ? null : order.referenceNumber,
     'discountAmount': order.discountAmount,
     'discountType': order.discountType,
     if (appliedOffer != null) 'appliedOffer': appliedOffer,
@@ -269,7 +268,14 @@ Future<void> showCartStylePaymentDialogForOrder(
         final totalDiscount = (manualDiscountAmount + offerDiscountAmount).clamp(0.0, freshOrder.totalAmount).toDouble();
         final finalAmount = (freshOrder.totalAmount - totalDiscount).clamp(0.0, double.infinity);
         final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
-        final updatedRef = freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : freshOrder.referenceNumber;
+        final isDineIn = (freshOrder.orderType ?? '').trim().toLowerCase() == 'dine_in';
+        final updatedRef = isDineIn
+            ? null
+            : (freshOrder.orderType == 'delivery' &&
+                    onlineOrderNumber != null &&
+                    onlineOrderNumber.isNotEmpty
+                ? onlineOrderNumber
+                : freshOrder.referenceNumber);
         final addrRaw = customerDetails['address'];
         final customerAddr =
             addrRaw is String && addrRaw.trim().isNotEmpty ? addrRaw.trim() : null;
@@ -322,7 +328,7 @@ Future<void> showCartStylePaymentDialogForOrder(
         final db = locator<AppDatabase>();
         final printSvc = locator<PrintService>();
         final cartItems = await db.cartsDao.getItemsByCart(updatedOrder.cartId);
-        final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
+        final ref = DineInRefParser.printableRoutingLabel(updatedOrder);
         final printFailed = <String>[];
         if (printKot && cartItems.isNotEmpty) {
           printFailed.addAll(
@@ -344,10 +350,10 @@ Future<void> showCartStylePaymentDialogForOrder(
               asTaxInvoice: printInvoice,
             ),
           );
-          final cashAmt = payments['cash'] ?? 0.0;
-          if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
-            printFailed.addAll(await printSvc.openCashDrawer());
-          }
+        }
+        final cashAmt = payments['cash'] ?? 0.0;
+        if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
+          printFailed.addAll(await printSvc.openCashDrawer());
         }
         if (printFailed.isNotEmpty && dialogContext.mounted) {
           showPrintFailedDialog(dialogContext, printFailed);
@@ -588,28 +594,22 @@ class CartPanel extends StatelessWidget {
                                 onPressed: state.items.isEmpty
                                     ? null
                                     : () async {
-                                        final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
-                                        final skipKotReferenceDialog = hasRef && isOpenedForEdit;
-                                        if (skipKotReferenceDialog) {
-                                          try {
-                                            final printFailed = await cartCubit.saveKOTWithExistingReference();
-                                            if (context.mounted) {
-                                              CustomSnackBar.showKotSaved(context: context);
-                                              if (printFailed.isNotEmpty) {
-                                                showPrintFailedDialog(context, printFailed);
-                                              }
-                                              if (isModalBottomSheet) {
-                                                onCloseCart?.call(true);
-                                              } else if (closeOnComplete) {
-                                                Navigator.maybePop(context);
-                                              }
-                                              schedulePopSaleScreenToDineIn(context);
+                                        try {
+                                          final printFailed = await cartCubit.saveKOT('');
+                                          if (context.mounted) {
+                                            CustomSnackBar.showKotSaved(context: context);
+                                            if (printFailed.isNotEmpty) {
+                                              showPrintFailedDialog(context, printFailed);
                                             }
-                                          } catch (e) {
-                                            if (context.mounted) showErrorDialog(context, e);
+                                            if (isModalBottomSheet) {
+                                              onCloseCart?.call(true);
+                                            } else if (closeOnComplete) {
+                                              Navigator.maybePop(context);
+                                            }
+                                            schedulePopSaleScreenToDineIn(context);
                                           }
-                                        } else {
-                                          showKOTDialog(context);
+                                        } catch (e) {
+                                          if (context.mounted) showErrorDialog(context, e);
                                         }
                                       },
                               ),
@@ -721,149 +721,6 @@ class CartPanel extends StatelessWidget {
         ),
       ],
     );
-  }
-
-  void showKOTDialog(BuildContext context) {
-    final parentContext = context;
-    final cartCubit = context.read<CartCubit>();
-    final currentReference = cartCubit.currentKOTReference;
-    final referenceController = TextEditingController(text: currentReference ?? '');
-
-    final suggestionsRef = <String>[
-      if (locator.isRegistered<SharedPreferences>()) ...KotReferenceRecents.loadSync(locator<SharedPreferences>()),
-    ];
-
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) {
-        return Dialog(
-          backgroundColor: Colors.white,
-          insetPadding: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final width = MediaQuery.of(context).size.width;
-
-              return ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: width > 600 ? 420 : width * 0.95,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: StatefulBuilder(
-                    builder: (context, setDialogState) {
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          /// Header
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  currentReference == null ? 'Add reference' : 'Edit reference',
-                                  style: AppStyles.getBoldTextStyle(fontSize: 20),
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close),
-                                onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          /// Input (saved refs only; use "Save to dropdown" to add the current text)
-                          _KotReferenceAutocompleteField(
-                            controller: referenceController,
-                            suggestions: List<String>.from(suggestionsRef),
-                          ),
-                          const SizedBox(height: 6),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton.icon(
-                              onPressed: () {
-                                final t = referenceController.text.trim();
-                                if (t.isEmpty) {
-                                  CustomSnackBar.showWarning(
-                                    context: context,
-                                    message: 'Enter a reference first, then save it to the list.',
-                                  );
-                                  return;
-                                }
-                                KotReferenceRecents.savePinnedReference(t);
-                                if (locator.isRegistered<SharedPreferences>()) {
-                                  suggestionsRef
-                                    ..clear()
-                                    ..addAll(KotReferenceRecents.loadSync(locator<SharedPreferences>()));
-                                }
-                                setDialogState(() {});
-                                CustomSnackBar.showSuccess(
-                                  context: context,
-                                  message: 'Saved to reference list',
-                                  duration: const Duration(milliseconds: 1600),
-                                );
-                              },
-                              icon: const Icon(Icons.bookmark_add_outlined, size: 18),
-                              label: Text('Save to dropdown', style: AppStyles.getMediumTextStyle(fontSize: 13)),
-                            ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          /// Actions
-                          Row(
-                            children: [
-                              TextButton(
-                                onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-                                child: const Text('Cancel'),
-                              ),
-                              const Spacer(),
-                              CustomButton(
-                                width: 80,
-                                text: 'Save',
-                                onPressed: () async {
-                                  final value = referenceController.text.trim();
-                                  try {
-                                    final printFailed = await cartCubit.saveKOT(value);
-                                    if (!context.mounted) return;
-                                    Navigator.of(context, rootNavigator: true).pop();
-                                    if (parentContext.mounted) {
-                                      CustomSnackBar.showKotSaved(context: parentContext);
-                                      if (printFailed.isNotEmpty) {
-                                        showPrintFailedDialog(parentContext, printFailed);
-                                      }
-                                    }
-                                    if (isModalBottomSheet) {
-                                      onCloseCart?.call(true);
-                                    } else if (closeOnComplete && parentContext.mounted) {
-                                      Navigator.of(parentContext).pop();
-                                    }
-                                    schedulePopSaleScreenToDineIn(parentContext);
-                                  } catch (e) {
-                                    if (context.mounted) {
-                                      showErrorDialog(context, e);
-                                    }
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      },
-    ).whenComplete(referenceController.dispose);
   }
 
   Future<bool> _showPaymentDialog(
@@ -2285,58 +2142,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _discountByAmountController.dispose();
     _discountByPercentController.dispose();
     super.dispose();
-  }
-}
-
-class _KotReferenceAutocompleteField extends StatefulWidget {
-  const _KotReferenceAutocompleteField({
-    required this.controller,
-    required this.suggestions,
-  });
-
-  final TextEditingController controller;
-  final List<String> suggestions;
-
-  @override
-  State<_KotReferenceAutocompleteField> createState() => _KotReferenceAutocompleteFieldState();
-}
-
-class _KotReferenceAutocompleteFieldState extends State<_KotReferenceAutocompleteField> {
-  final FocusNode _focusNode = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focusNode.requestFocus();
-    });
-  }
-
-  @override
-  void dispose() {
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AutoCompleteTextField<String>(
-      items: widget.suggestions,
-      displayStringFunction: (s) => s,
-      defaultText: '',
-      labelText: 'Reference Number',
-      filterType: FilterType.contains,
-      controller: widget.controller,
-      focusNode: _focusNode,
-      maxHeight: MediaQuery.sizeOf(context).height / 3,
-      onSelected: (s) {
-        widget.controller.value = TextEditingValue(
-          text: s,
-          selection: TextSelection.collapsed(offset: s.length),
-        );
-      },
-      onChanged: (_) {},
-    );
   }
 }
 

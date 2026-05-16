@@ -987,20 +987,37 @@ class PullDataRepositoryImpl implements PullDataRepository {
     required bool alsoCategoriesTable,
   }) async {
     for (final c in r.createdUpdated) {
-      final name = c.expenseCategoryName != null && c.expenseCategoryName!.trim().isNotEmpty
-          ? c.expenseCategoryName!.trim()
-          : (c.unitName != null && c.unitName!.trim().isNotEmpty
-              ? c.unitName!.trim()
-              : (c.floorName != null && c.floorName!.trim().isNotEmpty
-                  ? c.floorName!.trim()
-                  : (c.paymentMethodName?.trim().isNotEmpty == true ? c.paymentMethodName!.trim() : 'item')));
-      final slug = c.expenseCategorySlug != null && c.expenseCategorySlug!.trim().isNotEmpty
-          ? c.expenseCategorySlug!.trim()
-          : (c.unitSlug != null && c.unitSlug!.trim().isNotEmpty
-              ? c.unitSlug!.trim()
-              : (c.floorSlug != null && c.floorSlug!.trim().isNotEmpty
-                  ? c.floorSlug!.trim()
-                  : (c.paymentMethodSlug != null && c.paymentMethodSlug!.trim().isNotEmpty ? c.paymentMethodSlug!.trim() : (name.isNotEmpty ? name : 'id-${c.id}'))));
+      final String name;
+      final String slug;
+      if (resourceKey == 'expenseCategory') {
+        final rawName = (c.expenseCategoryName ?? '').trim();
+        final rawSlug = (c.expenseCategorySlug ?? '').trim();
+        if (rawName.isEmpty && rawSlug.isEmpty) continue;
+        name = rawName.isNotEmpty
+            ? rawName
+            : rawSlug.replaceAll('_', ' ').split(RegExp(r'\s+')).where((w) => w.isNotEmpty).map((w) {
+                if (w.length == 1) return w.toUpperCase();
+                return '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}';
+              }).join(' ');
+        slug = rawSlug.isNotEmpty ? rawSlug : rawName.toLowerCase().replaceAll(' ', '_');
+      } else {
+        name = c.expenseCategoryName != null && c.expenseCategoryName!.trim().isNotEmpty
+            ? c.expenseCategoryName!.trim()
+            : (c.unitName != null && c.unitName!.trim().isNotEmpty
+                ? c.unitName!.trim()
+                : (c.floorName != null && c.floorName!.trim().isNotEmpty
+                    ? c.floorName!.trim()
+                    : (c.paymentMethodName?.trim().isNotEmpty == true ? c.paymentMethodName!.trim() : 'item')));
+        slug = c.expenseCategorySlug != null && c.expenseCategorySlug!.trim().isNotEmpty
+            ? c.expenseCategorySlug!.trim()
+            : (c.unitSlug != null && c.unitSlug!.trim().isNotEmpty
+                ? c.unitSlug!.trim()
+                : (c.floorSlug != null && c.floorSlug!.trim().isNotEmpty
+                    ? c.floorSlug!.trim()
+                    : (c.paymentMethodSlug != null && c.paymentMethodSlug!.trim().isNotEmpty
+                        ? c.paymentMethodSlug!.trim()
+                        : (name.isNotEmpty ? name : 'id-${c.id}'))));
+      }
       await _db.pullDataDao.upsertPullCategory(
         PullCategoryRowsCompanion.insert(
           resourceKey: resourceKey,

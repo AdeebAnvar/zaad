@@ -53,7 +53,8 @@ class CartCubit extends Cubit<CartState> {
   String? _invoiceNumber;
   String? _currentKOTReference;
   int? _currentKOTOrderId;
-  /// Table/floor anchor from Dine In tap; persisted in hub metadata, not as [Order.referenceNumber] unless user enters text in the KOT dialog.
+  /// Table/floor anchor from Dine In; persisted in [OrdersCompanion.hubMetadata] under [DineInRefParser.hubMetadataAnchorKey].
+  /// Dine-in does not use [Order.referenceNumber] for table routing.
   String? _dineInFloorTableAnchor;
   int? _editingOrderId; // Track order ID when editing a paid order
   String? _editingOrderStatus; // Track order status when editing
@@ -80,7 +81,7 @@ class CartCubit extends Cubit<CartState> {
   String? get currentKOTReference => _currentKOTReference;
   bool get isEditingPaidOrder => _editingOrderId != null && (_editingOrderStatus == 'placed' || _editingOrderStatus == 'completed');
 
-  /// True when this screen was opened for editing an order (e.g. from Take Away Log). Hide reference/KOT popup.
+  /// True when this screen was opened for editing an order (e.g. from Take Away Log).
   bool get isOpenedForEdit => _openedForEdit;
 
   @override
@@ -443,7 +444,9 @@ class CartCubit extends Cubit<CartState> {
       }
     }
 
-    final refForDb = effectiveReference.isEmpty ? null : effectiveReference;
+    final refForDb = orderType == OrderType.dineIn
+        ? null
+        : (effectiveReference.isEmpty ? null : effectiveReference);
     final hubForDb = _hubMetadataWithDineInAnchor(null);
 
     if (existingKOT != null && existingKOT.id == _currentKOTOrderId) {
@@ -492,7 +495,7 @@ class CartCubit extends Cubit<CartState> {
       _currentKOTOrderId = orderId;
     }
 
-    _currentKOTReference = refForDb;
+    _currentKOTReference = orderType == OrderType.dineIn ? null : refForDb;
 
     Order? kotOrder;
     final kotId = _currentKOTOrderId;
@@ -501,9 +504,7 @@ class CartCubit extends Cubit<CartState> {
     }
 
     final currentSnap = List<CartItem>.from(state.items);
-    final kotRefPrint = kotOrder?.referenceNumber?.trim().isNotEmpty == true
-        ? kotOrder!.referenceNumber!.trim()
-        : (kotOrder?.invoiceNumber ?? effectiveReference);
+    final kotRefPrint = DineInRefParser.printableRoutingLabel(kotOrder);
 
     late final List<String> printFailed;
 
@@ -603,11 +604,6 @@ class CartCubit extends Cubit<CartState> {
     } catch (_) {
       return jsonEncode({'applied_offer': cleanedOffer});
     }
-  }
-
-  /// Save KOT using the already defined reference (edit only). No reference dialog.
-  Future<List<String>> saveKOTWithExistingReference() async {
-    return saveKOT(_currentKOTReference ?? '');
   }
 
   Future<void> _updateKOTIfExists() async {
@@ -722,7 +718,8 @@ class CartCubit extends Cubit<CartState> {
     }
 
     if (order.status == 'kot') {
-      _currentKOTReference = order.referenceNumber;
+      _currentKOTReference =
+          (order.orderType ?? '').trim().toLowerCase() == 'dine_in' ? null : order.referenceNumber;
       _currentKOTOrderId = order.id;
       _editingOrderId = order.id; // Pay will update this order (not create new)
       _editingOrderStatus = order.status;
@@ -785,8 +782,7 @@ class CartCubit extends Cubit<CartState> {
     if (orderType == OrderType.delivery && onlineOrderNumber != null && onlineOrderNumber.trim().isNotEmpty) {
       refNumber = onlineOrderNumber.trim();
     } else if (orderType == OrderType.dineIn) {
-      final k = _currentKOTReference?.trim();
-      refNumber = (k != null && k.isNotEmpty) ? k : null;
+      refNumber = null;
     } else {
       final k = _currentKOTReference?.trim();
       refNumber = (k != null && k.isNotEmpty) ? k : invoiceNum;
@@ -829,7 +825,7 @@ class CartCubit extends Cubit<CartState> {
       final saved = await orderRepo.getOrderById(newId) ?? order;
 
       final printFailed = <String>[];
-      final ref = saved.referenceNumber?.trim().isNotEmpty == true ? saved.referenceNumber! : saved.invoiceNumber;
+      final ref = DineInRefParser.printableRoutingLabel(saved);
       if (printKot && state.items.isNotEmpty) {
         printFailed.addAll(
           await printService.printKOTPerKitchen(
@@ -850,10 +846,10 @@ class CartCubit extends Cubit<CartState> {
             asTaxInvoice: printInvoice,
           ),
         );
-        final cashAmt = payments['cash'] ?? 0.0;
-        if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
-          printFailed.addAll(await printService.openCashDrawer());
-        }
+      }
+      final cashAmt = payments['cash'] ?? 0.0;
+      if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
+        printFailed.addAll(await printService.openCashDrawer());
       }
 
       await _clearCartStateOnly();
@@ -886,12 +882,15 @@ class CartCubit extends Cubit<CartState> {
       finalAmount = (totalAmount - _cartDiscountAmount).clamp(0.0, double.infinity);
     }
 
+    final isDineIn = (existingOrder.orderType ?? '').trim().toLowerCase() == 'dine_in';
+    final mergedHub = isDineIn ? _hubMetadataWithDineInAnchor(existingOrder.hubMetadata) : existingOrder.hubMetadata;
+
     // Update order with new totals using OrdersCompanion
     final updatedOrder = Order(
       id: existingOrder.id,
       cartId: _activeCartId!,
       invoiceNumber: existingOrder.invoiceNumber,
-      referenceNumber: existingOrder.referenceNumber,
+      referenceNumber: isDineIn ? null : existingOrder.referenceNumber,
       totalAmount: totalAmount,
       discountAmount: _cartDiscountAmount > 0 ? _cartDiscountAmount : existingOrder.discountAmount,
       discountType: _cartDiscountType ?? existingOrder.discountType,
@@ -912,7 +911,7 @@ class CartCubit extends Cubit<CartState> {
       userId: existingOrder.userId,
       branchId: existingOrder.branchId,
       serverOrderId: existingOrder.serverOrderId,
-      hubMetadata: existingOrder.hubMetadata,
+      hubMetadata: mergedHub,
       hubSyncPending: existingOrder.hubSyncPending,
       pickupToken: existingOrder.pickupToken,
     );
@@ -965,7 +964,15 @@ class CartCubit extends Cubit<CartState> {
     final finalAmount = (totalAmount - discountAmount).clamp(0.0, double.infinity);
 
     // Update order with new totals and payment details
-    final refNumber = existingOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : existingOrder.referenceNumber;
+    final isDineIn = (existingOrder.orderType ?? '').trim().toLowerCase() == 'dine_in';
+    final refNumber = isDineIn
+        ? null
+        : (existingOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.trim().isNotEmpty
+            ? onlineOrderNumber
+            : existingOrder.referenceNumber);
+    final hubMeta = isDineIn
+        ? _hubMetadataWithDineInAnchor(_withOfferMetadata(existingOrder.hubMetadata, offer))
+        : _withOfferMetadata(existingOrder.hubMetadata, offer);
     final updatedOrder = Order(
       id: existingOrder.id,
       cartId: _activeCartId!,
@@ -991,7 +998,7 @@ class CartCubit extends Cubit<CartState> {
       userId: existingOrder.userId,
       branchId: existingOrder.branchId,
       serverOrderId: existingOrder.serverOrderId,
-      hubMetadata: _withOfferMetadata(existingOrder.hubMetadata, offer),
+      hubMetadata: hubMeta,
       hubSyncPending: existingOrder.hubSyncPending,
       pickupToken: existingOrder.pickupToken,
     );
@@ -1000,7 +1007,7 @@ class CartCubit extends Cubit<CartState> {
     await orderRepo.updateOrder(updatedOrder);
 
     final printFailed = <String>[];
-    final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
+    final ref = DineInRefParser.printableRoutingLabel(updatedOrder);
     if (printKot && state.items.isNotEmpty) {
       final snap = List<CartItem>.from(state.items);
       if (_kotKitchenBaselineForDiff != null) {
@@ -1041,10 +1048,10 @@ class CartCubit extends Cubit<CartState> {
           asTaxInvoice: printInvoice,
         ),
       );
-      final cashAmt = payments['cash'] ?? 0.0;
-      if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
-        printFailed.addAll(await printService.openCashDrawer());
-      }
+    }
+    final cashAmt = payments['cash'] ?? 0.0;
+    if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
+      printFailed.addAll(await printService.openCashDrawer());
     }
 
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)
