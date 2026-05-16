@@ -32,6 +32,9 @@ class Branches extends Table {
 
   IntColumn get openingCash => integer()();
 
+  /// Branch-wide default opening balance (from server / user edit); survives day close.
+  IntColumn get defaultOpeningCash => integer().withDefault(const Constant(0))();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -77,14 +80,15 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
     await (delete(branches)..where((b) => b.id.isIn(ids))).go();
   }
 
-  /// Update opening cash for a specific branch.
-  Future<void> updateOpeningCash({
+  /// Save opening cash and keep it as the branch default (drawer + day closing).
+  Future<void> setBranchOpeningBalance({
     required int branchId,
-    required int openingCashValue,
+    required int amount,
   }) async {
     await (update(branches)..where((b) => b.id.equals(branchId))).write(
       BranchesCompanion(
-        openingCash: Value(openingCashValue),
+        openingCash: Value(amount),
+        defaultOpeningCash: Value(amount),
       ),
     );
   }
@@ -106,8 +110,13 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
     final existingBranch = await (select(branches)
           ..where((tbl) => tbl.id.equals(b.id)))
         .getSingleOrNull();
-    final resolvedOpeningCash =
-        existingBranch?.openingCash ?? b.openingCash ?? 0;
+    final existingDefault = existingBranch?.defaultOpeningCash ?? 0;
+    final existingOpening = existingBranch?.openingCash ?? 0;
+    final resolvedBalance = existingDefault > 0
+        ? existingDefault
+        : (existingOpening > 0
+            ? existingOpening
+            : (b.defaultOpeningCash ?? b.openingCash ?? 0));
 
     return BranchesCompanion(
       id: Value(b.id),
@@ -126,7 +135,8 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
       image: Value(b.image),
       installationDate: Value(b.installationDate),
       expiryDate: Value(b.expiryDate),
-      openingCash: Value(resolvedOpeningCash),
+      openingCash: Value(resolvedBalance),
+      defaultOpeningCash: Value(resolvedBalance),
       localImage: Value(localImage),
     );
   }
@@ -149,6 +159,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
       installationDate: b.installationDate,
       expiryDate: b.expiryDate,
       openingCash: b.openingCash,
+      defaultOpeningCash: b.defaultOpeningCash,
     );
   }
 }

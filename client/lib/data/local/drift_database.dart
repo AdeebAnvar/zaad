@@ -95,7 +95,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(_openMemory());
 
   @override
-  int get schemaVersion => 53;
+  int get schemaVersion => 54;
 
   @override
   MigrationStrategy get migration {
@@ -276,12 +276,23 @@ class AppDatabase extends _$AppDatabase {
           await m.createTable(dayClosingCheckpoint);
         }
         if (from < 51) {
-          await safeAddColumn(orders, orders.pickupToken);
+          await safeAddColumn(branches, branches.defaultOpeningCash);
+          await customStatement(
+            'UPDATE branches SET default_opening_cash = opening_cash '
+            'WHERE (default_opening_cash IS NULL OR default_opening_cash = 0) AND opening_cash > 0',
+          );
+          await customStatement(
+            'UPDATE branches SET opening_cash = default_opening_cash '
+            'WHERE default_opening_cash > 0 AND (opening_cash IS NULL OR opening_cash = 0)',
+          );
         }
         if (from < 52) {
-          await safeAddColumn(orders, orders.customerAddress);
+          await safeAddColumn(orders, orders.pickupToken);
         }
         if (from < 53) {
+          await safeAddColumn(orders, orders.customerAddress);
+        }
+        if (from < 54) {
           await m.createTable(financialRecords);
         }
       },

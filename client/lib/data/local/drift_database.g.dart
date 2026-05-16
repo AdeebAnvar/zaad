@@ -8072,6 +8072,14 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Branche> {
   late final GeneratedColumn<int> openingCash = GeneratedColumn<int>(
       'opening_cash', aliasedName, false,
       type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _defaultOpeningCashMeta =
+      const VerificationMeta('defaultOpeningCash');
+  @override
+  late final GeneratedColumn<int> defaultOpeningCash = GeneratedColumn<int>(
+      'default_opening_cash', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -8089,7 +8097,8 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Branche> {
         localImage,
         installationDate,
         expiryDate,
-        openingCash
+        openingCash,
+        defaultOpeningCash
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -8200,6 +8209,12 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Branche> {
     } else if (isInserting) {
       context.missing(_openingCashMeta);
     }
+    if (data.containsKey('default_opening_cash')) {
+      context.handle(
+          _defaultOpeningCashMeta,
+          defaultOpeningCash.isAcceptableOrUnknown(
+              data['default_opening_cash']!, _defaultOpeningCashMeta));
+    }
     return context;
   }
 
@@ -8241,6 +8256,8 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Branche> {
           .read(DriftSqlType.dateTime, data['${effectivePrefix}expiry_date'])!,
       openingCash: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}opening_cash'])!,
+      defaultOpeningCash: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}default_opening_cash'])!,
     );
   }
 
@@ -8267,6 +8284,9 @@ class Branche extends DataClass implements Insertable<Branche> {
   final DateTime installationDate;
   final DateTime expiryDate;
   final int openingCash;
+
+  /// Branch-wide default opening balance (from server / user edit); survives day close.
+  final int defaultOpeningCash;
   const Branche(
       {required this.id,
       required this.branchName,
@@ -8283,7 +8303,8 @@ class Branche extends DataClass implements Insertable<Branche> {
       required this.localImage,
       required this.installationDate,
       required this.expiryDate,
-      required this.openingCash});
+      required this.openingCash,
+      required this.defaultOpeningCash});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -8311,6 +8332,7 @@ class Branche extends DataClass implements Insertable<Branche> {
     map['installation_date'] = Variable<DateTime>(installationDate);
     map['expiry_date'] = Variable<DateTime>(expiryDate);
     map['opening_cash'] = Variable<int>(openingCash);
+    map['default_opening_cash'] = Variable<int>(defaultOpeningCash);
     return map;
   }
 
@@ -8339,6 +8361,7 @@ class Branche extends DataClass implements Insertable<Branche> {
       installationDate: Value(installationDate),
       expiryDate: Value(expiryDate),
       openingCash: Value(openingCash),
+      defaultOpeningCash: Value(defaultOpeningCash),
     );
   }
 
@@ -8362,6 +8385,7 @@ class Branche extends DataClass implements Insertable<Branche> {
       installationDate: serializer.fromJson<DateTime>(json['installationDate']),
       expiryDate: serializer.fromJson<DateTime>(json['expiryDate']),
       openingCash: serializer.fromJson<int>(json['openingCash']),
+      defaultOpeningCash: serializer.fromJson<int>(json['defaultOpeningCash']),
     );
   }
   @override
@@ -8384,6 +8408,7 @@ class Branche extends DataClass implements Insertable<Branche> {
       'installationDate': serializer.toJson<DateTime>(installationDate),
       'expiryDate': serializer.toJson<DateTime>(expiryDate),
       'openingCash': serializer.toJson<int>(openingCash),
+      'defaultOpeningCash': serializer.toJson<int>(defaultOpeningCash),
     };
   }
 
@@ -8403,7 +8428,8 @@ class Branche extends DataClass implements Insertable<Branche> {
           String? localImage,
           DateTime? installationDate,
           DateTime? expiryDate,
-          int? openingCash}) =>
+          int? openingCash,
+          int? defaultOpeningCash}) =>
       Branche(
         id: id ?? this.id,
         branchName: branchName ?? this.branchName,
@@ -8421,6 +8447,7 @@ class Branche extends DataClass implements Insertable<Branche> {
         installationDate: installationDate ?? this.installationDate,
         expiryDate: expiryDate ?? this.expiryDate,
         openingCash: openingCash ?? this.openingCash,
+        defaultOpeningCash: defaultOpeningCash ?? this.defaultOpeningCash,
       );
   Branche copyWithCompanion(BranchesCompanion data) {
     return Branche(
@@ -8450,6 +8477,9 @@ class Branche extends DataClass implements Insertable<Branche> {
           data.expiryDate.present ? data.expiryDate.value : this.expiryDate,
       openingCash:
           data.openingCash.present ? data.openingCash.value : this.openingCash,
+      defaultOpeningCash: data.defaultOpeningCash.present
+          ? data.defaultOpeningCash.value
+          : this.defaultOpeningCash,
     );
   }
 
@@ -8471,7 +8501,8 @@ class Branche extends DataClass implements Insertable<Branche> {
           ..write('localImage: $localImage, ')
           ..write('installationDate: $installationDate, ')
           ..write('expiryDate: $expiryDate, ')
-          ..write('openingCash: $openingCash')
+          ..write('openingCash: $openingCash, ')
+          ..write('defaultOpeningCash: $defaultOpeningCash')
           ..write(')'))
         .toString();
   }
@@ -8493,7 +8524,8 @@ class Branche extends DataClass implements Insertable<Branche> {
       localImage,
       installationDate,
       expiryDate,
-      openingCash);
+      openingCash,
+      defaultOpeningCash);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -8513,7 +8545,8 @@ class Branche extends DataClass implements Insertable<Branche> {
           other.localImage == this.localImage &&
           other.installationDate == this.installationDate &&
           other.expiryDate == this.expiryDate &&
-          other.openingCash == this.openingCash);
+          other.openingCash == this.openingCash &&
+          other.defaultOpeningCash == this.defaultOpeningCash);
 }
 
 class BranchesCompanion extends UpdateCompanion<Branche> {
@@ -8533,6 +8566,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
   final Value<DateTime> installationDate;
   final Value<DateTime> expiryDate;
   final Value<int> openingCash;
+  final Value<int> defaultOpeningCash;
   const BranchesCompanion({
     this.id = const Value.absent(),
     this.branchName = const Value.absent(),
@@ -8550,6 +8584,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
     this.installationDate = const Value.absent(),
     this.expiryDate = const Value.absent(),
     this.openingCash = const Value.absent(),
+    this.defaultOpeningCash = const Value.absent(),
   });
   BranchesCompanion.insert({
     this.id = const Value.absent(),
@@ -8568,6 +8603,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
     required DateTime installationDate,
     required DateTime expiryDate,
     required int openingCash,
+    this.defaultOpeningCash = const Value.absent(),
   })  : branchName = Value(branchName),
         location = Value(location),
         contactNo = Value(contactNo),
@@ -8595,6 +8631,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
     Expression<DateTime>? installationDate,
     Expression<DateTime>? expiryDate,
     Expression<int>? openingCash,
+    Expression<int>? defaultOpeningCash,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -8613,6 +8650,8 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
       if (installationDate != null) 'installation_date': installationDate,
       if (expiryDate != null) 'expiry_date': expiryDate,
       if (openingCash != null) 'opening_cash': openingCash,
+      if (defaultOpeningCash != null)
+        'default_opening_cash': defaultOpeningCash,
     });
   }
 
@@ -8632,7 +8671,8 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
       Value<String>? localImage,
       Value<DateTime>? installationDate,
       Value<DateTime>? expiryDate,
-      Value<int>? openingCash}) {
+      Value<int>? openingCash,
+      Value<int>? defaultOpeningCash}) {
     return BranchesCompanion(
       id: id ?? this.id,
       branchName: branchName ?? this.branchName,
@@ -8650,6 +8690,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
       installationDate: installationDate ?? this.installationDate,
       expiryDate: expiryDate ?? this.expiryDate,
       openingCash: openingCash ?? this.openingCash,
+      defaultOpeningCash: defaultOpeningCash ?? this.defaultOpeningCash,
     );
   }
 
@@ -8704,6 +8745,9 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
     if (openingCash.present) {
       map['opening_cash'] = Variable<int>(openingCash.value);
     }
+    if (defaultOpeningCash.present) {
+      map['default_opening_cash'] = Variable<int>(defaultOpeningCash.value);
+    }
     return map;
   }
 
@@ -8725,7 +8769,8 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
           ..write('localImage: $localImage, ')
           ..write('installationDate: $installationDate, ')
           ..write('expiryDate: $expiryDate, ')
-          ..write('openingCash: $openingCash')
+          ..write('openingCash: $openingCash, ')
+          ..write('defaultOpeningCash: $defaultOpeningCash')
           ..write(')'))
         .toString();
   }
@@ -21604,6 +21649,7 @@ typedef $$BranchesTableCreateCompanionBuilder = BranchesCompanion Function({
   required DateTime installationDate,
   required DateTime expiryDate,
   required int openingCash,
+  Value<int> defaultOpeningCash,
 });
 typedef $$BranchesTableUpdateCompanionBuilder = BranchesCompanion Function({
   Value<int> id,
@@ -21622,6 +21668,7 @@ typedef $$BranchesTableUpdateCompanionBuilder = BranchesCompanion Function({
   Value<DateTime> installationDate,
   Value<DateTime> expiryDate,
   Value<int> openingCash,
+  Value<int> defaultOpeningCash,
 });
 
 class $$BranchesTableFilterComposer
@@ -21681,6 +21728,10 @@ class $$BranchesTableFilterComposer
 
   ColumnFilters<int> get openingCash => $composableBuilder(
       column: $table.openingCash, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get defaultOpeningCash => $composableBuilder(
+      column: $table.defaultOpeningCash,
+      builder: (column) => ColumnFilters(column));
 }
 
 class $$BranchesTableOrderingComposer
@@ -21741,6 +21792,10 @@ class $$BranchesTableOrderingComposer
 
   ColumnOrderings<int> get openingCash => $composableBuilder(
       column: $table.openingCash, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get defaultOpeningCash => $composableBuilder(
+      column: $table.defaultOpeningCash,
+      builder: (column) => ColumnOrderings(column));
 }
 
 class $$BranchesTableAnnotationComposer
@@ -21799,6 +21854,9 @@ class $$BranchesTableAnnotationComposer
 
   GeneratedColumn<int> get openingCash => $composableBuilder(
       column: $table.openingCash, builder: (column) => column);
+
+  GeneratedColumn<int> get defaultOpeningCash => $composableBuilder(
+      column: $table.defaultOpeningCash, builder: (column) => column);
 }
 
 class $$BranchesTableTableManager extends RootTableManager<
@@ -21840,6 +21898,7 @@ class $$BranchesTableTableManager extends RootTableManager<
             Value<DateTime> installationDate = const Value.absent(),
             Value<DateTime> expiryDate = const Value.absent(),
             Value<int> openingCash = const Value.absent(),
+            Value<int> defaultOpeningCash = const Value.absent(),
           }) =>
               BranchesCompanion(
             id: id,
@@ -21858,6 +21917,7 @@ class $$BranchesTableTableManager extends RootTableManager<
             installationDate: installationDate,
             expiryDate: expiryDate,
             openingCash: openingCash,
+            defaultOpeningCash: defaultOpeningCash,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -21876,6 +21936,7 @@ class $$BranchesTableTableManager extends RootTableManager<
             required DateTime installationDate,
             required DateTime expiryDate,
             required int openingCash,
+            Value<int> defaultOpeningCash = const Value.absent(),
           }) =>
               BranchesCompanion.insert(
             id: id,
@@ -21894,6 +21955,7 @@ class $$BranchesTableTableManager extends RootTableManager<
             installationDate: installationDate,
             expiryDate: expiryDate,
             openingCash: openingCash,
+            defaultOpeningCash: defaultOpeningCash,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

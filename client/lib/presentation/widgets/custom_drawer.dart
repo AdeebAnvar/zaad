@@ -372,7 +372,7 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
     if (session == null || !mounted) return;
 
     final branch = await db.branchesDao.getBranchById(session.branchId);
-    final current = branch?.openingCash ?? 0;
+    final current = branch?.effectiveOpeningBalance() ?? 0;
 
     if (!mounted) return;
     await showGeneralDialog<void>(
@@ -595,9 +595,9 @@ class _OpeningBalanceDialogContentState extends State<_OpeningBalanceDialogConte
                             CustomSnackBar.showWarning(message: 'Enter a valid opening balance');
                             return;
                           }
-                          await widget.db.branchesDao.updateOpeningCash(
+                          await widget.db.branchesDao.setBranchOpeningBalance(
                             branchId: widget.branchId,
-                            openingCashValue: parsed,
+                            amount: parsed,
                           );
                           if (!mounted) return;
                           FocusScope.of(context).unfocus();

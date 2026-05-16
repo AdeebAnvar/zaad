@@ -18,6 +18,9 @@ class BranchModel {
   final DateTime expiryDate;
   final int? openingCash;
 
+  /// Persistent branch default opening balance (survives day close).
+  final int? defaultOpeningCash;
+
   BranchModel({
     required this.id,
     required this.branchName,
@@ -35,6 +38,7 @@ class BranchModel {
     required this.installationDate,
     required this.expiryDate,
     required this.openingCash,
+    this.defaultOpeningCash,
   });
 
   BranchModel copyWith({
@@ -54,6 +58,7 @@ class BranchModel {
     DateTime? installationDate,
     DateTime? expiryDate,
     int? openingCash,
+    int? defaultOpeningCash,
   }) =>
       BranchModel(
         id: id ?? this.id,
@@ -72,6 +77,7 @@ class BranchModel {
         installationDate: installationDate ?? this.installationDate,
         expiryDate: expiryDate ?? this.expiryDate,
         openingCash: openingCash ?? this.openingCash,
+        defaultOpeningCash: defaultOpeningCash ?? this.defaultOpeningCash,
       );
 
   factory BranchModel.fromJson(Map<String, dynamic> json) => BranchModel(
@@ -92,6 +98,7 @@ class BranchModel {
             DateTime.tryParse(json["installation_date"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         expiryDate: DateTime.tryParse(json["expiry_date"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         openingCash: (json["opening_cash"] as num?)?.toInt(),
+        defaultOpeningCash: (json["opening_cash"] as num?)?.toInt(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -111,5 +118,13 @@ class BranchModel {
             "${installationDate.year.toString().padLeft(4, '0')}-${installationDate.month.toString().padLeft(2, '0')}-${installationDate.day.toString().padLeft(2, '0')}",
         "expiry_date": "${expiryDate.year.toString().padLeft(4, '0')}-${expiryDate.month.toString().padLeft(2, '0')}-${expiryDate.day.toString().padLeft(2, '0')}",
         "opening_cash": openingCash,
+        "default_opening_cash": defaultOpeningCash ?? openingCash,
       };
+
+  /// Saved default opening balance for day closing and the drawer dialog.
+  int effectiveOpeningBalance() {
+    final savedDefault = defaultOpeningCash ?? 0;
+    if (savedDefault > 0) return savedDefault;
+    return openingCash ?? 0;
+  }
 }

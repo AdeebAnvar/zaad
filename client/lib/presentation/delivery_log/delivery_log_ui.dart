@@ -22,6 +22,7 @@ import 'package:pos/presentation/widgets/custom_loading.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/common_log_card.dart';
+import 'package:pos/presentation/widgets/log_payment_type_dropdown.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
@@ -531,18 +532,15 @@ class _DeliveryCard extends StatefulWidget {
 
 class _DeliveryCardState extends State<_DeliveryCard> {
   String _status = '';
-  String _paymentType = '';
   String? _orderUserName;
 
   /// Bumps when user cancels confirmation so the dropdown rebuilds and shows the previous value.
   int _statusDropdownRevision = 0;
-  int _paymentDropdownRevision = 0;
 
   @override
   void initState() {
     super.initState();
     _status = widget.order.status;
-    _paymentType = _getPaymentType(widget.order);
     _loadOrderUserName();
   }
 
@@ -564,7 +562,6 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     super.didUpdateWidget(oldWidget);
     if (widget.order.id != oldWidget.order.id) {
       _status = widget.order.status;
-      _paymentType = _getPaymentType(widget.order);
       _loadOrderUserName();
       return;
     }
@@ -575,13 +572,8 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     // Same row: sync when parent list refreshes after a successful save (or external update).
     if (widget.order.status != oldWidget.order.status ||
         widget.order.driverId != oldWidget.order.driverId ||
-        widget.order.driverName != oldWidget.order.driverName ||
-        widget.order.cashAmount != oldWidget.order.cashAmount ||
-        widget.order.cardAmount != oldWidget.order.cardAmount ||
-        widget.order.creditAmount != oldWidget.order.creditAmount ||
-        widget.order.onlineAmount != oldWidget.order.onlineAmount) {
+        widget.order.driverName != oldWidget.order.driverName) {
       _status = widget.order.status;
-      _paymentType = _getPaymentType(widget.order);
     }
   }
 
@@ -589,14 +581,6 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     final p = o.deliveryPartner?.trim().toUpperCase();
     if (p == null || p.isEmpty) return false;
     return p != 'NORMAL';
-  }
-
-  String _getPaymentType(Order o) {
-    if (o.creditAmount > 0) return 'CREDIT';
-    if (o.onlineAmount > 0) return 'ONLINE';
-    if (o.cashAmount > 0) return 'CASH';
-    if (o.cardAmount > 0) return 'CARD';
-    return _isPartnerDeliveryOrder(o) ? 'ONLINE' : 'CREDIT';
   }
 
   Future<bool> _showUpdateConfirmation({
@@ -814,44 +798,18 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     );
   }
 
-  static const _paymentOptionsPartner = ['ONLINE', 'CASH', 'CARD', 'CREDIT'];
-  static const _paymentOptionsNormal = ['CREDIT', 'CASH', 'CARD'];
-
   Widget _paymentTypeDropdown() {
-    final partner = _isPartnerDeliveryOrder(widget.order);
-    final options = partner ? _paymentOptionsPartner : _paymentOptionsNormal;
-    final validDisplay = options.contains(_paymentType) ? _paymentType : options.first;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Payment Type', style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor)),
-        const SizedBox(height: 4),
-        DropdownButtonFormField<String>(
-          key: ValueKey<String>('pay_${widget.order.id}_$_paymentDropdownRevision'),
-          isExpanded: true,
-          value: validDisplay,
-          style: AppStyles.getRegularTextStyle(fontSize: 14).copyWith(fontWeight: FontWeight.w500),
-          iconEnabledColor: AppColors.textColor,
-          dropdownColor: Colors.white,
-          decoration: CustomFormFieldDecoration.dropdownDecoration(context),
-          items: options.map((s) => DropdownMenuItem(value: s, child: Text(s, style: AppStyles.getRegularTextStyle(fontSize: 14).copyWith(fontWeight: FontWeight.w500)))).toList(),
-          onChanged: (v) async {
-            if (v == null) return;
-            if (v == validDisplay) return;
-            final confirmed = await _showUpdateConfirmation(
-              title: 'Confirm Payment Type Change',
-              message: 'Change payment type to "$v"?',
-            );
-            if (!mounted) return;
-            if (!confirmed) {
-              setState(() => _paymentDropdownRevision++);
-              return;
-            }
-            await context.read<DeliveryLogCubit>().updateOrderPaymentType(widget.order.id, v, widget.order.finalAmount);
-          },
-        ),
-      ],
+    final order = widget.order;
+    final amount = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
+    return LogPaymentTypeDropdown(
+      order: order,
+      label: 'Payment Type',
+      includeOnline: _isPartnerDeliveryOrder(order),
+      onPaymentTypeChanged: (paymentType) => context.read<DeliveryLogCubit>().updateOrderPaymentType(
+            order.id,
+            paymentType,
+            amount,
+          ),
     );
   }
 

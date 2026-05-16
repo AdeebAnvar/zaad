@@ -122,6 +122,8 @@ class DayClosingSummary {
   final double discount;
   final double netTotal;
   final double openingCash;
+  /// Branch default opening balance (from server / saved in drawer).
+  final double defaultOpeningCash;
   /// Net cash from settled orders after allocated discounts (same basis as [cashIn] minus [openingCash]).
   final double cashSaleAfterDiscount;
   final double cashSale;
@@ -165,6 +167,7 @@ class DayClosingSummary {
     required this.discount,
     required this.netTotal,
     required this.openingCash,
+    required this.defaultOpeningCash,
     required this.cashSaleAfterDiscount,
     required this.cashSale,
     required this.cardSale,
@@ -203,6 +206,7 @@ class DayClosingSummary {
         discount: 0,
         netTotal: 0,
         openingCash: 0,
+        defaultOpeningCash: 0,
         cashSaleAfterDiscount: 0,
         cashSale: 0,
         cardSale: 0,
@@ -423,7 +427,9 @@ Future<DayClosingSummary> computeDayClosingSummary(
       _sumOrders(unpaidVisible, (o) => o.finalAmount);
   final outstandingCredit = _sumOrders(unpaidBranchList, (o) => o.creditAmount);
 
-  final openingCash = (branch?.openingCash ?? 0).toDouble();
+  final openingBalance = (branch?.effectiveOpeningBalance() ?? 0).toDouble();
+  final openingCash = openingBalance;
+  final defaultOpeningCash = openingBalance;
   const creditRecovery = 0.0;
   const deliveryRecovery = 0.0;
   final purchase = await db.financialRecordsDao.sumFinalAmount(
@@ -598,6 +604,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
     discount: discount,
     netTotal: netTotal,
     openingCash: openingCash,
+    defaultOpeningCash: defaultOpeningCash,
     cashSaleAfterDiscount: cashSaleAfterDiscount,
     cashSale: cashSale,
     cardSale: cardSale,

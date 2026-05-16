@@ -153,10 +153,6 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       await BackupService.instance.maintainDatabase(db, vacuum: true);
       await SalesCsvBackup.refreshNow(db);
       await BackupService.instance.backupNow(db, force: true);
-      await db.branchesDao.updateOpeningCash(
-        branchId: branchId,
-        openingCashValue: 0,
-      );
       if (!mounted) return;
       setState(() => _lastCloseCashReconciliation = recon);
       CustomSnackBar.showSuccess(message: 'Day closed successfully.');
