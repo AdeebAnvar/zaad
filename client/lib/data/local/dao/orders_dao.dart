@@ -139,6 +139,23 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     return list.isEmpty ? null : list.first;
   }
 
+  /// LAN hub upsert fallback when [serverOrderId] on the row is missing but invoice matches.
+  Future<Order?> getKotByInvoiceAndBranch(String invoiceNumber, {required int branchId}) async {
+    final inv = invoiceNumber.trim();
+    if (inv.isEmpty) return null;
+    final rows = await (select(orders)
+          ..where((o) => o.invoiceNumber.equals(inv))
+          ..where((o) => o.branchId.equals(branchId))
+          ..where((o) => o.status.equals('kot'))
+          ..orderBy([(o) => OrderingTerm.desc(o.id)]))
+        .get();
+    if (rows.isEmpty) return null;
+    if (rows.length == 1) return rows.first;
+    // Prefer a row already linked to the hub id when duplicates exist.
+    final linked = rows.where((o) => (o.serverOrderId ?? '').trim().isNotEmpty).toList();
+    return linked.isNotEmpty ? linked.first : rows.first;
+  }
+
   /// Non-empty distinct `referenceNumber` values from recent orders (KOT autocomplete).
   Future<List<String>> getRecentDistinctReferenceNumbers({
     int limit = 40,

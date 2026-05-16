@@ -22,7 +22,6 @@ import 'package:pos/presentation/widgets/custom_loading.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/common_log_card.dart';
-import 'package:pos/presentation/widgets/log_payment_type_dropdown.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
@@ -164,6 +163,7 @@ class DeliveryLogScreen extends StatelessWidget {
                                   return SizedBox(
                                     width: cardWidth,
                                     child: _DeliveryCard(
+                                      key: ValueKey<int>(o.id),
                                       order: o,
                                       serialNo: e.key + 1,
                                       showNormalBulkCheckbox: normalTab && isNormalOrder,
@@ -520,6 +520,7 @@ class _DeliveryCard extends StatefulWidget {
   final bool selected;
 
   const _DeliveryCard({
+    super.key,
     required this.order,
     required this.serialNo,
     this.showNormalBulkCheckbox = false,
@@ -577,12 +578,6 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     }
   }
 
-  bool _isPartnerDeliveryOrder(Order o) {
-    final p = o.deliveryPartner?.trim().toUpperCase();
-    if (p == null || p.isEmpty) return false;
-    return p != 'NORMAL';
-  }
-
   Future<bool> _showUpdateConfirmation({
     required String title,
     required String message,
@@ -624,20 +619,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
               ),
             ),
           const SizedBox(height: 6),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final narrow = constraints.maxWidth < 280;
-              final fieldWidth = narrow ? constraints.maxWidth : (constraints.maxWidth - 8) / 2;
-              return Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  SizedBox(width: fieldWidth, child: _statusDropdown()),
-                  SizedBox(width: fieldWidth, child: _paymentTypeDropdown()),
-                ],
-              );
-            },
-          ),
+          _statusDropdown(),
         ],
       ),
       actions: [
@@ -792,21 +774,6 @@ class _DeliveryCardState extends State<_DeliveryCard> {
           },
         ),
       ],
-    );
-  }
-
-  Widget _paymentTypeDropdown() {
-    final order = widget.order;
-    final amount = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
-    return LogPaymentTypeDropdown(
-      order: order,
-      label: 'Payment Type',
-      includeOnline: _isPartnerDeliveryOrder(order),
-      onPaymentTypeChanged: (paymentType) => context.read<DeliveryLogCubit>().updateOrderPaymentType(
-            order.id,
-            paymentType,
-            amount,
-          ),
     );
   }
 
