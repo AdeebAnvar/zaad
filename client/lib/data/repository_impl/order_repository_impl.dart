@@ -23,10 +23,7 @@ class OrderRepositoryImpl implements OrderRepository {
   static final Lock _invoiceAllocLock = Lock();
   static final Lock _pickupTokenLock = Lock();
 
-  Future<int> _activeBranchId() async {
-    final session = await db.sessionDao.getActiveSession();
-    return session?.branchId ?? 1;
-  }
+  Future<int> _activeBranchId() => db.sessionDao.requireActiveBranchId();
 
   Future<void> _afterMutation() async {
     unawaited(SalesCsvBackup.refreshFromDatabase(db));
@@ -238,8 +235,7 @@ class OrderRepositoryImpl implements OrderRepository {
   }
 
   Future<String> _allocateNextInvoiceNumber(String orderType, {int? branchIdOverride}) async {
-    final session = await db.sessionDao.getActiveSession();
-    final bid = branchIdOverride ?? session?.branchId ?? 1;
+    final bid = branchIdOverride ?? await db.sessionDao.requireActiveBranchId();
     final branch = await db.branchesDao.getBranchById(bid);
     final branchPrefix = branch?.prefixInv.trim();
     final prefix =
@@ -263,8 +259,7 @@ class OrderRepositoryImpl implements OrderRepository {
   }) async {
     return _invoiceAllocLock.synchronized(() async {
       final invoice = await _allocateNextInvoiceNumber(orderType, branchIdOverride: branchId);
-      final session = await db.sessionDao.getActiveSession();
-      final cartBranchId = branchId ?? session?.branchId ?? 1;
+      final cartBranchId = branchId ?? await db.sessionDao.requireActiveBranchId();
       final cartId = await db.cartsDao.createCart(
         invoice,
         orderType: orderType,

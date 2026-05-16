@@ -12,6 +12,7 @@ import 'package:pos/core/auth/login_credentials_prefs.dart';
 import 'package:pos/core/network/pos_server_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
+import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
 import 'package:pos/core/util/error_diagnostics.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/local/tenant_switch_local_wipe.dart';
@@ -30,6 +31,28 @@ class LoginCubit extends Cubit<LoginState> {
   final SettingsRepository settingsRepo;
 
   LoginCubit(this.authRepo, this.userRepo, this.branchRepo, this.settingsRepo) : super(LoginInitial());
+
+  /// SUB terminals log in against local users pushed from MAIN via [COMPANY_SNAPSHOT].
+  Future<void> _waitForSubHubCompanyAccounts({
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    final db = locator<AppDatabase>();
+    if ((await db.usersDao.getAllUsers()).isNotEmpty) return;
+
+    final hub = locator<LocalHubSettings>();
+    final hubUrl = hub.hubWsUrl;
+    if (hubUrl == null || hubUrl.trim().isEmpty) return;
+
+    if (locator.isRegistered<LocalHubSyncCoordinator>()) {
+      await locator<LocalHubSyncCoordinator>().startIfEnabled();
+    }
+
+    final end = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(end)) {
+      if ((await db.usersDao.getAllUsers()).isNotEmpty) return;
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    }
+  }
 
   int _daysUntil(DateTime date) {
     final today = DateTime.now();
@@ -50,6 +73,10 @@ class LoginCubit extends Cubit<LoginState> {
       return;
     }
 
+    if (locator.isRegistered<LocalHubSettings>() && locator<LocalHubSettings>().isHubSub) {
+      await _waitForSubHubCompanyAccounts();
+    }
+
     final user = await userRepo.findLocalUser(username, password);
 
     if (user == null) {
@@ -64,11 +91,34 @@ class LoginCubit extends Cubit<LoginState> {
         },
       );
       // #endregion
+      if (locator.isRegistered<LocalHubSettings>() && locator<LocalHubSettings>().isHubSub) {
+        final localUsers = await locator<AppDatabase>().usersDao.getAllUsers();
+        if (localUsers.isEmpty) {
+          emit(
+            LoginError(
+              'No cashier accounts on this tablet yet.\n\n'
+              'On the MAIN PC: tap Connect to server and link your company.\n'
+              'On this device: LAN hub → turn on "I am sub device", enter the MAIN PC IP, Save, '
+              'then wait a few seconds and try Login again.\n\n'
+              'Do not use Connect to server on this tablet.',
+            ),
+          );
+          return;
+        }
+      }
       emit(LoginError("User does not exist"));
       return;
     }
 
     final db = locator<AppDatabase>();
+    if (user.branchId <= 0) {
+      emit(LoginError(
+        'This cashier account has no branch assigned on the server (branch_id=${user.branchId}). '
+        'Fix the user\'s branch in the admin panel, then Connect to server again.',
+      ));
+      return;
+    }
+
     final branch = await db.branchesDao.getBranchById(user.branchId);
     if (branch == null) {
       // #region agent log
