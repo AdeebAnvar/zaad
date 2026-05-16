@@ -118,33 +118,11 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
 
   Future<void> loadOrders() async {
     emit(DeliveryLogLoading());
-    try {
-      final partners = await deliveryPartnerRepo.getAll();
-      final drivers = await driverRepo.getAll();
-      final partnerFilter = _selectedPartner?.trim();
-      var orders = await orderRepo.filterOrders(
-        orderType: 'delivery',
-        deliveryPartner: partnerFilter != null && partnerFilter.isNotEmpty ? partnerFilter : null,
-        statusAnyOf: _kDeliverySaleLogPendingStatuses,
-        userId: _scopedUserId(uiUserId: null),
-      );
-      orders = _filterDeliveryLogList(orders);
-      sortOrdersNewestFirst(orders);
-      _normalSelection.removeWhere((id) => !orders.any((o) => o.id == id));
-      emit(DeliveryLogLoaded(
-        orders,
-        _selectedPartner,
-        partners,
-        drivers,
-        Set<int>.from(_normalSelection),
-      ));
-    } catch (e) {
-      emit(DeliveryLogError(e.toString()));
-    }
+    await _reloadOrders(userId: _scopedUserId(uiUserId: null));
   }
 
   Future<void> refreshOrders() async {
-    await loadOrders();
+    await _reloadOrders(userId: _scopedUserId(uiUserId: null));
   }
 
   Future<void> filterOrders({
@@ -160,7 +138,27 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     if (deliveryPartner != null && deliveryPartner.trim().isNotEmpty) {
       _selectedPartner = deliveryPartner.trim();
     }
-    emit(DeliveryLogLoading());
+    await _reloadOrders(
+      invoiceNumber: invoiceNumber,
+      referenceNumber: referenceNumber,
+      customerPhone: customerPhone,
+      status: status,
+      startDate: startDate,
+      endDate: endDate,
+      userId: _scopedUserId(uiUserId: userId),
+    );
+  }
+
+  Future<void> _reloadOrders({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? customerPhone,
+    String? status,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? userId,
+  }) async {
+    final prior = state;
     try {
       final partners = await deliveryPartnerRepo.getAll();
       final drivers = await driverRepo.getAll();
@@ -175,7 +173,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         statusAnyOf: _kDeliverySaleLogPendingStatuses,
         startDate: startDate,
         endDate: endDate,
-        userId: _scopedUserId(uiUserId: userId),
+        userId: userId,
       );
       orders = _filterDeliveryLogList(orders);
       sortOrdersNewestFirst(orders);
@@ -188,7 +186,11 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         Set<int>.from(_normalSelection),
       ));
     } catch (e) {
-      emit(DeliveryLogError(e.toString()));
+      if (prior is DeliveryLogLoaded) {
+        emit(prior);
+      } else {
+        emit(DeliveryLogError(e.toString()));
+      }
     }
   }
 

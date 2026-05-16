@@ -13,6 +13,7 @@ import 'package:pos/core/sync/local_hub_primary_inbound_coordinator.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
+import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -341,28 +342,15 @@ class _LanHubSettingsScreenState extends State<LanHubSettingsScreen> {
     );
     final mainLoopbackPreview = !_cashierTablet && uriPreview != null && uriPreview.host.isNotEmpty && _isLoopbackHost(uriPreview.host);
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 1,
-        leading: IconButton(
-          tooltip: 'Back',
-          icon: Icon(Icons.arrow_back_rounded, color: AppColors.primaryColor),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            } else {
-              AppNavigator.pushReplacementNamed(Routes.dashboard);
-            }
-          },
-        ),
-        title: Text(
-          'LAN hub',
-          style: AppStyles.getSemiBoldTextStyle(fontSize: 18),
-        ),
-      ),
+    return CustomScaffold(
+      title: 'LAN hub',
+      onBack: () {
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        } else {
+          AppNavigator.pushReplacementNamed(Routes.dashboard);
+        }
+      },
       body: ListView(
         padding: EdgeInsets.fromLTRB(20, 20, 20, 24 + bottomInset),
         children: [
@@ -530,6 +518,7 @@ class _HubPairingScannerScreenState extends State<_HubPairingScannerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: const BackButton(),
         title: const Text('Scan hub pairing QR'),
       ),
       body: MobileScanner(

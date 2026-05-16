@@ -49,21 +49,14 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
 
   Future<void> loadOrders() async {
     emit(TakeAwayLogLoading());
-    try {
-      var orders = await orderRepo.filterOrders(
-        orderType: 'take_away',
-        userId: _scopedUserId(uiUserId: null),
-      );
-      orders = orders.where((o) => o.status == 'kot').toList();
-      sortOrdersNewestFirst(orders);
-      emit(TakeAwayLogLoaded(orders));
-    } catch (e) {
-      emit(TakeAwayLogError(e.toString()));
-    }
+    await _reloadOrders(
+      userId: _scopedUserId(uiUserId: null),
+    );
   }
 
+  /// Hub live sync / pull-to-refresh — keep filter fields mounted (no Loading flash).
   Future<void> refreshOrders() async {
-    await loadOrders();
+    await _reloadOrders(userId: _scopedUserId(uiUserId: null));
   }
 
   Future<void> filterOrders({
@@ -75,7 +68,27 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
     int? userId,
     int? pickupToken,
   }) async {
-    emit(TakeAwayLogLoading());
+    await _reloadOrders(
+      invoiceNumber: invoiceNumber,
+      referenceNumber: referenceNumber,
+      status: status,
+      startDate: startDate,
+      endDate: endDate,
+      userId: _scopedUserId(uiUserId: userId),
+      pickupToken: pickupToken,
+    );
+  }
+
+  Future<void> _reloadOrders({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? status,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? userId,
+    int? pickupToken,
+  }) async {
+    final prior = state;
     try {
       var orders = await orderRepo.filterOrders(
         invoiceNumber: invoiceNumber,
@@ -97,7 +110,11 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
       sortOrdersNewestFirst(orders);
       emit(TakeAwayLogLoaded(orders));
     } catch (e) {
-      emit(TakeAwayLogError(e.toString()));
+      if (prior is TakeAwayLogLoaded) {
+        emit(prior);
+      } else {
+        emit(TakeAwayLogError(e.toString()));
+      }
     }
   }
 

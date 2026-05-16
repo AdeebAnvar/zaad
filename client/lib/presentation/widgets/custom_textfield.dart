@@ -93,6 +93,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
   FocusNode? _internalFocusNode;
   TextEditingController? _internalController;
   bool _hasFocus = false;
+  bool _disposed = false;
 
   // Getters for effective instances
   FocusNode get _effectiveFocusNode => widget.focusNode ?? _internalFocusNode!;
@@ -135,8 +136,12 @@ class _CustomTextFieldState extends State<CustomTextField> {
       _hasFocus = _effectiveFocusNode.hasFocus;
     }
 
-    // Handle controller changes
+    // Handle controller changes (parent may swap or dispose an external controller).
     if (oldWidget.controller != widget.controller) {
+      if (oldWidget.controller == null && _internalController != null) {
+        _internalController?.dispose();
+        _internalController = null;
+      }
       if (widget.controller == null && _internalController == null) {
         _internalController = TextEditingController();
       }
@@ -153,6 +158,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
 
   @override
   void dispose() {
+    _disposed = true;
     // Remove listener from whichever node is currently in use.
     _effectiveFocusNode.removeListener(_onFocusChange);
     // Dispose internal instances only.
@@ -173,6 +179,9 @@ class _CustomTextFieldState extends State<CustomTextField> {
 
   @override
   Widget build(BuildContext context) {
+    if (_disposed) {
+      return const SizedBox.shrink();
+    }
     final theme = Theme.of(context);
     final effectiveHintFontSize = widget.hintFontSize ?? 14.0;
 

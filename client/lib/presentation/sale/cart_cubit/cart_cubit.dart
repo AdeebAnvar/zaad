@@ -432,15 +432,24 @@ class CartCubit extends Cubit<CartState> {
       (sum, item) => sum + item.total,
     );
 
-    Order? existingKOT;
-    if (effectiveReference.isNotEmpty) {
-      existingKOT = await orderRepo.getKOTByReference(effectiveReference);
-    } else if (_currentKOTOrderId != null) {
-      final self = await orderRepo.getOrderById(_currentKOTOrderId!);
-      if (self != null &&
-          self.status.toLowerCase() == 'kot' &&
-          self.cartId == _activeCartId) {
-        existingKOT = self;
+    Order? orderToUpdate;
+    // Log edit (incl. SUB-originated hub mirrors): always update the opened row — never create a second invoice.
+    if (_openedForEdit && _editingOrderId != null) {
+      orderToUpdate = await orderRepo.getOrderById(_editingOrderId!);
+    } else {
+      Order? existingKOT;
+      if (effectiveReference.isNotEmpty) {
+        existingKOT = await orderRepo.getKOTByReference(effectiveReference);
+      } else if (_currentKOTOrderId != null) {
+        final self = await orderRepo.getOrderById(_currentKOTOrderId!);
+        if (self != null &&
+            self.status.toLowerCase() == 'kot' &&
+            self.cartId == _activeCartId) {
+          existingKOT = self;
+        }
+      }
+      if (existingKOT != null && existingKOT.id == _currentKOTOrderId) {
+        orderToUpdate = existingKOT;
       }
     }
 
@@ -449,9 +458,9 @@ class CartCubit extends Cubit<CartState> {
         : (effectiveReference.isEmpty ? null : effectiveReference);
     final hubForDb = _hubMetadataWithDineInAnchor(null);
 
-    if (existingKOT != null && existingKOT.id == _currentKOTOrderId) {
-      final mergedHub = _hubMetadataWithDineInAnchor(existingKOT.hubMetadata);
-      final updatedOrder = existingKOT.copyWith(
+    if (orderToUpdate != null) {
+      final mergedHub = _hubMetadataWithDineInAnchor(orderToUpdate.hubMetadata);
+      final updatedOrder = orderToUpdate.copyWith(
         totalAmount: totalAmount,
         finalAmount: totalAmount,
         cartId: _activeCartId!,
@@ -459,7 +468,7 @@ class CartCubit extends Cubit<CartState> {
         hubMetadata: mergedHub != null ? Value<String?>(mergedHub) : const Value.absent(),
       );
       await orderRepo.updateOrder(updatedOrder);
-      _currentKOTOrderId = existingKOT.id;
+      _currentKOTOrderId = orderToUpdate.id;
     } else {
       // Same invoice as the active cart (reserved in _ensureCart).
       final cashierId = await _sessionUserId();

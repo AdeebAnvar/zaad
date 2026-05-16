@@ -9,6 +9,7 @@ import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/cloud_order_push_queue.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/core/utils/app_directories.dart';
+import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/utils/order_owner_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/branch_repository.dart';
@@ -355,15 +356,81 @@ class SyncInboxApplier {
     }
   }
 
-  Future<int> _ensureShadowCart() async {
-    final cached = settings.shadowCartRowIdOrNull();
-    if (cached != null) {
-      final row = await db.cartsDao.getCartByCartId(cached);
-      if (row != null) return cached;
+  int _hubPayloadUpdatedAtMs(Map<String, dynamic> payload) {
+    final u = payload['updatedAt'];
+    if (u is num) return u.toInt();
+    return 0;
+  }
+
+  int _hubMetadataUpdatedAtMs(String? hubMetadataJson) {
+    if (hubMetadataJson == null || hubMetadataJson.isEmpty) return 0;
+    try {
+      final root = jsonDecode(hubMetadataJson);
+      if (root is Map<String, dynamic>) {
+        final u = root['updatedAt'];
+        if (u is num) return u.toInt();
+      }
+    } catch (_) {
+      /* ignore */
     }
-    final cid = await db.cartsDao.createCart('_hub_shadow_cart', orderType: 'take_away');
-    await settings.cacheShadowCartId(cid);
-    return cid;
+    return 0;
+  }
+
+  List<dynamic>? _snapshotItemsList(Map<String, dynamic> snap) {
+    final items = snap['items'];
+    if (items is List && items.isNotEmpty) return items;
+    final meta = snap['metadata'];
+    if (meta is Map) {
+      final cl = meta['cart_lines'];
+      if (cl is List && cl.isNotEmpty) return cl;
+    }
+    return null;
+  }
+
+  /// Dedicated cart per mirrored order (not the shared shadow cart) with lines from hub snapshot.
+  Future<int> _syncMirroredCartLines({
+    required String serverOrderId,
+    required String invoice,
+    required String? orderType,
+    required int branchId,
+    required Map<String, dynamic> snap,
+    int? existingCartId,
+  }) async {
+    final shadowId = settings.shadowCartRowIdOrNull();
+    var cartId = existingCartId;
+    if (cartId == null || (shadowId != null && cartId == shadowId)) {
+      cartId = await db.cartsDao.createCart(
+        '_hub_$serverOrderId',
+        orderType: orderType ?? 'take_away',
+        branchId: branchId,
+      );
+    }
+
+    final linesRaw = _snapshotItemsList(snap);
+    if (linesRaw != null) {
+      final existingLines = await db.cartsDao.getItemsByCart(cartId);
+      for (final line in existingLines) {
+        await db.cartsDao.removeCartItem(line.id);
+      }
+      final decoded = OrderLogCartFallback.decodeCartItemsFromItemsList(linesRaw, cartId);
+      for (final line in decoded) {
+        await db.cartsDao.addCartItem(
+          CartItemsCompanion.insert(
+            cartId: cartId,
+            itemId: line.itemId,
+            itemName: Value(line.itemName),
+            itemVariantId: line.itemVariantId == null ? const Value.absent() : Value(line.itemVariantId),
+            itemToppingId: line.itemToppingId == null ? const Value.absent() : Value(line.itemToppingId),
+            quantity: line.quantity,
+            total: Value(line.total),
+            discount: Value(line.discount),
+            discountType: line.discountType == null ? const Value.absent() : Value(line.discountType),
+            notes: line.notes == null ? const Value.absent() : Value(line.notes),
+          ),
+        );
+      }
+    }
+    return cartId;
   }
 
   double _finalFromSnapshot(Map<String, dynamic> snap) {
@@ -428,7 +495,8 @@ class SyncInboxApplier {
         flutterSnap != null && flutterSnap['total_amount'] is num ? (flutterSnap['total_amount'] as num).toDouble() : finalAmt;
 
     final hubMeta = jsonEncode(payload);
-    final existing = await db.ordersDao.getOrderByServerId(sid);
+    var existing = await db.ordersDao.getOrderByServerId(sid);
+    final sess = await db.sessionDao.getActiveSession();
 
     final ref =
         (flutterSnap?['reference_number'] ?? snap['reference_number'])?.toString();
@@ -436,7 +504,6 @@ class SyncInboxApplier {
     final mirroredUserId = coerceUserId(snap['user_id']) ??
         coerceUserId(flutterSnap?['user_id']);
 
-    final sess = await db.sessionDao.getActiveSession();
     final mirroredExtra = _mirroredCustomerPaymentCompanion(snap, flutterSnap);
 
     final branchFromSnap = _snapshotPick(snap, flutterSnap, 'branch_id', 'branchId');
@@ -450,9 +517,39 @@ class SyncInboxApplier {
       }
     }
 
+    // Avoid duplicate KOT rows when MAIN edited before hub correlation was stored.
+    if (existing == null && invoice.trim().isNotEmpty) {
+      final byInvoice = await db.ordersDao.getKotByInvoiceAndBranch(invoice, branchId: branchBid);
+      if (byInvoice != null) {
+        await db.ordersDao.setHubCorrelationIfUnset(orderId: byInvoice.id, correlationId: sid);
+        existing = await db.ordersDao.getOrderById(byInvoice.id);
+      }
+    }
+
+    final incomingMs = _hubPayloadUpdatedAtMs(payload);
     if (existing != null) {
-      await (db.update(db.orders)..where((o) => o.serverOrderId.equals(sid))).write(
+      final existingMs = _hubMetadataUpdatedAtMs(existing.hubMetadata);
+      if (incomingMs > 0 && existingMs > 0 && incomingMs < existingMs) {
+        if (kDebugMode) {
+          debugPrint('[SyncInbox] ORDER_* ignored stale payload sid=$sid ($incomingMs < $existingMs)');
+        }
+        return;
+      }
+    }
+
+    final mirroredCartId = await _syncMirroredCartLines(
+      serverOrderId: sid,
+      invoice: invoice,
+      orderType: orderTypeRaw,
+      branchId: branchBid,
+      snap: snap,
+      existingCartId: existing?.cartId,
+    );
+
+    if (existing != null) {
+      await (db.update(db.orders)..where((o) => o.id.equals(existing!.id))).write(
         mirroredExtra.copyWith(
+          cartId: Value(mirroredCartId),
           invoiceNumber: Value(invoice),
           totalAmount: Value(totalAmt),
           finalAmount: Value(finalAmt),
@@ -465,10 +562,9 @@ class SyncInboxApplier {
         ),
       );
     } else {
-      final cartId = await _ensureShadowCart();
       await db.into(db.orders).insert(
             OrdersCompanion.insert(
-              cartId: cartId,
+              cartId: mirroredCartId,
               invoiceNumber: invoice,
               branchId: Value(branchBid),
               referenceNumber:

@@ -20,7 +20,6 @@ import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/common_log_card.dart';
-import 'package:pos/presentation/widgets/log_payment_type_dropdown.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
@@ -95,7 +94,10 @@ class TakeAwayLogScreen extends StatelessWidget {
                                   spacing: spacing,
                                   runSpacing: spacing,
                                   children: state.orders.map((order) {
-                                    return SizedBox(width: cardWidth, child: TakeAwayCard(order: order));
+                                    return SizedBox(
+                                      width: cardWidth,
+                                      child: TakeAwayCard(key: ValueKey<int>(order.id), order: order),
+                                    );
                                   }).toList(),
                                 );
                               }),
@@ -278,6 +280,16 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
     _loadOrderUserName();
   }
 
+  @override
+  void didUpdateWidget(covariant TakeAwayCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.order.id != oldWidget.order.id ||
+        widget.order.userId != oldWidget.order.userId ||
+        widget.order.hubMetadata != oldWidget.order.hubMetadata) {
+      _loadOrderUserName();
+    }
+  }
+
   Future<void> _loadOrderUserName() async {
     final db = locator<AppDatabase>();
     final name = await resolveOrderOwnerDisplayName(
@@ -305,17 +317,6 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
       createdAt: order.createdAt,
       orderTakerName: _orderUserName,
       pickupToken: order.pickupToken,
-      extraContent: LogPaymentTypeDropdown(
-        order: order,
-        onPaymentTypeChanged: (paymentType) async {
-          final amount = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
-          await context.read<TakeAwayLogCubit>().updateOrderPaymentType(
-                order.id,
-                paymentType,
-                amount,
-              );
-        },
-      ),
       onDelete: canDelete ? () => _handleDelete(context, order) : null,
       actions: [
         LogCardAction(

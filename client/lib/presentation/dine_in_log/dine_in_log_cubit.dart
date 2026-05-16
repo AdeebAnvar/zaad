@@ -69,22 +69,12 @@ class DineInLogCubit extends Cubit<DineInLogState> {
 
   Future<void> loadOrders() async {
     emit(DineInLogLoading());
-    try {
-      final orders = await orderRepo.filterOrders(
-        orderType: 'dine_in',
-        userId: _scopedUserId(uiUserId: null),
-      );
-      final visible = orders.where(_dineInLogListVisible).toList();
-      sortOrdersNewestFirst(visible);
-      final cartIds = visible.map((o) => o.cartId).toSet().toList();
-      final counts = await cartRepo.countCartItemsByCartIds(cartIds);
-      emit(DineInLogLoaded(visible, counts));
-    } catch (e) {
-      emit(DineInLogError(e.toString()));
-    }
+    await _reloadOrders(userId: _scopedUserId(uiUserId: null));
   }
 
-  Future<void> refreshOrders() async => loadOrders();
+  Future<void> refreshOrders() async {
+    await _reloadOrders(userId: _scopedUserId(uiUserId: null));
+  }
 
   Future<void> filterOrders({
     String? invoiceNumber,
@@ -94,7 +84,25 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     DateTime? endDate,
     int? userId,
   }) async {
-    emit(DineInLogLoading());
+    await _reloadOrders(
+      invoiceNumber: invoiceNumber,
+      referenceNumber: referenceNumber,
+      status: status,
+      startDate: startDate,
+      endDate: endDate,
+      userId: _scopedUserId(uiUserId: userId),
+    );
+  }
+
+  Future<void> _reloadOrders({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? status,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? userId,
+  }) async {
+    final prior = state;
     try {
       var orders = await orderRepo.filterOrders(
         invoiceNumber: invoiceNumber,
@@ -103,7 +111,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         orderType: 'dine_in',
         startDate: startDate,
         endDate: endDate,
-        userId: _scopedUserId(uiUserId: userId),
+        userId: userId,
       );
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where(_dineInLogListVisible).toList();
@@ -115,7 +123,11 @@ class DineInLogCubit extends Cubit<DineInLogState> {
       final counts = await cartRepo.countCartItemsByCartIds(cartIds);
       emit(DineInLogLoaded(orders, counts));
     } catch (e) {
-      emit(DineInLogError(e.toString()));
+      if (prior is DineInLogLoaded) {
+        emit(prior);
+      } else {
+        emit(DineInLogError(e.toString()));
+      }
     }
   }
 
