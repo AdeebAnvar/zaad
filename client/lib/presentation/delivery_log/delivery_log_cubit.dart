@@ -14,44 +14,20 @@ import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 
 part 'delivery_log_state.dart';
 
-/// Swiggy-style partners (not own fleet `NORMAL`): hide from delivery log once dispatched or cancelled.
-bool _isPartnerDelivery(Order o) {
-  final p = o.deliveryPartner?.trim().toUpperCase();
-  if (p == null || p.isEmpty) return false;
-  return p != 'NORMAL';
-}
+/// Delivery Sale Log: only the "Pending" phase (not yet dispatched / not closed).
+/// Delivered, cancelled, and out-for-delivery rows belong in Driver Log or order history.
+const List<String> _kDeliverySaleLogPendingStatuses = ['placed', 'pending', 'kot'];
 
 List<Order> _filterDeliveryLogList(List<Order> orders) {
   return orders.where((o) {
     final s = o.status.toLowerCase();
-    if (s == 'cancelled') return false;
-    if (_isPartnerDelivery(o) && s == 'dispatched') return false;
-    return true;
+    return _kDeliverySaleLogPendingStatuses.contains(s);
   }).toList();
 }
 
 bool _isNormalOrder(Order o) => o.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
 
 bool _hasDriver(Order o) => o.driverId != null && (o.driverName?.trim().isNotEmpty ?? false);
-
-/// UI bucket → DB status values (`out_for_delivery` includes legacy rows).
-List<String>? _deliveryStatusBucketToAnyOf(String? bucket) {
-  final b = bucket?.trim() ?? '';
-  if (b.isEmpty || b == 'all') return null;
-  switch (b) {
-    case 'pending':
-      return ['pending'];
-    case 'out_for_delivery':
-      return ['out_of_delivery', 'assigned', 'dispatched'];
-    case 'delivered':
-      return ['completed', 'delivered'];
-    case 'cancelled':
-    case 'reject':
-      return ['cancelled'];
-    default:
-      return null;
-  }
-}
 
 class DeliveryLogCubit extends Cubit<DeliveryLogState> {
   DeliveryLogCubit(
@@ -95,9 +71,6 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
 
   String? _selectedPartner;
   final Set<int> _normalSelection = {};
-
-  /// `all` | `pending` | `out_for_delivery` | `delivered` | `cancelled`
-  String? _deliveryStatusBucket;
 
   void selectPartnerTab(String? partner) {
     _selectedPartner = partner;
@@ -143,28 +116,16 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     }
   }
 
-  void setDeliveryStatusBucket(String? bucket) {
-    final t = bucket?.trim() ?? '';
-    _deliveryStatusBucket = (t.isEmpty || t.toLowerCase() == 'all') ? null : t;
-  }
-
-  String? get deliveryStatusBucket =>
-      (_deliveryStatusBucket == null || _deliveryStatusBucket == 'all') ? null : _deliveryStatusBucket;
-
-  /// Filter bar value: `all` | `pending` | `out_for_delivery` | `delivered` | `cancelled`
-  String get deliveryStatusFilterKey => deliveryStatusBucket ?? 'all';
-
   Future<void> loadOrders() async {
     emit(DeliveryLogLoading());
     try {
       final partners = await deliveryPartnerRepo.getAll();
       final drivers = await driverRepo.getAll();
       final partnerFilter = _selectedPartner?.trim();
-      final statusAny = _deliveryStatusBucketToAnyOf(_deliveryStatusBucket);
       var orders = await orderRepo.filterOrders(
         orderType: 'delivery',
         deliveryPartner: partnerFilter != null && partnerFilter.isNotEmpty ? partnerFilter : null,
-        statusAnyOf: statusAny,
+        statusAnyOf: _kDeliverySaleLogPendingStatuses,
         userId: _scopedUserId(uiUserId: null),
       );
       orders = _filterDeliveryLogList(orders);
@@ -192,7 +153,6 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     String? deliveryPartner,
     String? customerPhone,
     String? status,
-    String? deliveryStatusBucket,
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
@@ -200,15 +160,11 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     if (deliveryPartner != null && deliveryPartner.trim().isNotEmpty) {
       _selectedPartner = deliveryPartner.trim();
     }
-    if (deliveryStatusBucket != null) {
-      setDeliveryStatusBucket(deliveryStatusBucket);
-    }
     emit(DeliveryLogLoading());
     try {
       final partners = await deliveryPartnerRepo.getAll();
       final drivers = await driverRepo.getAll();
       final partnerForQuery = _selectedPartner?.trim();
-      final statusAny = _deliveryStatusBucketToAnyOf(_deliveryStatusBucket);
       var orders = await orderRepo.filterOrders(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
@@ -216,7 +172,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         deliveryPartner: partnerForQuery != null && partnerForQuery.isNotEmpty ? partnerForQuery : null,
         customerPhone: customerPhone,
         status: status,
-        statusAnyOf: statusAny,
+        statusAnyOf: _kDeliverySaleLogPendingStatuses,
         startDate: startDate,
         endDate: endDate,
         userId: _scopedUserId(uiUserId: userId),
@@ -252,13 +208,9 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     if (order == null) return 'Order not found.';
     if (_isNormalOrder(order)) {
       final s = newStatus.toLowerCase();
-      if ((s == 'out_of_delivery' ||
-              s == 'assigned' ||
-              s == 'dispatched' ||
-              s == 'completed' ||
-              s == 'delivered') &&
+      if ((s == 'out_of_delivery' || s == 'assigned' || s == 'dispatched') &&
           !_hasDriver(order)) {
-        return 'Assign a driver before marking out for delivery or delivered.';
+        return 'Assign a driver before marking out for delivery.';
       }
       final cur = order.status.toLowerCase();
       if (s == 'pending' &&

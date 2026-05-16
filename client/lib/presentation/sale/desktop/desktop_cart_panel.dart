@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:multi_expansion_card/multi_expansion_card.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
@@ -1547,7 +1546,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     );
   }
 
-  /* ───────── CONTENT (expandable cards) ───────── */
+  /* ───────── CONTENT (scrollable sections) ───────── */
 
   Widget _content() {
     return SingleChildScrollView(
@@ -1555,65 +1554,59 @@ class _PaymentDialogState extends State<PaymentDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          MultipleExpansionCard(
-            titles: [
-              Row(
-                children: [
-                  Icon(Icons.person_outline, size: 20, color: AppColors.primaryColor),
-                  const SizedBox(width: 10),
-                  Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
-                ],
-              ),
-              _discountSectionTitle(),
-              Row(
-                children: [
-                  Icon(Icons.payment, size: 20, color: AppColors.primaryColor),
-                  const SizedBox(width: 10),
-                  Text('Payment Methods', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
-                ],
-              ),
+          Row(
+            children: [
+              Icon(Icons.person_outline, size: 20, color: AppColors.primaryColor),
+              const SizedBox(width: 10),
+              Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
             ],
-            childrens: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: _customerFields(),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: _discountFields(),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _paymentFields(),
-                    if (!_validatePayments() &&
-                        (_cashController.text.isNotEmpty ||
-                            _creditController.text.isNotEmpty ||
-                            _cardController.text.isNotEmpty ||
-                            _onlineController.text.isNotEmpty ||
-                            _otherController.text.isNotEmpty))
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Text(
-                          'Payment total must match payable amount',
-                          style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red.shade700),
-                        ),
-                      ),
-                    if (widget.isDelivery && _isPartnerDelivery)
-                      SizedBox(
-                        width: 260,
-                        child: CustomTextField(
-                          controller: _onlineOrderNumberController,
-                          labelText: 'Online Order Number (optional)',
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: _customerFields(),
+          ),
+          const SizedBox(height: 8),
+          _discountSectionTitle(),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: _discountFields(),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(Icons.payment, size: 20, color: AppColors.primaryColor),
+              const SizedBox(width: 10),
+              Text('Payment Methods', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
             ],
-            initialExpanded: const {2: true},
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _paymentFields(),
+               if (!_validatePayments() &&
+                    (_cashController.text.isNotEmpty ||
+                        _creditController.text.isNotEmpty ||
+                        _cardController.text.isNotEmpty ||
+                        _onlineController.text.isNotEmpty))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      'Payment total must match payable amount',
+                      style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red.shade700),
+                    ),
+                  ),
+                if (widget.isDelivery && _isPartnerDelivery)
+                  SizedBox(
+                    width: 260,
+                    child: CustomTextField(
+                      controller: _onlineOrderNumberController,
+                      labelText: 'Online Order Number (optional)',
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),

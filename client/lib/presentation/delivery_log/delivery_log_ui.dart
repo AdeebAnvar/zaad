@@ -141,7 +141,7 @@ class DeliveryLogScreen extends StatelessWidget {
                               child: Padding(
                                 padding: const EdgeInsets.all(32.0),
                                 child: Text(
-                                  'No delivery orders found',
+                                  'No pending delivery orders',
                                   style: AppStyles.getRegularTextStyle(fontSize: 16, color: AppColors.hintFontColor),
                                 ),
                               ),
@@ -336,15 +336,12 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
   final _usersController = TextEditingController();
   int? _filterUserId;
 
-  /// Cubit-aligned: `all` | `pending` | `out_for_delivery` | `delivered` | `cancelled`
-
-  Future<void> _applyFiltersInner({String? deliveryStatusBucket}) async {
+  Future<void> _applyFiltersInner() async {
     final c = context.read<DeliveryLogCubit>();
     await c.filterOrders(
       invoiceNumber: _invoiceController.text.trim().isEmpty ? null : _invoiceController.text.trim(),
       referenceNumber: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
       userId: _filterUserId,
-      deliveryStatusBucket: deliveryStatusBucket,
     );
   }
 
@@ -368,7 +365,6 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
       _filterUserId = null;
     });
     final c = context.read<DeliveryLogCubit>();
-    c.setDeliveryStatusBucket('all');
     unawaited(c.loadOrders());
   }
 
@@ -379,7 +375,7 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
         final m = LogFilterLayout(constraints.maxWidth);
         return LogFilterShell(
           title: 'Filters',
-          subtitle: 'Receipt, reference, delivery status, and users',
+          subtitle: 'Pending delivery only (placed / pending / KOT). Dispatched & closed orders use Driver Log or order history.',
           icon: Icons.local_shipping_outlined,
           body: Wrap(
             spacing: 8,
@@ -399,41 +395,6 @@ class _DeliveryFilterBarState extends State<_DeliveryFilterBar> {
                   controller: _referenceController,
                   labelText: 'Reference No.',
                   onChanged: (_) => _applyFilters(),
-                ),
-              ),
-              SizedBox(
-                width: m.compactFieldWidth,
-                child: BlocBuilder<DeliveryLogCubit, DeliveryLogState>(
-                  buildWhen: (prev, curr) =>
-                      curr is DeliveryLogLoaded || curr is DeliveryLogLoading || curr is DeliveryLogError || prev.runtimeType != curr.runtimeType,
-                  builder: (context, state) {
-                    final key = context.read<DeliveryLogCubit>().deliveryStatusFilterKey;
-                    const items = <(String label, String value)>[
-                      ('All statuses', 'all'),
-                      ('Pending', 'pending'),
-                      ('Out for delivery', 'out_for_delivery'),
-                      ('Delivered', 'delivered'),
-                      ('Cancelled', 'cancelled'),
-                    ];
-                    final valid = items.any((e) => e.$2 == key) ? key : 'all';
-                    return DropdownButtonFormField<String>(
-                      value: valid,
-                      isExpanded: true,
-                      decoration: CustomFormFieldDecoration.dropdownDecoration(context),
-                      items: items
-                          .map(
-                            (e) => DropdownMenuItem<String>(
-                              value: e.$2,
-                              child: Text(e.$1, style: AppStyles.getRegularTextStyle(fontSize: 14)),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) {
-                        if (v == null) return;
-                        unawaited(_applyFiltersInner(deliveryStatusBucket: v));
-                      },
-                    );
-                  },
                 ),
               ),
               SizedBox(
