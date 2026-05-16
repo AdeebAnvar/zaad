@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// LAN MAIN WebSocket hub (SUB terminals only; MAIN runs Node.js + SQLite).
@@ -80,13 +82,18 @@ class LocalHubSettings {
 
   String? get hubWsUrl => _prefs.getString(wsUrlKey)?.trim();
 
+  /// Desktop MAIN: loopback when hub URL unset. Mobile has no local Node — URL must be set explicitly.
+  static bool get _defaultLoopbackWhenHubUrlUnset =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
   /// MAIN (non-SUB): WebSocket URL used to **send** snapshots / API mirrors to Node.
-  /// Falls back to [defaultMainPublishHubLoopback] when prefs URL is unset.
-  /// Returns empty string on SUB (`hubWsUrl` must be set explicitly).
+  /// Falls back to [defaultMainPublishHubLoopback] on desktop when prefs URL is unset.
+  /// Returns empty string on SUB (`hubWsUrl` must be set explicitly) and on mobile until configured.
   String get publishHubWsUrlOrLoopback {
     if (isHubSub) return hubWsUrl ?? '';
     final u = hubWsUrl;
-    return (u != null && u.isNotEmpty) ? u : LocalHubSettings.defaultMainPublishHubLoopback;
+    if (u != null && u.isNotEmpty) return u;
+    return _defaultLoopbackWhenHubUrlUnset ? LocalHubSettings.defaultMainPublishHubLoopback : '';
   }
 
   Future<void> setHubWsUrl(String? url) async {

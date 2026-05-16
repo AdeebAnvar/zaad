@@ -188,7 +188,7 @@ class _CounterHomeState extends State<CounterHome> {
                     crossAxisCount: crossAxisCount,
                     crossAxisSpacing: gap,
                     mainAxisSpacing: gap,
-                    mainAxisExtent: 100,
+                    mainAxisExtent: 112,
                   ),
                   itemBuilder: (context, index) {
                     final t = tiles[index];
@@ -396,23 +396,21 @@ class _DashboardCard extends StatelessWidget {
           ],
         ),
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 14),
-          child: Row(
+          padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12, vertical: 10),
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: Colors.white.withValues(alpha: 0.96), size: compact ? 18 : 20),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: AppStyles.getSemiBoldTextStyle(
-                    fontSize: compact ? 18 : 19,
-                    color: Colors.white,
-                  ),
-                ),
+              Icon(icon, color: Colors.white.withValues(alpha: 0.96), size: compact ? 22 : 24),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: AppStyles.getSemiBoldTextStyle(
+                  fontSize: compact ? 14 : 15,
+                  color: Colors.white,
+                ).copyWith(height: 1.2),
               ),
             ],
           ),

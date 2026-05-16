@@ -339,10 +339,10 @@ Future<void> showCartStylePaymentDialogForOrder(
               asTaxInvoice: printInvoice,
             ),
           );
-          final cashAmt = payments['cash'] ?? 0.0;
-          if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
-            printFailed.addAll(await printSvc.openCashDrawer());
-          }
+        }
+        final cashAmt = payments['cash'] ?? 0.0;
+        if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
+          printFailed.addAll(await printSvc.openCashDrawer());
         }
         if (printFailed.isNotEmpty && dialogContext.mounted) {
           showPrintFailedDialog(dialogContext, printFailed);
@@ -1435,19 +1435,23 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
+    final size = MediaQuery.of(context).size;
+    final width = size.width;
+    final height = size.height;
 
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(16),
+      insetPadding: const EdgeInsets.all(12),
       child: Center(
         child: Container(
-          width: width > 1000
-              ? 720
-              : width > 700
-                  ? 620
-                  : width * 0.96,
-          constraints: const BoxConstraints(maxHeight: 560),
+          width: width > 1200
+              ? 920
+              : width > 900
+                  ? 860
+                  : width > 700
+                      ? width * 0.94
+                      : width * 0.96,
+          constraints: BoxConstraints(maxHeight: height * 0.92),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
@@ -1540,8 +1544,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
   /* ───────── CONTENT (scrollable sections) ───────── */
 
   Widget _content() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

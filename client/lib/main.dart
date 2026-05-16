@@ -24,6 +24,7 @@ void main() async {
 
   await AppDirectories.migrateLegacyLayoutIfNeeded();
   await AppDirectories.migrateAndroidInternalToPublicDocumentsIfNeeded();
+  await AppDirectories.recoverAndroidDbFromPublicIfNeeded();
 
   // ✅ Initialize DI ONCE
   await ZaadDI.initialize();

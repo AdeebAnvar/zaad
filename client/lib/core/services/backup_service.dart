@@ -12,6 +12,8 @@ class BackupService {
 
   static const int _orderThreshold = 10;
   static const Duration _timeThreshold = Duration(minutes: 2);
+  static const Duration _retention = Duration(days: 3);
+
   int _pendingOrderMutations = 0;
   DateTime _lastBackupAt = DateTime.fromMillisecondsSinceEpoch(0);
   Future<void> _queue = Future<void>.value();
@@ -34,6 +36,7 @@ class BackupService {
 
   void startAutoBackup(AppDatabase db) {
     _periodicTimer?.cancel();
+    unawaited(purgeExpiredBackups());
     _periodicTimer = Timer.periodic(_timeThreshold, (_) {
       backupNow(db);
     });
@@ -55,9 +58,109 @@ class BackupService {
       await dbFile.copy(target.path);
       _pendingOrderMutations = 0;
       _lastBackupAt = DateTime.now();
+      await purgeExpiredBackups();
     } catch (_) {
       // Best-effort backup only.
     }
+  }
+
+  /// Removes SQLite backup copies older than [_retention] when that snapshot has no pending sync.
+  Future<void> purgeExpiredBackups() async {
+    try {
+      final backupDir = await _backupDir();
+      if (!await backupDir.exists()) return;
+
+      final files = await backupDir
+          .list()
+          .where((e) => e is File && p.extension(e.path).toLowerCase() == '.db')
+          .cast<File>()
+          .toList();
+      if (files.length <= 1) return;
+
+      files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      final latestPath = files.first.path;
+      final cutoff = DateTime.now().subtract(_retention);
+
+      for (final file in files) {
+        if (file.path == latestPath) continue;
+
+        final modified = file.statSync().modified;
+        if (!modified.isBefore(cutoff)) continue;
+
+        if (await _backupFileIsFullySynced(file)) {
+          await file.delete();
+        }
+      }
+    } catch (_) {
+      // Best-effort cleanup only.
+    }
+  }
+
+  Future<bool> _backupFileIsFullySynced(File backupFile) async {
+    sqlite.Database? database;
+    try {
+      database = sqlite.sqlite3.open(backupFile.path);
+      return _sqliteSnapshotIsFullySynced(database);
+    } catch (_) {
+      return false;
+    } finally {
+      database?.dispose();
+    }
+  }
+
+  static bool _sqliteSnapshotIsFullySynced(sqlite.Database database) {
+    if (_tableExists(database, 'order_logs')) {
+      final unsyncedLogs = _scalarInt(database, 'SELECT COUNT(*) FROM order_logs WHERE synced = 0');
+      if (unsyncedLogs > 0) return false;
+    }
+
+    if (_tableExists(database, 'orders') && _columnExists(database, 'orders', 'hub_sync_pending')) {
+      final hubPending = _scalarInt(database, 'SELECT COUNT(*) FROM orders WHERE hub_sync_pending = 1');
+      if (hubPending > 0) return false;
+    }
+
+    if (_tableExists(database, 'sync_outbox')) {
+      final outboxPending =
+          _scalarInt(database, "SELECT COUNT(*) FROM sync_outbox WHERE status IS NULL OR status != 'ACKED'");
+      if (outboxPending > 0) return false;
+    }
+
+    if (_tableExists(database, 'settle_sales_outbox')) {
+      final settlePending =
+          _scalarInt(database, 'SELECT COUNT(*) FROM settle_sales_outbox WHERE synced = 0');
+      if (settlePending > 0) return false;
+    }
+
+    if (_tableExists(database, 'customers') && _columnExists(database, 'customers', 'synced')) {
+      final customersPending = _scalarInt(database, 'SELECT COUNT(*) FROM customers WHERE synced = 0');
+      if (customersPending > 0) return false;
+    }
+
+    return true;
+  }
+
+  static bool _tableExists(sqlite.Database database, String table) {
+    final rows = database.select(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+      [table],
+    );
+    return rows.isNotEmpty;
+  }
+
+  static bool _columnExists(sqlite.Database database, String table, String column) {
+    final rows = database.select('PRAGMA table_info($table)');
+    for (final row in rows) {
+      if (row.columnAt(1)?.toString() == column) return true;
+    }
+    return false;
+  }
+
+  static int _scalarInt(sqlite.Database database, String sql) {
+    final rows = database.select(sql);
+    if (rows.isEmpty) return 0;
+    final value = rows.first.columnAt(0);
+    if (value is int) return value;
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   Future<void> validateAndRecoverIfNeeded() async {
@@ -77,6 +180,8 @@ class BackupService {
       }
     } catch (_) {
       await restoreLatestBackupIfAvailable();
+    } finally {
+      await purgeExpiredBackups();
     }
   }
 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/presentation/sale/item_card.dart';
 import 'package:pos/presentation/sale/item_cubit.dart/items_cubit.dart';
-import 'package:pos/presentation/widgets/custom_textfield.dart';
+import 'package:pos/presentation/sale/item_search_field.dart';
 
 class ItemsPanel extends StatelessWidget {
   const ItemsPanel();
@@ -14,11 +14,7 @@ class ItemsPanel extends StatelessWidget {
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade200)),
       child: Column(
         children: [
-          CustomTextField(
-            onChanged: (v) => context.read<ItemsCubit>().search(v),
-            labelText: 'Search/Scan Item',
-            textAlign: TextAlign.center,
-          ),
+          const ItemSearchField(),
           Expanded(
             child: BlocBuilder<ItemsCubit, ItemState>(
               builder: (_, state) {

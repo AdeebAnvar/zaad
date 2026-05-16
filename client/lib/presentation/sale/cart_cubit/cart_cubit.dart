@@ -840,10 +840,10 @@ class CartCubit extends Cubit<CartState> {
             asTaxInvoice: printInvoice,
           ),
         );
-        final cashAmt = payments['cash'] ?? 0.0;
-        if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
-          printFailed.addAll(await printService.openCashDrawer());
-        }
+      }
+      final cashAmt = payments['cash'] ?? 0.0;
+      if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
+        printFailed.addAll(await printService.openCashDrawer());
       }
 
       await _clearCartStateOnly();
@@ -1026,10 +1026,10 @@ class CartCubit extends Cubit<CartState> {
           asTaxInvoice: printInvoice,
         ),
       );
-      final cashAmt = payments['cash'] ?? 0.0;
-      if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
-        printFailed.addAll(await printService.openCashDrawer());
-      }
+    }
+    final cashAmt = payments['cash'] ?? 0.0;
+    if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
+      printFailed.addAll(await printService.openCashDrawer());
     }
 
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)
