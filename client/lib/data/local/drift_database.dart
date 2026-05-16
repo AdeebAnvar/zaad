@@ -92,7 +92,27 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(_openMemory());
 
   @override
-  int get schemaVersion => 51;
+  int get schemaVersion => 52;
+
+  /// Fixes legacy [branches] rows where NOT NULL columns are NULL (Drift map crashes on read).
+  Future<void> repairLegacyBranchRows() async {
+    try {
+      await customStatement(
+        'UPDATE branches SET default_opening_cash = COALESCE(default_opening_cash, opening_cash, 0) '
+        'WHERE default_opening_cash IS NULL',
+      );
+      await customStatement(
+        'UPDATE branches SET opening_cash = COALESCE(opening_cash, default_opening_cash, 0) '
+        'WHERE opening_cash IS NULL',
+      );
+      await customStatement(
+        "UPDATE branches SET local_image = '' WHERE local_image IS NULL",
+      );
+    } on SqliteException catch (e) {
+      final m = e.message.toLowerCase();
+      if (!m.contains('no such column')) rethrow;
+    }
+  }
 
   @override
   MigrationStrategy get migration {
@@ -282,6 +302,13 @@ class AppDatabase extends _$AppDatabase {
             'UPDATE branches SET opening_cash = default_opening_cash '
             'WHERE default_opening_cash > 0 AND (opening_cash IS NULL OR opening_cash = 0)',
           );
+          await customStatement(
+            'UPDATE branches SET default_opening_cash = COALESCE(opening_cash, 0) '
+            'WHERE default_opening_cash IS NULL',
+          );
+        }
+        if (from < 52) {
+          await repairLegacyBranchRows();
         }
       },
       // Legacy rows (or partial inserts) can leave NULL in NOT NULL columns; Drift’s
@@ -298,6 +325,7 @@ class AppDatabase extends _$AppDatabase {
           final m = e.message.toLowerCase();
           if (!m.contains('no such column')) rethrow;
         }
+        await repairLegacyBranchRows();
       },
     );
   }
