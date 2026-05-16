@@ -22,10 +22,7 @@ class OrderRepositoryImpl implements OrderRepository {
   /// Shared across instances so parallel UI flows cannot read the same max suffix before another inserts a cart.
   static final Lock _invoiceAllocLock = Lock();
 
-  Future<int> _activeBranchId() async {
-    final session = await db.sessionDao.getActiveSession();
-    return session?.branchId ?? 1;
-  }
+  Future<int> _activeBranchId() => db.sessionDao.requireActiveBranchId();
 
   Future<void> _afterMutation() async {
     await SalesCsvBackup.refreshFromDatabase(db);
@@ -227,8 +224,7 @@ class OrderRepositoryImpl implements OrderRepository {
   }
 
   Future<String> _allocateNextInvoiceNumber(String orderType, {int? branchIdOverride}) async {
-    final session = await db.sessionDao.getActiveSession();
-    final bid = branchIdOverride ?? session?.branchId ?? 1;
+    final bid = branchIdOverride ?? await db.sessionDao.requireActiveBranchId();
     final branch = await db.branchesDao.getBranchById(bid);
     final branchPrefix = branch?.prefixInv.trim();
     final prefix =
@@ -252,8 +248,7 @@ class OrderRepositoryImpl implements OrderRepository {
   }) async {
     return _invoiceAllocLock.synchronized(() async {
       final invoice = await _allocateNextInvoiceNumber(orderType, branchIdOverride: branchId);
-      final session = await db.sessionDao.getActiveSession();
-      final cartBranchId = branchId ?? session?.branchId ?? 1;
+      final cartBranchId = branchId ?? await db.sessionDao.requireActiveBranchId();
       final cartId = await db.cartsDao.createCart(
         invoice,
         orderType: orderType,

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../core/constants/enums.dart';
+import '../../core/utils/json_int_parse.dart';
 
 class UserModel {
   final int id;
@@ -52,8 +53,8 @@ class UserModel {
     final List<String> permissions = _permissionsFromJson(json['permissions']);
 
     return UserModel(
-      id: (json["id"] as num?)?.toInt() ?? 0,
-      branchId: (json["branch_id"] as num?)?.toInt() ?? 0,
+      id: parseIntLoose(json['id']) ?? 0,
+      branchId: branchIdFromUserJson(json),
       name: json["name"]?.toString() ?? '',
       usertype: json["usertype"]?.toString() ?? '',
       mobilePassword: json["mobile_password"]?.toString() ?? '',

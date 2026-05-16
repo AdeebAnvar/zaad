@@ -28,6 +28,15 @@ class SessionDao extends DatabaseAccessor<AppDatabase> with _$SessionDaoMixin {
 
   Future<Session?> getActiveSession() => select(sessions).getSingleOrNull();
 
+  /// Active selling branch from login. Never silently defaults to `1` (avoids `INV-1-*` mislabels).
+  Future<int> requireActiveBranchId() async {
+    final bid = (await getActiveSession())?.branchId;
+    if (bid == null || bid <= 0) {
+      throw StateError('No active branch session — log in again before creating sales.');
+    }
+    return bid;
+  }
+
   Future<void> clearSession() => delete(sessions).go();
 
   /// Get the persisted active cart id for the current session (Drift as single source of truth).

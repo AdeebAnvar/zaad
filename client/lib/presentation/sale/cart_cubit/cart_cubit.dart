@@ -568,10 +568,7 @@ class CartCubit extends Cubit<CartState> {
     return s?.userId;
   }
 
-  Future<int> _sessionBranchId() async {
-    final s = await sessionDao.getActiveSession();
-    return s?.branchId ?? 1;
-  }
+  Future<int> _sessionBranchId() => sessionDao.requireActiveBranchId();
 
   Map<String, dynamic>? _offerFromDiscountPayload(Map<String, dynamic> discount) {
     final raw = discount['offer'];
