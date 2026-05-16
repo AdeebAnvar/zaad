@@ -62,14 +62,34 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
+  /// Preserved opening balances without Drift row mapping (safe on legacy NULL columns).
+  Future<Map<int, int>> getPreservedOpeningCashByBranchId() async {
+    await attachedDatabase.repairLegacyBranchRows();
+    final rows = await customSelect(
+      '''
+      SELECT id,
+             CASE
+               WHEN COALESCE(default_opening_cash, 0) > 0 THEN default_opening_cash
+               WHEN COALESCE(opening_cash, 0) > 0 THEN opening_cash
+               ELSE 0
+             END AS effective
+      FROM branches
+      ''',
+      readsFrom: {branches},
+    ).get();
+    return {for (final row in rows) row.read<int>('id'): row.read<int>('effective')};
+  }
+
   /// GET ALL
   Future<List<BranchModel>> getAllBranches() async {
+    await attachedDatabase.repairLegacyBranchRows();
     final data = await select(branches).get();
     return data.map(_toModel).toList();
   }
 
   /// GET ONE by [branchId] (server id / primary key)
   Future<BranchModel?> getBranchById(int branchId) async {
+    await attachedDatabase.repairLegacyBranchRows();
     final row = await (select(branches)..where((b) => b.id.equals(branchId)))
         .getSingleOrNull();
     return row == null ? null : _toModel(row);
@@ -107,11 +127,17 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
     } else {
       localImage = b.localImage;
     }
-    final existingBranch = await (select(branches)
-          ..where((tbl) => tbl.id.equals(b.id)))
-        .getSingleOrNull();
-    final existingDefault = existingBranch?.defaultOpeningCash ?? 0;
-    final existingOpening = existingBranch?.openingCash ?? 0;
+    final existingRow = await customSelect(
+      '''
+      SELECT COALESCE(default_opening_cash, 0) AS default_opening_cash,
+             COALESCE(opening_cash, 0) AS opening_cash
+      FROM branches WHERE id = ?
+      ''',
+      variables: [Variable.withInt(b.id)],
+      readsFrom: {branches},
+    ).getSingleOrNull();
+    final existingDefault = existingRow?.read<int>('default_opening_cash') ?? 0;
+    final existingOpening = existingRow?.read<int>('opening_cash') ?? 0;
     final resolvedBalance = existingDefault > 0
         ? existingDefault
         : (existingOpening > 0

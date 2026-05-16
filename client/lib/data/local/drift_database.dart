@@ -95,7 +95,27 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(_openMemory());
 
   @override
-  int get schemaVersion => 54;
+  int get schemaVersion => 55;
+
+  /// Fixes legacy [branches] rows where NOT NULL columns are NULL (Drift map crashes on read).
+  Future<void> repairLegacyBranchRows() async {
+    try {
+      await customStatement(
+        'UPDATE branches SET default_opening_cash = COALESCE(default_opening_cash, opening_cash, 0) '
+        'WHERE default_opening_cash IS NULL',
+      );
+      await customStatement(
+        'UPDATE branches SET opening_cash = COALESCE(opening_cash, default_opening_cash, 0) '
+        'WHERE opening_cash IS NULL',
+      );
+      await customStatement(
+        "UPDATE branches SET local_image = '' WHERE local_image IS NULL",
+      );
+    } on SqliteException catch (e) {
+      final m = e.message.toLowerCase();
+      if (!m.contains('no such column')) rethrow;
+    }
+  }
 
   @override
   MigrationStrategy get migration {
@@ -299,6 +319,9 @@ class AppDatabase extends _$AppDatabase {
         if (from < 54) {
           await m.createTable(financialRecords);
         }
+        if (from < 55) {
+          await repairLegacyBranchRows();
+        }
       },
       // Legacy rows (or partial inserts) can leave NULL in NOT NULL columns; Drift’s
       // generated Session.map would null-check and crash on read.
@@ -314,23 +337,7 @@ class AppDatabase extends _$AppDatabase {
           final m = e.message.toLowerCase();
           if (!m.contains('no such column')) rethrow;
         }
-        // Legacy rows can leave NULL in NOT NULL columns; Drift’s Branches.map null-checks crash.
-        try {
-          await customStatement(
-            'UPDATE branches SET default_opening_cash = COALESCE(default_opening_cash, opening_cash, 0) '
-            'WHERE default_opening_cash IS NULL',
-          );
-          await customStatement(
-            'UPDATE branches SET opening_cash = COALESCE(opening_cash, default_opening_cash, 0) '
-            'WHERE opening_cash IS NULL',
-          );
-          await customStatement(
-            "UPDATE branches SET local_image = '' WHERE local_image IS NULL",
-          );
-        } on SqliteException catch (e) {
-          final m = e.message.toLowerCase();
-          if (!m.contains('no such column')) rethrow;
-        }
+        await repairLegacyBranchRows();
       },
     );
   }
