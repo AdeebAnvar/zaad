@@ -56,6 +56,13 @@ class FinancialRecordRepositoryImpl implements FinancialRecordRepository {
         .join(' ');
   }
 
+  /// Credit is for order settlement only — not valid for expense / salary / other income.
+  static bool _isCreditPaymentMethod(String name, String slug) {
+    final n = name.toLowerCase();
+    final s = slug.toLowerCase();
+    return n.contains('credit') || s.contains('credit');
+  }
+
   @override
   Future<List<PaymentMethodOption>> getPaymentMethods(int branchId) async {
     final rows = await _db.pullDataDao.getPaymentMethodsForBranch(branchId);
@@ -69,6 +76,7 @@ class FinancialRecordRepositoryImpl implements FinancialRecordRepository {
             slug: slug,
           );
         })
+        .where((p) => !_isCreditPaymentMethod(p.name, p.slug))
         .toList();
   }
 

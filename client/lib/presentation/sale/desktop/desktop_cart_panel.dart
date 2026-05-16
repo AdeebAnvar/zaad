@@ -837,8 +837,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _genderController = TextEditingController();
   final _addressController = TextEditingController();
 
   final _cashController = TextEditingController();
@@ -887,8 +885,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
     if (prefill != null) {
       _nameController.text = (prefill['name'] as String?)?.trim() ?? '';
       _phoneController.text = (prefill['phone'] as String?)?.trim() ?? '';
-      _emailController.text = (prefill['email'] as String?)?.trim() ?? '';
-      _genderController.text = (prefill['gender'] as String?)?.trim() ?? '';
       _addressController.text = (prefill['address'] as String?)?.trim() ?? '';
       _onlineOrderNumberController.text = (prefill['onlineOrderNumber'] as String?)?.trim() ?? '';
     }
@@ -1210,8 +1206,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
     setState(() {
       _nameController.text = customer.name;
       _phoneController.text = customer.phone ?? '';
-      _emailController.text = customer.email ?? '';
-      _genderController.text = customer.gender ?? '';
       _addressController.text = customer.address ?? '';
     });
   }
@@ -1220,20 +1214,14 @@ class _PaymentDialogState extends State<PaymentDialog> {
   Future<void> _saveNewCustomerIfNeeded() async {
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
-    final email = _emailController.text.trim();
-    final gender = _genderController.text.trim();
     final address = _addressController.text.trim();
 
-    if (name.isEmpty && phone.isEmpty && email.isEmpty) return;
+    if (name.isEmpty && phone.isEmpty) return;
 
     bool customerExists = false;
     if (phone.isNotEmpty) {
       final existingByPhone = await _customerRepo.getCustomersByPhone(phone);
       customerExists = existingByPhone.isNotEmpty;
-    }
-    if (!customerExists && email.isNotEmpty) {
-      final existingByEmail = await _customerRepo.getCustomersByEmail(email);
-      customerExists = existingByEmail.isNotEmpty;
     }
 
     if (!customerExists) {
@@ -1246,9 +1234,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
           branchId: 0,
           customerName: name.isEmpty ? (phone.isNotEmpty ? phone : 'Customer') : name,
           customerNumber: phone,
-          customerEmail: email,
+          customerEmail: '',
           customerAddress: address,
-          customerGender: gender,
+          customerGender: '',
           cardNo: '',
           createdAt: now,
           updatedAt: now,
@@ -1481,14 +1469,11 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
     final phoneSuggestions = _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList();
     final nameSuggestions = _allCustomers.map((c) => c.name).toSet().toList();
-    final emailSuggestions = _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList();
-    final genderOptions = ['Male', 'Female', 'Other'];
     final customersByName = _allCustomers.where((c) => c.name.toLowerCase().contains(_nameController.text.toLowerCase())).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Row: Contact Number, Name, Email (like image)
         Row(
           children: [
             Expanded(
@@ -1508,6 +1493,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 },
               ),
             ),
+            const SizedBox(width: 12),
             Expanded(
               child: AutoCompleteTextField<String>(
                 items: nameSuggestions,
@@ -1529,76 +1515,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 },
               ),
             ),
-            Expanded(
-              child: AutoCompleteTextField<String>(
-                items: emailSuggestions,
-                displayStringFunction: (item) => item,
-                defaultText: '',
-                labelText: 'Email',
-                controller: _emailController,
-                filterType: FilterType.contains,
-                onSelected: (selectedEmail) {
-                  final customer = _allCustomers.firstWhere(
-                    (c) => c.email == selectedEmail,
-                    orElse: () => PosCustomer.placeholder(email: selectedEmail),
-                  );
-                  if (customer.id > 0) _prefillCustomer(customer);
-                },
-              ),
-            ),
           ],
-        ),
-        const SizedBox(height: 12),
-        // Choose Gender dropdown (like image)
-        DropdownButtonFormField<String>(
-          value: genderOptions.contains(_genderController.text) ? _genderController.text : null,
-          decoration: InputDecoration(
-            labelStyle: TextStyle(
-              color: AppColors.hintFontColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-            ),
-            filled: false,
-            hintText: 'Choose Gender',
-            fillColor: Colors.white,
-            hintStyle: TextStyle(
-              color: AppColors.hintFontColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-            ),
-            isDense: true,
-            isCollapsed: true,
-            contentPadding: EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 13,
-            ),
-            errorStyle: const TextStyle(
-              fontSize: 10,
-              height: 1,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: Theme.of(context).dividerColor.withOpacity(0.5),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: Theme.of(context).dividerColor.withOpacity(0.5),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: Theme.of(context).dividerColor.withOpacity(0.5),
-              ),
-            ),
-          ),
-          items: genderOptions.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-          onChanged: (v) {
-            setState(() => _genderController.text = v ?? '');
-          },
         ),
         const SizedBox(height: 12),
         CustomTextField(
@@ -2026,8 +1943,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
                             {
                               'name': _nameController.text,
                               'phone': _phoneController.text,
-                              'email': _emailController.text,
-                              'gender': _genderController.text,
+                              'email': '',
+                              'gender': '',
                               'address': _addressController.text,
                               'onlineOrderNumber': _onlineOrderNumberController.text.trim().isEmpty ? null : _onlineOrderNumberController.text.trim(),
                             },
@@ -2134,8 +2051,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _otherFocusNode.dispose();
     _nameController.dispose();
     _phoneController.dispose();
-    _emailController.dispose();
-    _genderController.dispose();
     _addressController.dispose();
     _cashController.dispose();
     _creditController.dispose();

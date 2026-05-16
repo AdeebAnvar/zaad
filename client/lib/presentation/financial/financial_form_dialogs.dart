@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/pricing/vat_inclusive_breakdown.dart';
+import 'package:pos/core/settings/runtime_app_settings.dart';
+import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/financial_record_repository.dart';
 import 'package:pos/domain/models/financial_record_type.dart';
 import 'package:pos/presentation/financial/financial_form_theme.dart';
@@ -80,6 +84,30 @@ class _FinancialCreateDialogState extends State<_FinancialCreateDialog> {
   DateTime? _joiningDate;
   DateTime? _exitDate;
   bool _saving = false;
+  String _branchVatMode = 'no_vat';
+  dynamic _branchVatPercent;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBranchVat();
+  }
+
+  Future<void> _loadBranchVat() async {
+    try {
+      final db = locator<AppDatabase>();
+      final session = await db.sessionDao.getActiveSession();
+      final branchId = session?.branchId ?? 1;
+      final branch = await db.branchesDao.getBranchById(branchId);
+      if (!mounted || branch == null) return;
+      setState(() {
+        _branchVatMode = branch.vat;
+        _branchVatPercent = branch.vatPercent;
+      });
+    } catch (_) {
+      // Keep defaults — VAT fields stay manual if branch cannot be loaded.
+    }
+  }
 
   @override
   void dispose() {
@@ -101,8 +129,21 @@ class _FinancialCreateDialogState extends State<_FinancialCreateDialog> {
     final v = double.tryParse(_vat.text.trim()) ?? 0;
     final sum = b + v;
     if (sum > 0) {
-      _finalAmount.text = sum.toStringAsFixed(2);
+      _finalAmount.text = sum.toStringAsFixed(RuntimeAppSettings.decimalDigits);
     }
+  }
+
+  void _recalcFromFinal() {
+    final finalAmt = double.tryParse(_finalAmount.text.trim());
+    if (finalAmt == null || finalAmt <= 0) return;
+    final breakdown = vatBreakdownFromInclusive(
+      finalAmt,
+      vatMode: _branchVatMode,
+      vatPercentRaw: _branchVatPercent,
+    );
+    final d = RuntimeAppSettings.decimalDigits;
+    _beforeVat.text = breakdown.netBeforeVat.toStringAsFixed(d);
+    _vat.text = breakdown.vatAmount.toStringAsFixed(d);
   }
 
   Future<void> _pickDate({required bool joining}) async {
@@ -336,7 +377,12 @@ class _FinancialCreateDialogState extends State<_FinancialCreateDialog> {
                             ],
                           ),
                           const SizedBox(height: 12),
-                          _field(_finalAmount, label: 'Final Amount', keyboard: TextInputType.number),
+                          _field(
+                            _finalAmount,
+                            label: 'Final Amount',
+                            keyboard: TextInputType.number,
+                            onChanged: (_) => _recalcFromFinal(),
+                          ),
                         ] else if (type == FinancialRecordType.salary) ...[
                           _field(_staffName, label: 'Staff Name'),
                           const SizedBox(height: 12),
