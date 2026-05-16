@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
-import 'package:pos/presentation/sale/item_cubit.dart/items_cubit.dart';
+import 'package:pos/presentation/sale/item_search_field.dart';
 import 'package:pos/presentation/sale/mobile/mobile_category_bar.dart';
 import 'package:pos/presentation/sale/mobile/mobile_item_list.dart';
 import 'package:pos/presentation/sale/sale_screen.dart';
-import 'package:pos/presentation/widgets/custom_textfield.dart';
 
 class MobileSaleLayout extends StatelessWidget {
   const MobileSaleLayout();
@@ -19,11 +18,7 @@ class MobileSaleLayout extends StatelessWidget {
         children: [
           Column(
             children: [
-              CustomTextField(
-                onChanged: (v) => context.read<ItemsCubit>().search(v),
-                labelText: 'Search/Scan Item',
-                textAlign: TextAlign.center,
-              ),
+              const ItemSearchField(),
               Padding(
                 padding: const EdgeInsets.only(top: 8.0, bottom: 8),
                 child: MobileCategoryBar(),

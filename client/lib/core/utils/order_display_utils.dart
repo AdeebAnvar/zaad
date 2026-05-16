@@ -72,6 +72,16 @@ String orderLogCustomerLabel(Order order) {
   return '';
 }
 
+/// Comma-separated payment method labels for orders with split tender (e.g. Cash + Card).
+String orderPaymentTypesLabel(Order order, {double epsilon = 0.004}) {
+  final parts = <String>[];
+  if (order.cashAmount > epsilon) parts.add('Cash');
+  if (order.cardAmount > epsilon) parts.add('Card');
+  if (order.creditAmount > epsilon) parts.add('Credit');
+  if (order.onlineAmount > epsilon) parts.add('Online');
+  return parts.isEmpty ? '—' : parts.join(' + ');
+}
+
 /// Maps Recent Sales filter dropdown values to DAO `orderType` parameter.
 String? orderTypeFilterToDb(String? uiLabel) {
   if (uiLabel == null || uiLabel.isEmpty || uiLabel == 'All') return null;

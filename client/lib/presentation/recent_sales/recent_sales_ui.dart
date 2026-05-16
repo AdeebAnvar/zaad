@@ -306,7 +306,7 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                   columns: const [
                     DataColumn(label: Text('TYPE')),
                     DataColumn(label: Text('RECEIPT')),
-                    DataColumn(label: Text('REFERENCE')),
+                    DataColumn(label: Text('PAYMENT TYPE')),
                     DataColumn(label: Text('CUSTOMER')),
                     DataColumn(label: Text('DATE')),
                     DataColumn(label: Text('AMOUNT'), numeric: true),
@@ -343,7 +343,7 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                           ),
                         ),
                         DataCell(Text(order.invoiceNumber)),
-                        DataCell(Text(order.referenceNumber?.isNotEmpty == true ? order.referenceNumber! : '—')),
+                        DataCell(Text(orderPaymentTypesLabel(order))),
                         DataCell(
                           Text(
                             order.customerName?.isNotEmpty == true ? order.customerName! : (order.customerPhone ?? '—'),
@@ -565,7 +565,10 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
           children: [
             _infoBlock('Receipt No', order.invoiceNumber),
             const SizedBox(width: 24),
-            if (key == 'delivery') _infoBlock('Partner', order.deliveryPartner ?? '—') else _infoBlock('Ref. / Table', order.referenceNumber ?? '—'),
+            if (key == 'delivery')
+              _infoBlock('Partner', order.deliveryPartner ?? '—')
+            else
+              _infoBlock('Payment Type', orderPaymentTypesLabel(order)),
           ],
         ),
         if (order.driverName != null && order.driverName!.isNotEmpty) ...[

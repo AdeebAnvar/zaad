@@ -45,6 +45,7 @@ class ItemCard extends StatelessWidget {
         } else {
           // Each tap adds a separate line (qty 1). Use cart +/- to change quantity.
           await cartCubit.addItemToCart(item);
+          itemsCubit.clearSearch();
         }
       },
       child: Container(

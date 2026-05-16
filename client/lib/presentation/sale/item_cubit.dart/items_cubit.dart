@@ -103,6 +103,12 @@ class ItemsCubit extends Cubit<ItemState> {
     _applyFilters();
   }
 
+  void clearSearch() {
+    if (_searchQuery.isEmpty) return;
+    _searchQuery = '';
+    _applyFilters();
+  }
+
   Future<void> _resolveDeliveryFilterToken() async {
     _deliveryFilterToken = null;
     if (saleOrderType != OrderType.delivery) return;
@@ -198,6 +204,7 @@ class ItemsCubit extends Cubit<ItemState> {
         items: filtered,
         categories: _allCategories,
         variantItemIds: _variantItemIds,
+        searchQuery: _searchQuery,
       ),
     );
   }

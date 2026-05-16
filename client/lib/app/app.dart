@@ -5,6 +5,7 @@ import 'package:pos/app/navigation.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/update/updater_manager.dart';
+import 'package:pos/core/utils/android_storage_permission_prompt.dart';
 import 'routes.dart';
 
 class ZaadPOSApp extends StatelessWidget {
@@ -65,7 +66,7 @@ class ZaadPOSApp extends StatelessWidget {
             child: subtree,
           ),
         );
-        return subtree;
+        return AndroidStoragePermissionPrompt(child: subtree);
       },
       theme: ThemeData(
         fontFamily: 'Poppins',

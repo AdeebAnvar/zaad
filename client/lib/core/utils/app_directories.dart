@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sqlite3/sqlite3.dart' as sqlite;
 
 /// App-managed folders under **user-visible Documents/ZaadPOS** when possible:
 /// - …/ZaadPOS/local   -> sqlite (`pos.sqlite`)
@@ -19,7 +20,15 @@ import 'package:permission_handler/permission_handler.dart';
 class AppDirectories {
   AppDirectories._();
 
+  /// **Temporary (≈2 days):** skip public `Documents/ZaadPOS` on Android and use internal
+  /// app storage only. Many OEMs block SQLite there without "All files access".
+  /// Set to `false` when rolling out the full public-Documents flow again.
+  static const bool temporaryForceAndroidInternalStorage = true;
+
   static const MethodChannel _androidStorageChannel = MethodChannel('com.example.pos_app/storage');
+
+  /// Set by [_ensureAndroidCanUsePublicDocuments] after file + SQLite probes under public Documents.
+  static bool? _androidPublicDocumentsOk;
 
   static const String appFolderName = 'ZaadPOS';
   static const String _legacyAppFolderName = 'zaad pos';
@@ -79,38 +88,116 @@ class AppDirectories {
     }
   }
 
-  static Future<void> _ensureAndroidCanUsePublicDocuments() async {
-    if (!Platform.isAndroid) return;
-    final raw = await _androidPublicDocumentsPathRaw();
-    if (raw == null || raw.isEmpty) return;
-
-    Future<bool> probe() async {
-      final probeFile = File(p.join(raw, '.zaadpos_probe_${DateTime.now().microsecondsSinceEpoch}'));
+  static Future<bool> _probeWritableFile(String parentPath) async {
+    final probeFile = File(p.join(parentPath, '.zaadpos_probe_${DateTime.now().microsecondsSinceEpoch}'));
+    try {
+      await probeFile.writeAsString('1', flush: true);
+      final ok = await probeFile.exists();
       try {
-        await probeFile.writeAsString('1', flush: true);
-        final ok = await probeFile.exists();
-        try {
-          await probeFile.delete();
-        } catch (_) {}
-        return ok;
-      } catch (_) {
-        try {
-          await probeFile.delete();
-        } catch (_) {}
-        return false;
+        await probeFile.delete();
+      } catch (_) {}
+      return ok;
+    } catch (_) {
+      try {
+        await probeFile.delete();
+      } catch (_) {}
+      return false;
+    }
+  }
+
+  static Future<bool> _probeSqliteInDirectory(Directory dir) async {
+    try {
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
       }
+      final testPath = p.join(dir.path, '.zaadpos_sqlite_probe');
+      final db = sqlite.sqlite3.open(testPath);
+      try {
+        db.execute('PRAGMA user_version = 1;');
+      } finally {
+        db.dispose();
+      }
+      final f = File(testPath);
+      if (await f.exists()) {
+        await f.delete();
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Whether the app is using (or can use) public Documents/ZaadPOS for SQLite.
+  static Future<bool> get androidPublicDocumentsReady async {
+    if (!Platform.isAndroid) return false;
+    await _ensureAndroidCanUsePublicDocuments();
+    return _androidPublicDocumentsOk == true;
+  }
+
+  /// Clears the cached probe result and re-checks after the user grants storage.
+  static Future<bool> requestAndroidPublicStorageAccess() async {
+    if (!Platform.isAndroid) return false;
+    _androidPublicDocumentsOk = null;
+    await _requestAndroidStoragePermissions();
+    await _ensureAndroidCanUsePublicDocuments();
+    return _androidPublicDocumentsOk == true;
+  }
+
+  static Future<void> _requestAndroidStoragePermissions() async {
+    if (!Platform.isAndroid) return;
+
+    // Android 11+ — "All files access" (opens system settings when needed).
+    final manage = await Permission.manageExternalStorage.status;
+    if (!manage.isGranted) {
+      await Permission.manageExternalStorage.request();
     }
 
-    if (await probe()) return;
+    // Android 10 and below, and some OEM paths.
+    final storage = await Permission.storage.status;
+    if (!storage.isGranted) {
+      await Permission.storage.request();
+    }
+  }
 
-    final m = await Permission.manageExternalStorage.request();
-    if (m.isGranted && await probe()) return;
+  static Future<void> _ensureAndroidCanUsePublicDocuments() async {
+    if (!Platform.isAndroid) return;
+    if (_androidPublicDocumentsOk != null) return;
 
-    final s = await Permission.storage.request();
-    if (s.isGranted && await probe()) return;
+    if (temporaryForceAndroidInternalStorage) {
+      _androidPublicDocumentsOk = false;
+      if (kDebugMode) {
+        debugPrint('[AppDirectories] temporaryForceAndroidInternalStorage: using internal app storage.');
+      }
+      return;
+    }
 
+    final raw = await _androidPublicDocumentsPathRaw();
+    if (raw == null || raw.isEmpty) {
+      _androidPublicDocumentsOk = false;
+      return;
+    }
+
+    Future<bool> probePublicTree() async {
+      if (!await _probeWritableFile(raw)) return false;
+      final localProbeDir = Directory(p.join(raw, appFolderName, localFolderName));
+      return _probeSqliteInDirectory(localProbeDir);
+    }
+
+    if (await probePublicTree()) {
+      _androidPublicDocumentsOk = true;
+      return;
+    }
+
+    await _requestAndroidStoragePermissions();
+
+    if (await probePublicTree()) {
+      _androidPublicDocumentsOk = true;
+      return;
+    }
+
+    _androidPublicDocumentsOk = false;
     if (kDebugMode) {
-      debugPrint('[AppDirectories] Public Documents not writable; using internal app storage.');
+      debugPrint('[AppDirectories] Public Documents not writable for SQLite; using internal app storage.');
     }
   }
 
@@ -119,6 +206,7 @@ class AppDirectories {
     if (!Platform.isAndroid) return;
 
     await _ensureAndroidCanUsePublicDocuments();
+    if (_androidPublicDocumentsOk != true) return;
 
     final raw = await _androidPublicDocumentsPathRaw();
     if (raw == null || raw.isEmpty) return;
@@ -161,23 +249,58 @@ class AppDirectories {
     }
   }
 
+  /// When public Documents is not SQLite-safe but a prior build left `pos.sqlite` there,
+  /// copy it back to internal storage so the app can open the DB again.
+  static Future<void> recoverAndroidDbFromPublicIfNeeded() async {
+    if (!Platform.isAndroid) return;
+    await _ensureAndroidCanUsePublicDocuments();
+    if (_androidPublicDocumentsOk == true) return;
+
+    final raw = await _androidPublicDocumentsPathRaw();
+    if (raw == null || raw.isEmpty) return;
+
+    final publicDb = File(p.join(raw, appFolderName, localFolderName, 'pos.sqlite'));
+    if (!await publicDb.exists()) return;
+
+    final internalLocal = Directory(
+      p.join((await getApplicationDocumentsDirectory()).path, appFolderName, localFolderName),
+    );
+    if (!await internalLocal.exists()) {
+      await internalLocal.create(recursive: true);
+    }
+    final internalDb = File(p.join(internalLocal.path, 'pos.sqlite'));
+    if (await internalDb.exists()) return;
+
+    try {
+      await publicDb.copy(internalDb.path);
+      if (kDebugMode) {
+        debugPrint('[AppDirectories] Recovered pos.sqlite from public Documents to internal storage.');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AppDirectories] Could not recover pos.sqlite to internal: $e');
+      }
+    }
+  }
+
   static Future<Directory> _documentsParentForZaadPos() async {
     if (Platform.isWindows) {
       return getApplicationDocumentsDirectory();
     }
     if (Platform.isAndroid) {
       await _ensureAndroidCanUsePublicDocuments();
-      final raw = await _androidPublicDocumentsPathRaw();
-      if (raw != null && raw.isNotEmpty) {
-        final d = Directory(raw);
-        if (await d.exists()) {
+      if (_androidPublicDocumentsOk == true) {
+        final raw = await _androidPublicDocumentsPathRaw();
+        if (raw != null && raw.isNotEmpty) {
+          final d = Directory(raw);
+          if (!await d.exists()) {
+            try {
+              await d.create(recursive: true);
+            } catch (_) {
+              return getApplicationDocumentsDirectory();
+            }
+          }
           return d;
-        }
-        try {
-          await d.create(recursive: true);
-          return d;
-        } catch (_) {
-          /* fall through */
         }
       }
     }
