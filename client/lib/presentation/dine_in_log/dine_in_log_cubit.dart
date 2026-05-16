@@ -128,6 +128,23 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     }
   }
 
+  Future<void> updateOrderPaymentType(int orderId, String paymentType, double finalAmount) async {
+    try {
+      final order = await orderRepo.getOrderById(orderId);
+      if (order == null) return;
+      final updated = order.copyWith(
+        cashAmount: paymentType == 'CASH' ? finalAmount : 0,
+        cardAmount: paymentType == 'CARD' ? finalAmount : 0,
+        creditAmount: paymentType == 'CREDIT' ? finalAmount : 0,
+        onlineAmount: paymentType == 'ONLINE' ? finalAmount : 0,
+      );
+      await orderRepo.updateOrder(updated);
+      await loadOrders();
+    } catch (e) {
+      emit(DineInLogError(e.toString()));
+    }
+  }
+
   /// Updates dine-in table/floor routing in hub metadata (optional KOT [Order.referenceNumber] unchanged).
   Future<String?> moveDineInOrderToTable({
     required int orderId,

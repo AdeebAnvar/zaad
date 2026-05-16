@@ -9,18 +9,26 @@ class BranchRepositoryImpl implements BranchRepository {
   @override
   Future<void> saveBranchesToLocal(List<BranchModel> brancModelList,
       {bool downloadRemoteImages = true}) async {
+    final existingBranches = await db.branchesDao.getAllBranches();
     final existingOpeningCashByBranch = {
-      for (final branch in await db.branchesDao.getAllBranches())
-        branch.id: branch.openingCash,
+      for (final branch in existingBranches) branch.id: branch.openingCash,
     };
-    final branchesToSave = brancModelList
-        .map(
-          (branch) => branch.copyWith(
-            openingCash:
-                existingOpeningCashByBranch[branch.id] ?? branch.openingCash,
-          ),
-        )
-        .toList();
+    final existingDefaultOpeningCashByBranch = {
+      for (final branch in existingBranches) branch.id: branch.defaultOpeningCash,
+    };
+    final branchesToSave = brancModelList.map((branch) {
+      final localDefault = existingDefaultOpeningCashByBranch[branch.id];
+      final localOpening = existingOpeningCashByBranch[branch.id];
+      final effective = (localDefault != null && localDefault > 0)
+          ? localDefault
+          : (localOpening != null && localOpening > 0)
+              ? localOpening
+              : (branch.defaultOpeningCash ?? branch.openingCash ?? 0);
+      return branch.copyWith(
+        openingCash: effective,
+        defaultOpeningCash: effective,
+      );
+    }).toList();
 
     await db.delete(db.branches).go();
 

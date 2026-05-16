@@ -20,6 +20,7 @@ import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/common_log_card.dart';
+import 'package:pos/presentation/widgets/log_payment_type_dropdown.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
@@ -283,6 +284,17 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
       referenceNumber: order.referenceNumber ?? '',
       createdAt: order.createdAt,
       orderTakerName: _orderUserName,
+      extraContent: LogPaymentTypeDropdown(
+        order: order,
+        onPaymentTypeChanged: (paymentType) async {
+          final amount = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
+          await context.read<TakeAwayLogCubit>().updateOrderPaymentType(
+                order.id,
+                paymentType,
+                amount,
+              );
+        },
+      ),
       onDelete: canDelete ? () => _handleDelete(context, order) : null,
       actions: [
         LogCardAction(

@@ -152,10 +152,6 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       );
       final settledAt = DateTime.now();
       await db.dayClosingCheckpointDao.upsertLastSettledAt(branchId, settledAt);
-      await db.branchesDao.updateOpeningCash(
-        branchId: branchId,
-        openingCashValue: 0,
-      );
       if (!mounted) return;
       CustomSnackBar.showSuccess(message: 'Day closed successfully.');
       await _load();

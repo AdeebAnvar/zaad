@@ -27,6 +27,7 @@ import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_sheet.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/common_log_card.dart';
+import 'package:pos/presentation/widgets/log_payment_type_dropdown.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
 import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
@@ -316,6 +317,17 @@ class _DineInLogCardState extends State<DineInLogCard> {
       referenceNumber: _dineInLogReferenceLabel(order),
       createdAt: order.createdAt,
       orderTakerName: _orderUserName,
+      extraContent: LogPaymentTypeDropdown(
+        order: order,
+        onPaymentTypeChanged: (paymentType) async {
+          final amount = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
+          await context.read<DineInLogCubit>().updateOrderPaymentType(
+                order.id,
+                paymentType,
+                amount,
+              );
+        },
+      ),
       onDelete: () => _handleDelete(context, order),
       actions: [
         LogCardAction(

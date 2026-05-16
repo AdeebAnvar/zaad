@@ -92,7 +92,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(_openMemory());
 
   @override
-  int get schemaVersion => 50;
+  int get schemaVersion => 51;
 
   @override
   MigrationStrategy get migration {
@@ -271,6 +271,17 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 42) {
           await m.createTable(dayClosingCheckpoint);
+        }
+        if (from < 51) {
+          await safeAddColumn(branches, branches.defaultOpeningCash);
+          await customStatement(
+            'UPDATE branches SET default_opening_cash = opening_cash '
+            'WHERE (default_opening_cash IS NULL OR default_opening_cash = 0) AND opening_cash > 0',
+          );
+          await customStatement(
+            'UPDATE branches SET opening_cash = default_opening_cash '
+            'WHERE default_opening_cash > 0 AND (opening_cash IS NULL OR opening_cash = 0)',
+          );
         }
       },
       // Legacy rows (or partial inserts) can leave NULL in NOT NULL columns; Drift’s

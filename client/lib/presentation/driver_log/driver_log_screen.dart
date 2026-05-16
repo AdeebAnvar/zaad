@@ -25,6 +25,7 @@ import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
+import 'package:pos/presentation/widgets/log_payment_type_dropdown.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 
 class DriverLogScreen extends StatefulWidget {
@@ -793,9 +794,10 @@ class _DriverOrdersTable extends StatelessWidget {
                     ),
                   ),
                   _dataCell(
-                    _PaymentDropdown(
-                      value: _paymentTypeFromOrder(o),
-                      onChanged: (v) => onUpdatePayment(o, v),
+                    LogPaymentTypeDropdown(
+                      order: o,
+                      confirmBeforeChange: false,
+                      onPaymentTypeChanged: (v) => onUpdatePayment(o, v),
                     ),
                   ),
                   _dataCell(
@@ -938,9 +940,10 @@ class _DriverOrderCard extends StatelessWidget {
               onChanged: (dbStatus) => onUpdateStatus(order, dbStatus),
             ),
             const SizedBox(height: 10),
-            _PaymentDropdown(
-              value: _paymentTypeFromOrder(order),
-              onChanged: (v) => onUpdatePayment(order, v),
+            LogPaymentTypeDropdown(
+              order: order,
+              confirmBeforeChange: false,
+              onPaymentTypeChanged: (v) => onUpdatePayment(order, v),
             ),
             const SizedBox(height: 10),
             Row(
@@ -1024,32 +1027,3 @@ class _StatusDropdown extends StatelessWidget {
   }
 }
 
-class _PaymentDropdown extends StatelessWidget {
-  const _PaymentDropdown({required this.value, required this.onChanged});
-
-  final String value;
-  final Future<void> Function(String paymentType) onChanged;
-
-  static const List<String> _options = ['CREDIT', 'CASH', 'CARD'];
-
-  @override
-  Widget build(BuildContext context) {
-    final safe = _options.contains(value) ? value : _options.first;
-    return DropdownButtonFormField<String>(
-      initialValue: safe,
-      decoration: CustomFormFieldDecoration.dropdownDecoration(context),
-      items: _options.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-      onChanged: (v) {
-        if (v == null || v == safe) return;
-        onChanged(v);
-      },
-    );
-  }
-}
-
-String _paymentTypeFromOrder(Order o) {
-  if (o.creditAmount > 0) return 'CREDIT';
-  if (o.cashAmount > 0) return 'CASH';
-  if (o.cardAmount > 0) return 'CARD';
-  return 'CREDIT';
-}

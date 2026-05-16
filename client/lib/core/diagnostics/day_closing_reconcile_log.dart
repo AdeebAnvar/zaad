@@ -29,6 +29,7 @@ Future<void> appendDayClosingReconcileLogIfNeeded(DayClosingSummary s) async {
       'shortAmount': s.shortAmount,
       'unpaidAmount': s.unpaidAmount,
       'openingCash': s.openingCash,
+      'defaultOpeningCash': s.defaultOpeningCash,
     };
     final line = '${jsonEncode(map)}\n';
     final sink = File(path).openWrite(mode: FileMode.append);
