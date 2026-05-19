@@ -7,7 +7,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 class KotReferenceRecents {
   KotReferenceRecents._();
 
-  static const String _prefsKey = 'pos_kot_reference_recents';
+  /// SharedPreferences key — cleared automatically after each app update.
+  static const String prefsKey = 'pos_kot_reference_recents';
+
+  static const String _prefsKey = prefsKey;
 
   /// How many refs we persist (first = most recently used).
   static const int _maxStored = 30;
@@ -33,6 +36,8 @@ class KotReferenceRecents {
   /// Persists [reference] to the MRU list shown in the KOT reference dropdown.
   ///
   /// Call only from explicit UI (e.g. "Save to list"); do not invoke on every bill save.
+  static Future<void> clearAll(SharedPreferences prefs) => prefs.remove(_prefsKey);
+
   static void savePinnedReference(String reference) {
     final t = reference.trim();
     if (t.isEmpty) return;

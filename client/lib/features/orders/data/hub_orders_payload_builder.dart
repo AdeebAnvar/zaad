@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 import 'package:pos/features/orders/data/order_push_status.dart';
 
 /// Builds order JSON snapshots (line items + Flutter customer/payment block) for local logs / APIs.
@@ -73,8 +74,17 @@ class HubOrdersPayloadBuilder {
     };
   }
 
-  static Map<String, dynamic> flutterBlockFromDraft(Order draft) => <String, dynamic>{
+  static Map<String, dynamic> flutterBlockFromDraft(Order draft) {
+    final dineAnchor = DineInRefParser.dineInAnchorFromHubMetadata(draft.hubMetadata);
+    final ref = draft.referenceNumber?.trim();
+    final routingRef = (ref != null &&
+            ref.isNotEmpty &&
+            DineInRefParser.extractLeadingFloorId(ref) != null)
+        ? ref
+        : dineAnchor;
+    return <String, dynamic>{
         'cart_id': draft.cartId,
+        'branch_id': draft.branchId,
         'total_amount': draft.totalAmount,
         'discount_amount': draft.discountAmount,
         'discount_type': draft.discountType,
@@ -88,12 +98,15 @@ class HubOrdersPayloadBuilder {
         'card_amount': draft.cardAmount,
         'online_amount': draft.onlineAmount,
         'reference_number': draft.referenceNumber,
+        if (routingRef != null && routingRef.isNotEmpty)
+          DineInRefParser.hubMetadataAnchorKey: routingRef,
         'delivery_partner': draft.deliveryPartner,
         'driver_id': draft.driverId,
         'driver_name': draft.driverName,
         'user_id': draft.userId,
         'order_type': draft.orderType,
       };
+  }
 
   static List<Map<String, dynamic>> cartLinesToJson(List<CartItem> cartItems) =>
       cartItems.map(_lineToJson).toList();

@@ -10,6 +10,8 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
+import 'package:pos/core/print/cash_drawer_on_payment.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 
 part 'delivery_log_state.dart';
@@ -67,6 +69,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         hub: hubSettings,
         sessionUser: counterSession.user,
         uiSelectedUserId: uiUserId,
+        sharedBranchLogsOnSub: true,
       );
 
   String? _selectedPartner;
@@ -177,6 +180,29 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
       );
       orders = _filterDeliveryLogList(orders);
       sortOrdersNewestFirst(orders);
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1-H4',
+        location: 'delivery_log_cubit.dart:_reloadOrders',
+        message: 'delivery_log_reload',
+        data: <String, Object?>{
+          'pendingCount': orders.length,
+          'queryStatusFilter': status,
+          'rows': orders
+              .take(6)
+              .map(
+                (o) => <String, Object?>{
+                  'id': o.id,
+                  'invoice': o.invoiceNumber,
+                  'status': o.status,
+                  'paid': o.cashAmount + o.cardAmount + o.creditAmount + o.onlineAmount,
+                  'finalAmount': o.finalAmount,
+                },
+              )
+              .toList(),
+        },
+      );
+      // #endregion
       _normalSelection.removeWhere((id) => !orders.any((o) => o.id == id));
       emit(DeliveryLogLoaded(
         orders,
@@ -226,6 +252,20 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     }
     try {
       await orderRepo.updateOrderStatus(orderId, newStatus);
+      final after = await orderRepo.getOrderById(orderId);
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H2-H5',
+        location: 'delivery_log_cubit.dart:updateOrderStatus',
+        message: 'delivery_status_updated',
+        data: <String, Object?>{
+          'orderId': orderId,
+          'requestedStatus': newStatus,
+          'dbStatusAfter': after?.status,
+          'invoice': after?.invoiceNumber,
+        },
+      );
+      // #endregion
       await loadOrders();
       return null;
     } catch (e) {
@@ -264,13 +304,43 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     try {
       final order = await orderRepo.getOrderById(orderId);
       if (order == null) return;
+      final cash = paymentType == 'CASH' ? finalAmount : 0.0;
+      final card = paymentType == 'CARD' ? finalAmount : 0.0;
+      final credit = paymentType == 'CREDIT' ? finalAmount : 0.0;
+      final online = paymentType == 'ONLINE' ? finalAmount : 0.0;
+      final paid = cash + card + credit + online;
+      final payable = order.finalAmount > 0.009 ? order.finalAmount : order.totalAmount;
+      final fullyPaid = payable <= 0.009 || paid + 0.02 >= payable;
+      final closeDelivery =
+          order.orderType == 'delivery' && fullyPaid && _kDeliverySaleLogPendingStatuses.contains(order.status.toLowerCase());
       final updated = order.copyWith(
-        cashAmount: paymentType == 'CASH' ? finalAmount : 0,
-        cardAmount: paymentType == 'CARD' ? finalAmount : 0,
-        creditAmount: paymentType == 'CREDIT' ? finalAmount : 0,
-        onlineAmount: paymentType == 'ONLINE' ? finalAmount : 0,
+        cashAmount: cash,
+        cardAmount: card,
+        creditAmount: credit,
+        onlineAmount: online,
+        status: closeDelivery ? 'completed' : order.status,
       );
       await orderRepo.updateOrder(updated);
+      if (paymentType == 'CASH') {
+        await openCashDrawerForCashPayment(finalAmount);
+      }
+      final after = await orderRepo.getOrderById(orderId);
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'delivery_log_cubit.dart:updateOrderPaymentType',
+        message: 'delivery_payment_only',
+        data: <String, Object?>{
+          'orderId': orderId,
+          'paymentType': paymentType,
+          'dbStatusAfter': after?.status,
+          'paid': after == null
+              ? null
+              : after.cashAmount + after.cardAmount + after.creditAmount + after.onlineAmount,
+          'finalAmount': after?.finalAmount,
+        },
+      );
+      // #endregion
       await loadOrders();
     } catch (e) {
       emit(DeliveryLogError(e.toString()));

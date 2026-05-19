@@ -212,6 +212,23 @@ void main() {
     test('localFromHub maps delivered to completed for dine_in', () {
       expect(OrderPushStatus.localFromHub(orderType: 'dine_in', hubStatus: 'delivered'), 'completed');
     });
+
+    test('incomingStatusShouldWin advances delivery lifecycle', () {
+      expect(
+        OrderPushStatus.incomingStatusShouldWin(
+          currentLocal: 'pending',
+          incomingMappedLocal: 'completed',
+        ),
+        isTrue,
+      );
+      expect(
+        OrderPushStatus.incomingStatusShouldWin(
+          currentLocal: 'completed',
+          incomingMappedLocal: 'pending',
+        ),
+        isFalse,
+      );
+    });
   });
 
   group('Line list vs order header (regression: SUB dialog totals)', () {

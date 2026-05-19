@@ -10,6 +10,7 @@ import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
@@ -91,6 +92,7 @@ class _DineInScreenState extends State<DineInScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
+    final priorFloorIndex = _selectedFloorIndex;
     final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
     final session = await _db.sessionDao.getActiveSession();
     final branchId = session?.branchId ?? 1;
@@ -108,9 +110,10 @@ class _DineInScreenState extends State<DineInScreen> {
       codeToFloors.putIfAbsent(_tableKey(t.code), () => {}).add(t.floorId);
     }
 
+    final floorIndex = floors.isEmpty ? 0 : priorFloorIndex.clamp(0, floors.length - 1);
     List<DiningTable> tables = [];
     if (floors.isNotEmpty) {
-      tables = await _db.diningTablesDao.getTablesByFloorForBranch(floors.first.id, branchId);
+      tables = await _db.diningTablesDao.getTablesByFloorForBranch(floors[floorIndex].id, branchId);
     }
 
     if (!mounted) return;
@@ -120,25 +123,47 @@ class _DineInScreenState extends State<DineInScreen> {
       _tables = tables;
       _activeDineInOrders = active;
       _tableCodeToFloorIds = codeToFloors;
-      _selectedFloorIndex = 0;
+      _selectedFloorIndex = floorIndex;
       _loading = false;
       _rebuildAllocationMaps();
     });
-  }
-
-  /// `floorId|rest` prefix from counter; strip before parsing table code / pax.
-  int? _extractLeadingFloorId(String? referenceNumber) {
-    final v = (referenceNumber ?? '').trim();
-    final m = RegExp(r'^(\d+)\|(.+)$').firstMatch(v);
-    if (m == null) return null;
-    return int.tryParse(m.group(1)!);
-  }
-
-  String _stripLeadingFloorId(String? referenceNumber) {
-    final v = (referenceNumber ?? '').trim();
-    final m = RegExp(r'^(\d+)\|(.+)$').firstMatch(v);
-    if (m != null) return m.group(2)!.trim();
-    return v;
+    // #region agent log
+    final floorIds = floors.map((f) => f.id).toList();
+    final tableCodes = tables.map((t) => '${t.floorId}:${t.code}').toList();
+    final orderDiag = <Map<String, Object?>>[];
+    for (final o in active.take(12)) {
+      final routing = DineInRefParser.dineInRoutingAnchorForMatching(o);
+      orderDiag.add(<String, Object?>{
+        'id': o.id,
+        'invoice': o.invoiceNumber,
+        'status': o.status,
+        'orderType': o.orderType,
+        'staffRef': o.referenceNumber,
+        'routingAnchor': routing,
+        'routingTableCode': routing == null
+            ? null
+            : DineInRefParser.tableKey(
+                DineInRefParser.extractTableCode(DineInRefParser.stripLeadingFloorId(routing)),
+              ),
+        'hubHasAnchor': DineInRefParser.dineInAnchorFromHubMetadata(o.hubMetadata) != null,
+      });
+    }
+    agentDebugLog(
+      hypothesisId: 'H_load',
+      location: 'dine_in_screen.dart:_load',
+      message: 'floor_plan_reload',
+      data: <String, Object?>{
+        'branchId': branchId,
+        'activeCount': active.length,
+        'floorIds': floorIds,
+        'selectedFloorId': floors.isNotEmpty ? floors.first.id : null,
+        'tableCodesOnFloor': tableCodes,
+        'allocationKeys': _activeOrdersPerTable.keys.toList(),
+        'allocationCounts': _activeOrdersPerTable,
+        'orders': orderDiag,
+      },
+    );
+    // #endregion
   }
 
   void _rebuildAllocationMaps() {
@@ -150,33 +175,58 @@ class _DineInScreenState extends State<DineInScreen> {
       return;
     }
     final floorId = _floors[_selectedFloorIndex].id;
-    final keysOnFloor = _tables.map((t) => _tableKey(t.code)).toSet();
 
-    for (final o in _activeDineInOrders) {
-      final ref = DineInRefParser.dineInAnchorForMatching(o);
-      if (ref == null || ref.isEmpty) continue;
-      final leadFloor = _extractLeadingFloorId(ref);
-      final normalized = _stripLeadingFloorId(ref);
-      final tableCode = _tableKey(_extractTableCode(normalized));
-      if (tableCode.isEmpty || !keysOnFloor.contains(tableCode)) continue;
-
-      if (leadFloor != null) {
-        if (leadFloor != floorId) continue;
-      } else {
-        final floorsForCode = _tableCodeToFloorIds[tableCode];
-        if (floorsForCode == null || floorsForCode.length != 1 || floorsForCode.first != floorId) {
+    for (final t in _tables) {
+      final tableCode = _tableKey(t.code);
+      for (final o in _activeDineInOrders) {
+        if (!DineInRefParser.orderMatchesFloorTable(o, floorId, tableCode, _tableCodeToFloorIds)) {
           continue;
         }
+        counts[tableCode] = (counts[tableCode] ?? 0) + 1;
+        final ref = DineInRefParser.dineInRoutingAnchorForMatching(o);
+        var pax = DineInRefParser.extractPaxFromReference(ref);
+        if (pax <= 0) pax = 1;
+        paxPerTable[tableCode] = (paxPerTable[tableCode] ?? 0) + pax;
       }
-
-      counts[tableCode] = (counts[tableCode] ?? 0) + 1;
-      var pax = _extractPaxFromReference(normalized);
-      if (pax <= 0) pax = 1;
-      paxPerTable[tableCode] = (paxPerTable[tableCode] ?? 0) + pax;
     }
 
     _activeOrdersPerTable = counts;
     _occupiedPaxPerTable = paxPerTable;
+
+    // #region agent log
+    if (_activeDineInOrders.isNotEmpty && counts.isEmpty) {
+      final failSamples = <Map<String, Object?>>[];
+      for (final o in _activeDineInOrders.take(6)) {
+        final anchor = DineInRefParser.dineInRoutingAnchorForMatching(o);
+        final lead = anchor == null ? null : DineInRefParser.extractLeadingFloorId(anchor);
+        final code = anchor == null
+            ? null
+            : DineInRefParser.tableKey(
+                DineInRefParser.extractTableCode(DineInRefParser.stripLeadingFloorId(anchor)),
+              );
+        failSamples.add(<String, Object?>{
+          'id': o.id,
+          'invoice': o.invoiceNumber,
+          'anchor': anchor,
+          'leadFloor': lead,
+          'parsedTableCode': code,
+          'floorsForCode': code == null ? null : _tableCodeToFloorIds[code]?.toList(),
+          'viewFloorId': floorId,
+        });
+      }
+      agentDebugLog(
+        hypothesisId: 'H_match',
+        location: 'dine_in_screen.dart:_rebuildAllocationMaps',
+        message: 'orders_loaded_but_no_table_match',
+        data: <String, Object?>{
+          'floorId': floorId,
+          'activeOrders': _activeDineInOrders.length,
+          'tablesOnFloor': _tables.map((t) => t.code).toList(),
+          'failSamples': failSamples,
+        },
+      );
+    }
+    // #endregion
   }
 
   /// Matches floor-plan occupancy (same as grid cards).
@@ -189,27 +239,6 @@ class _DineInScreenState extends State<DineInScreen> {
       occupiedPax = activeOrders.clamp(1, t.chairs);
     }
     return occupiedPax;
-  }
-
-  String _extractTableCode(String? referenceNumber) {
-    final v = _stripLeadingFloorId(referenceNumber);
-    if (v.isEmpty) return '';
-    if (v.contains('|')) {
-      return v.split('|').first.trim().toUpperCase();
-    }
-    return v.toUpperCase();
-  }
-
-  /// Parses `T1 | 3 pax` → 3; avoids matching digits inside `T1` when possible.
-  int _extractPaxFromReference(String? referenceNumber) {
-    final v = _stripLeadingFloorId(referenceNumber);
-    if (v.isEmpty || !v.contains('|')) return 0;
-    final after = v.split('|').skip(1).join('|').trim();
-    final paxM = RegExp(r'(\d+)\s*pax', caseSensitive: false).firstMatch(after);
-    if (paxM != null) return int.tryParse(paxM.group(1)!) ?? 0;
-    final m = RegExp(r'(\d+)').firstMatch(after);
-    if (m == null) return 0;
-    return int.tryParse(m.group(1)!) ?? 0;
   }
 
   Future<void> _changeFloor(int index) async {
@@ -263,33 +292,33 @@ class _DineInScreenState extends State<DineInScreen> {
       return [];
     }
     final floorId = _floors[_selectedFloorIndex].id;
-    final keysOnFloor = _tables.map((t) => _tableKey(t.code)).toSet();
     final tableCode = _tableKey(table.code);
 
-    final list = _activeDineInOrders.where((o) {
-      final ref = DineInRefParser.dineInAnchorForMatching(o);
-      if (ref == null || ref.isEmpty) return false;
-      final leadFloor = _extractLeadingFloorId(ref);
-      final normalized = _stripLeadingFloorId(ref);
-      final code = _tableKey(_extractTableCode(normalized));
-      if (code != tableCode || !keysOnFloor.contains(code)) return false;
-
-      if (leadFloor != null) {
-        if (leadFloor != floorId) return false;
-      } else {
-        final floorsForCode = _tableCodeToFloorIds[tableCode];
-        if (floorsForCode == null || floorsForCode.length != 1 || floorsForCode.first != floorId) {
-          return false;
-        }
-      }
-      return true;
-    }).toList();
+    final list = _activeDineInOrders
+        .where((o) => DineInRefParser.orderMatchesFloorTable(o, floorId, tableCode, _tableCodeToFloorIds))
+        .toList();
     list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
   }
 
   Future<void> _showTableOrders(DiningTable table) async {
     final orders = _ordersForTable(table);
+    // #region agent log
+    final floorId = _floors.isNotEmpty ? _floors[_selectedFloorIndex].id : null;
+    agentDebugLog(
+      hypothesisId: 'H_view',
+      location: 'dine_in_screen.dart:_showTableOrders',
+      message: 'view_table_orders',
+      data: <String, Object?>{
+        'tableCode': table.code,
+        'floorId': floorId,
+        'matchedCount': orders.length,
+        'matchedInvoices': orders.map((o) => o.invoiceNumber).toList(),
+        'activeOrdersTotal': _activeDineInOrders.length,
+        'allocationForTable': _activeOrdersPerTable[_tableKey(table.code)],
+      },
+    );
+    // #endregion
     final useBottomSheet = MediaQuery.sizeOf(context).width < 900;
 
     Future<void> openOrder(Order order) async {
@@ -786,7 +815,7 @@ class _TableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final showOccupiedOnTable = seatHandlingEnabled ? (chairs > 0 && !canAddOrder) : (activeOrders > 0);
+    final showOccupiedOnTable = activeOrders > 0;
     final (topCount, bottomCount) = _chairRowsSplit(chairs);
     final occupiedSeats = occupiedPax.clamp(0, chairs);
     final tableW = _tableWidthForChairs(chairs);
@@ -881,7 +910,7 @@ class _TableCard extends StatelessWidget {
                 ),
               if (topCount > 0) const SizedBox(height: 4),
               Container(
-                height: 32,
+                height: 44,
                 width: tableW,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
@@ -889,18 +918,30 @@ class _TableCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                     color: showOccupiedOnTable ? AppColors.danger.withValues(alpha: 0.85) : _cardAccentFree.withValues(alpha: 0.35),
+                    width: showOccupiedOnTable ? 1.5 : 1,
                   ),
                 ),
                 child: showOccupiedOnTable
                     ? Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
-                          child: Text(
-                            'Occupied',
-                            maxLines: 1,
-                            softWrap: false,
-                            style: AppStyles.getSemiBoldTextStyle(fontSize: 10, color: Colors.white),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Occupied',
+                                maxLines: 1,
+                                softWrap: false,
+                                style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: Colors.white),
+                              ),
+                              Text(
+                                '$activeOrders active',
+                                maxLines: 1,
+                                softWrap: false,
+                                style: AppStyles.getMediumTextStyle(fontSize: 10, color: Colors.white),
+                              ),
+                            ],
                           ),
                         ),
                       )
@@ -914,11 +955,13 @@ class _TableCard extends StatelessWidget {
                   occupiedSeats: occupiedSeats,
                   facingDown: false,
                 ),
-              const SizedBox(height: 2),
-              if (activeOrders > 0)
-                Text(
-                  '$activeOrders active order${activeOrders > 1 ? 's' : ''}',
-                  style: AppStyles.getRegularTextStyle(fontSize: 10, color: AppColors.hintFontColor),
+              if (seatHandlingEnabled && activeOrders > 0 && canAddOrder)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    '${chairs - occupiedPax} seat${chairs - occupiedPax == 1 ? '' : 's'} free',
+                    style: AppStyles.getRegularTextStyle(fontSize: 10, color: AppColors.hintFontColor),
+                  ),
                 ),
                       ],
                     ),

@@ -65,6 +65,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         hub: hubSettings,
         sessionUser: counterSession.user,
         uiSelectedUserId: uiUserId,
+        sharedBranchLogsOnSub: true,
       );
 
   Future<void> loadOrders() async {
@@ -287,8 +288,8 @@ class DineInLogCubit extends Cubit<DineInLogState> {
       if (target.orderType != 'dine_in' || source.orderType != 'dine_in') {
         return 'Only dine-in bills can be merged';
       }
-      final tRef = DineInRefParser.dineInAnchorForMatching(target)?.trim();
-      final sRef = DineInRefParser.dineInAnchorForMatching(source)?.trim();
+      final tRef = DineInRefParser.dineInRoutingAnchorForMatching(target)?.trim();
+      final sRef = DineInRefParser.dineInRoutingAnchorForMatching(source)?.trim();
       if (tRef == null || tRef.isEmpty || tRef != sRef) {
         return 'Bills must be for the same table / reference';
       }

@@ -78,7 +78,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
         });
         return;
       }
-      final anchor = DineInRefParser.dineInAnchorForMatching(widget.order);
+      final anchor = DineInRefParser.dineInRoutingAnchorForMatching(widget.order);
       final currentTableCode = DineInRefParser.extractTableCode(anchor);
       final lead = DineInRefParser.extractLeadingFloorId(anchor);
 
@@ -139,7 +139,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       return;
     }
 
-    final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInAnchorForMatching(widget.order));
+    final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInRoutingAnchorForMatching(widget.order));
     final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
     final active = await _orderRepo.filterOrders(
       orderType: 'dine_in',
@@ -207,7 +207,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       );
     }
 
-    final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInAnchorForMatching(widget.order));
+    final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInRoutingAnchorForMatching(widget.order));
     final seatHandling = _seatHandlingEnabled ?? true;
 
     return Padding(

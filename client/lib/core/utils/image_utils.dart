@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:pos/core/utils/app_directories.dart';
+import 'package:pos/core/network/dio_bad_api_status_interceptor.dart';
 import 'package:pos/domain/models/api/dio_client.dart';
 
 /// Caches tenant `baseUrl` (from prefs) and resolved absolute URLs for relative image paths.
@@ -133,6 +134,9 @@ class ImageUtils {
           followRedirects: true,
           maxRedirects: 5,
           validateStatus: (s) => s != null && s >= 200 && s < 300,
+          extra: {
+            DioBadApiStatusInterceptor.skipUserToastExtraKey: true,
+          },
         ),
       );
 

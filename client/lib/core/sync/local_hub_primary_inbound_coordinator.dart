@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/core/sync/ws_detach_done_errors.dart';
 import 'package:pos/core/sync/sync_inbox_applier.dart';
@@ -11,6 +12,7 @@ import 'package:pos/data/repository/branch_repository.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
 import 'package:pos/data/repository/settings_repository.dart';
 import 'package:pos/data/repository/user_repository.dart';
+import 'package:pos/features/day_closing/data/day_closing_live_sync.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -29,9 +31,11 @@ class LocalHubPrimaryInboundCoordinator {
     required UserRepository userRepo,
     required BranchRepository branchRepo,
     required SettingsRepository settingsRepo,
+    DayClosingLiveSync? dayClosingLiveSync,
   })  : _db = db,
         _settings = settings,
         _ordersLive = ordersLiveSync,
+        _dayClosingLive = dayClosingLiveSync,
         _applier = SyncInboxApplier(
           db,
           settings,
@@ -40,11 +44,13 @@ class LocalHubPrimaryInboundCoordinator {
           userRepo: userRepo,
           branchRepo: branchRepo,
           settingsRepo: settingsRepo,
+          dayClosingLiveSync: dayClosingLiveSync,
         );
 
   final AppDatabase _db;
   final LocalHubSettings _settings;
   final HubOrdersLiveSync _ordersLive;
+  final DayClosingLiveSync? _dayClosingLive;
   final SyncInboxApplier _applier;
 
   static const _uuid = Uuid();
@@ -55,10 +61,18 @@ class LocalHubPrimaryInboundCoordinator {
     PosSyncEventTypes.delete,
   };
 
+  static const _branchStateIngestTypes = <String>{
+    PosSyncEventTypes.dayClosingSettled,
+  };
+
   bool _stopDesired = false;
   bool _loopRunning = false;
   WebSocketChannel? _channel;
-  int _backoffSec = 1;
+  int _backoffSec = 0;
+  bool _fastReconnectRequested = false;
+
+  /// True while MAIN is listening on the hub WebSocket.
+  bool get hasActiveSocket => _channel != null;
 
   bool get _enabled {
     if (_settings.blocksTenantCloudRest) return false;
@@ -88,6 +102,17 @@ class LocalHubPrimaryInboundCoordinator {
     await startIfEnabled();
   }
 
+  void requestFastReconnect() {
+    if (!_enabled) {
+      unawaited(startIfEnabled());
+      return;
+    }
+    _fastReconnectRequested = true;
+    _backoffSec = 0;
+    unawaited(_channel?.sink.close());
+    unawaited(startIfEnabled());
+  }
+
   Future<void> _connectionLoop() async {
     while (!_stopDesired) {
       if (!_enabled) {
@@ -95,16 +120,14 @@ class LocalHubPrimaryInboundCoordinator {
         continue;
       }
 
-      if (_backoffSec > 0) {
-        await Future<void>.delayed(Duration(seconds: _backoffSec));
-      }
+      await _waitBeforeReconnect();
       if (_stopDesired) break;
 
       try {
         final uri = Uri.parse(_settings.publishHubWsUrlOrLoopback.trim());
         final ch = WebSocketChannel.connect(uri);
         _channel = ch;
-        _backoffSec = 1;
+        _backoffSec = 0;
         detachWebSocketSinkDone(ch);
 
         await _handshakeConnectOnly(ch);
@@ -145,11 +168,11 @@ class LocalHubPrimaryInboundCoordinator {
           if (kDebugMode) {
             debugPrint('[LocalHubPrimaryInbound] socket error: $streamErr\n$streamSt');
           }
-          _backoffSec = (_backoffSec * 2).clamp(1, 120);
+          _backoffSec = _backoffSec <= 0 ? 1 : (_backoffSec * 2).clamp(1, 120);
         }
       } catch (e, st) {
         if (kDebugMode) debugPrint('[LocalHubPrimaryInbound] socket error: $e\n$st');
-        _backoffSec = (_backoffSec * 2).clamp(1, 120);
+        _backoffSec = _backoffSec <= 0 ? 1 : (_backoffSec * 2).clamp(1, 120);
       } finally {
         try {
           await _channel?.sink.close();
@@ -160,6 +183,19 @@ class LocalHubPrimaryInboundCoordinator {
       }
     }
     _loopRunning = false;
+  }
+
+  Future<void> _waitBeforeReconnect() async {
+    if (_backoffSec <= 0) return;
+    final slices = _backoffSec * 2;
+    for (var i = 0; i < slices; i++) {
+      if (_stopDesired) return;
+      if (_fastReconnectRequested) {
+        _fastReconnectRequested = false;
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
   }
 
   String _stringFromDynamic(dynamic raw) {
@@ -211,12 +247,32 @@ class LocalHubPrimaryInboundCoordinator {
     final env = PosSyncEnvelope.tryDecode(raw);
     if (env == null) return;
 
-    if (env.type == PosSyncEventTypes.ack || env.type == PosSyncEventTypes.connect) {
+    if (env.type == PosSyncEventTypes.connect) {
+      final role = env.payload['clientRole']?.toString();
+      if (role == 'SUB_CLIENT') {
+        unawaited(HubCompanySnapshotPublisher.broadcastAfterTenantLink(_db));
+      }
+      return;
+    }
+
+    if (env.type == PosSyncEventTypes.ack) {
       return;
     }
 
     if (env.type == PosSyncEventTypes.syncResponse) {
       await _ingestSyncResponse(env);
+      return;
+    }
+
+    if (_branchStateIngestTypes.contains(env.type)) {
+      final mainDid = _settings.requireDeviceId();
+      if (env.deviceId == mainDid) {
+        return;
+      }
+      await _persistInboxAndApply(env, raw);
+      if (env.type == PosSyncEventTypes.dayClosingSettled) {
+        _dayClosingLive?.notifyDayClosingChanged();
+      }
       return;
     }
 
@@ -251,7 +307,9 @@ class LocalHubPrimaryInboundCoordinator {
       if (inner == null) continue;
       final effMs = PosSyncJournalReplay.watermarkMs(item, inner);
 
-      if (!_orderIngestTypes.contains(inner.type)) {
+      final isOrder = _orderIngestTypes.contains(inner.type);
+      final isBranchState = _branchStateIngestTypes.contains(inner.type);
+      if (!isOrder && !isBranchState) {
         await _maybeAdvanceWatermark(effMs);
         continue;
       }
@@ -263,6 +321,9 @@ class LocalHubPrimaryInboundCoordinator {
       final encoded = inner.encode();
       await _persistInboxAndApply(inner, encoded);
       await _maybeAdvanceWatermark(effMs);
+      if (inner.type == PosSyncEventTypes.dayClosingSettled) {
+        _dayClosingLive?.notifyDayClosingChanged();
+      }
     }
 
     _ordersLive.notifyHubOrdersChanged();

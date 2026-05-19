@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/diagnostics/day_closing_reconcile_log.dart';
 import 'package:pos/core/print/print_service.dart';
@@ -12,6 +13,8 @@ import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository_impl/settle_sale_push_mapper.dart';
+import 'package:pos/features/day_closing/data/day_closing_live_sync.dart';
+import 'package:pos/presentation/day_closing/day_closing_settlement.dart';
 import 'package:pos/presentation/day_closing/day_closing_summary.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
@@ -30,13 +33,34 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
   bool _loading = true;
   bool _submitting = false;
   DayClosingSummary _summary = DayClosingSummary.empty();
+  DayClosingLiveSync? _dayClosingLive;
+  void Function()? _detachDayClosingLive;
 
   CounterAccess get _counterAccess => locator<CurrentCounterSession>().access;
 
   @override
   void initState() {
     super.initState();
+    _attachDayClosingLive();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _detachDayClosingLive?.call();
+    super.dispose();
+  }
+
+  void _attachDayClosingLive() {
+    if (!locator.isRegistered<DayClosingLiveSync>()) return;
+    _dayClosingLive = locator<DayClosingLiveSync>();
+    void onRev() {
+      if (!mounted) return;
+      unawaited(_load());
+    }
+
+    _dayClosingLive!.revision.addListener(onRev);
+    _detachDayClosingLive = () => _dayClosingLive!.revision.removeListener(onRev);
   }
 
   Future<void> _load() async {
@@ -46,6 +70,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       summary = await computeDayClosingSummary(
         db,
         counterAccess: locator<CurrentCounterSession>().access,
+        scopedCashierUserId: await _displayCashierScope(),
       ).timeout(
         const Duration(seconds: 90),
         onTimeout: () => throw TimeoutException('Day closing took too long'),
@@ -105,11 +130,24 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
     return result == true;
   }
 
+  Future<int?> _displayCashierScope() async {
+    final hub = locator.isRegistered<LocalHubSettings>() ? locator<LocalHubSettings>() : null;
+    if (hub == null || !hub.isHubSub) return null;
+    final session = await locator<AppDatabase>().sessionDao.getActiveSession();
+    return session?.userId;
+  }
+
   Future<void> _onSubmit() async {
     if (_submitting) return;
-    if (_summary.unpaidAmount > 0.009) {
+    final db = locator<AppDatabase>();
+    // Submit gate is always branch-wide so one terminal cannot close while others still have open bills.
+    final branchGate = await computeDayClosingSummary(
+      db,
+      counterAccess: _counterAccess,
+    );
+    if (branchGate.unpaidAmount > 0.009) {
       CustomSnackBar.showWarning(
-        message: 'Cannot settle day closing. Unpaid amount: ${RuntimeAppSettings.money(_summary.unpaidAmount)}',
+        message: 'Cannot settle day closing. Unpaid amount: ${RuntimeAppSettings.money(branchGate.unpaidAmount)}',
       );
       return;
     }
@@ -117,10 +155,13 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
     if (!mounted || !ok) return;
     setState(() => _submitting = true);
     try {
-      final db = locator<AppDatabase>();
+      final hub = locator.isRegistered<LocalHubSettings>() ? locator<LocalHubSettings>() : null;
+      final session = await db.sessionDao.getActiveSession();
+      final scopedCashierUserId = await _displayCashierScope();
       final summary = await computeDayClosingSummary(
         db,
         counterAccess: locator<CurrentCounterSession>().access,
+        scopedCashierUserId: scopedCashierUserId,
       );
       if (!mounted) return;
       if (summary.unpaidAmount > 0.009) {
@@ -129,8 +170,6 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         );
         return;
       }
-
-      final session = await db.sessionDao.getActiveSession();
       final branchId = session?.branchId ?? 1;
       final userId = session?.userId ?? 1;
       final uuid = const Uuid().v4();
@@ -151,7 +190,11 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         ),
       );
       final settledAt = DateTime.now();
-      await db.dayClosingCheckpointDao.upsertLastSettledAt(branchId, settledAt);
+      await recordBranchDayClosingSettled(
+        db: db,
+        branchId: branchId,
+        settledAt: settledAt,
+      );
       if (!mounted) return;
       CustomSnackBar.showSuccess(message: 'Day closed successfully.');
       await _load();
@@ -277,7 +320,8 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                           _row('CASH OUT (EXPENSES FROM CASH)', RuntimeAppSettings.money(_summary.cashOut), emphasize: true),
                         ],
                         footerLabel: 'TOTAL CASH DRAWER',
-                        footerValue: '${RuntimeAppSettings.money(_summary.cashDrawer)} ${_cashDrawerVarianceHint(_summary.difference)}',
+                        footerValue: RuntimeAppSettings.money(_summary.cashDrawer),
+                        footerNote: _cashDrawerVarianceHint(_summary.difference),
                       ),
                       const SizedBox(height: 14),
                       _sectionCard(
@@ -412,6 +456,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
     required List<List<String>> rows,
     String? footerLabel,
     String? footerValue,
+    String? footerNote,
   }) {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
@@ -443,6 +488,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                 borderRadius: BorderRadius.circular(2),
               ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     child: Text(
@@ -450,9 +496,31 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                       style: AppStyles.getSemiBoldTextStyle(fontSize: 13, color: Colors.white),
                     ),
                   ),
-                  Text(
-                    footerValue,
-                    style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          footerValue,
+                          textAlign: TextAlign.right,
+                          style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: Colors.white),
+                        ),
+                        if (footerNote != null && footerNote.trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              footerNote.trim(),
+                              textAlign: TextAlign.right,
+                              softWrap: true,
+                              style: AppStyles.getRegularTextStyle(
+                                fontSize: 11,
+                                color: Colors.white.withValues(alpha: 0.92),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -526,6 +594,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
             child: Text(
               values[i],
               textAlign: i == 0 ? TextAlign.left : TextAlign.right,
+              softWrap: true,
               style: AppStyles.getSemiBoldTextStyle(
                 fontSize: 13,
                 color: textColor,

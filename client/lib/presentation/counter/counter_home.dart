@@ -13,9 +13,7 @@ import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
-import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
-import 'package:pos/presentation/delivery_log/delivery_log_cubit.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_ui.dart';
@@ -80,17 +78,7 @@ class _CounterHomeState extends State<CounterHome> {
           onTap: (ctx) => Navigator.push(
             ctx,
             MaterialPageRoute(
-              builder: (_) => BlocProvider(
-                create: (context) => DeliveryLogCubit(
-                  locator<OrderRepository>(),
-                  locator<DeliveryPartnerRepository>(),
-                  locator<DriverRepository>(),
-                  locator<LocalHubSettings>(),
-                  locator<CurrentCounterSession>(),
-                  hubOrdersLive: locator<HubOrdersLiveSync>(),
-                ),
-                child: const DeliveryLogScreen(),
-              ),
+              builder: (_) => const DeliveryLogScreen(),
             ),
           ),
         ),

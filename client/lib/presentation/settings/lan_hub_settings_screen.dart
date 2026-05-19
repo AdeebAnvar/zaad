@@ -7,6 +7,7 @@ import 'package:pos/app/routes.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/network/lan_hub_health.dart';
+import 'package:pos/core/sync/lan_hub_reconnect_service.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/local_hub_primary_inbound_coordinator.dart';
@@ -176,6 +177,9 @@ class _LanHubSettingsScreenState extends State<LanHubSettingsScreen> {
       }
       if (locator.isRegistered<LocalHubPrimaryInboundCoordinator>()) {
         await locator<LocalHubPrimaryInboundCoordinator>().reconnectFromSettings();
+      }
+      if (locator.isRegistered<LanHubReconnectService>()) {
+        await locator<LanHubReconnectService>().kickReconnectNow(reason: 'lan_hub_settings_saved');
       }
 
       if (!mounted) return;

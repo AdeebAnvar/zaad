@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
@@ -28,6 +29,8 @@ class RecentSalesScreen extends StatelessWidget {
     return BlocProvider(
       create: (context) => RecentSalesCubit(
         locator<OrderRepository>(),
+        locator<LocalHubSettings>(),
+        locator<CurrentCounterSession>(),
         hubOrdersLive: locator<HubOrdersLiveSync>(),
       ),
       child: CustomScaffold(
@@ -62,51 +65,54 @@ class RecentSalesScreen extends StatelessWidget {
                     children: [
                       RefreshIndicator(
                         onRefresh: () => context.read<RecentSalesCubit>().refreshOrders(),
-                        child: SingleChildScrollView(
+                        child: CustomScrollView(
                           physics: const AlwaysScrollableScrollPhysics(),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (!isMobile) const _FilterBar(),
-                                if (!isMobile) const SizedBox(height: 16),
-                                if (state.orders.isEmpty)
-                                  const Center(
-                                    child: Padding(
-                                      padding: EdgeInsets.all(32.0),
+                          slivers: [
+                            SliverPadding(
+                              padding: const EdgeInsets.all(16),
+                              sliver: SliverList(
+                                delegate: SliverChildListDelegate([
+                                  if (!isMobile) const _FilterBar(),
+                                  if (!isMobile) const SizedBox(height: 16),
+                                  if (state.cappedToLatest)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 12),
                                       child: Text(
-                                        'No sales found',
-                                        style: TextStyle(fontSize: 16, color: Colors.grey),
+                                        'Showing the latest $kRecentSalesDefaultListLimit sales. '
+                                        'Use receipt or reference filters to find older ones.',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.grey.shade700,
+                                        ),
                                       ),
                                     ),
-                                  )
-                                else if (isMobile)
-                                  LayoutBuilder(builder: (context, constraints) {
-                                    final width = constraints.maxWidth;
-                                    final columns = width >= 1200
-                                        ? 3
-                                        : width >= 700
-                                            ? 2
-                                            : 1;
-                                    const spacing = 16.0;
-                                    final cardWidth = (width - (columns - 1) * spacing) / columns;
-                                    return Wrap(
-                                      spacing: spacing,
-                                      runSpacing: spacing,
-                                      children: state.orders.map((order) {
-                                        return SizedBox(
-                                          width: cardWidth,
-                                          child: RecentSaleCard(order: order),
-                                        );
-                                      }).toList(),
-                                    );
-                                  })
-                                else
-                                  _RecentSalesDesktopTable(orders: state.orders),
-                              ],
+                                ]),
+                              ),
                             ),
-                          ),
+                            if (state.orders.isEmpty)
+                              const SliverFillRemaining(
+                                hasScrollBody: false,
+                                child: Center(
+                                  child: Text(
+                                    'No sales found',
+                                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                                  ),
+                                ),
+                              )
+                            else if (isMobile)
+                              SliverPadding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                sliver: _RecentSalesMobileGrid(orders: state.orders),
+                              )
+                            else
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                                sliver: SliverToBoxAdapter(
+                                  child: _RecentSalesDesktopTable(orders: state.orders),
+                                ),
+                              ),
+                            const SliverPadding(padding: EdgeInsets.only(bottom: 80)),
+                          ],
                         ),
                       ),
                       if (isMobile)
@@ -186,12 +192,13 @@ class _FilterBarState extends State<_FilterBar> {
 
   @override
   Widget build(BuildContext context) {
+    final showUserFilter = !locator<LocalHubSettings>().isHubSub;
     return LayoutBuilder(
       builder: (context, constraints) {
         final m = LogFilterLayout(constraints.maxWidth);
         return LogFilterShell(
           title: 'Filters',
-          subtitle: 'Receipt No, Reference No, and Users',
+          subtitle: showUserFilter ? 'Receipt No, Reference No, and Users' : 'Receipt No and Reference No',
           icon: Icons.receipt_long_outlined,
           body: Wrap(
             spacing: 8,
@@ -213,16 +220,17 @@ class _FilterBarState extends State<_FilterBar> {
                   onChanged: (_) => _applyFilters(),
                 ),
               ),
-              SizedBox(
-                width: m.compactFieldWidth,
-                child: OrderLogUserFilterAutocomplete(
-                  controller: _usersController,
-                  onSelectedUserId: (id) {
-                    setState(() => _filterUserId = id);
-                    _applyFilters();
-                  },
+              if (showUserFilter)
+                SizedBox(
+                  width: m.compactFieldWidth,
+                  child: OrderLogUserFilterAutocomplete(
+                    controller: _usersController,
+                    onSelectedUserId: (id) {
+                      setState(() => _filterUserId = id);
+                      _applyFilters();
+                    },
+                  ),
                 ),
-              ),
               SizedBox(
                 width: 34,
                 child: IconButton(
@@ -232,6 +240,58 @@ class _FilterBarState extends State<_FilterBar> {
                 ),
               ),
             ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Lazy mobile grid — avoids building every card when the list is large.
+class _RecentSalesMobileGrid extends StatelessWidget {
+  const _RecentSalesMobileGrid({required this.orders});
+
+  final List<Order> orders;
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverLayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.crossAxisExtent;
+        final columns = width >= 1200
+            ? 3
+            : width >= 700
+                ? 2
+                : 1;
+        const spacing = 16.0;
+        final cardWidth = (width - (columns - 1) * spacing) / columns;
+        final rowCount = (orders.length + columns - 1) ~/ columns;
+
+        return SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, rowIndex) {
+              final start = rowIndex * columns;
+              return Padding(
+                padding: EdgeInsets.only(bottom: rowIndex < rowCount - 1 ? spacing : 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: List.generate(columns, (col) {
+                    final i = start + col;
+                    if (i >= orders.length) {
+                      return SizedBox(width: cardWidth);
+                    }
+                    return Padding(
+                      padding: EdgeInsets.only(left: col > 0 ? spacing : 0),
+                      child: SizedBox(
+                        width: cardWidth,
+                        child: RecentSaleCard(order: orders[i]),
+                      ),
+                    );
+                  }),
+                ),
+              );
+            },
+            childCount: rowCount,
           ),
         );
       },

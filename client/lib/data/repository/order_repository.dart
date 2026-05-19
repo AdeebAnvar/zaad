@@ -21,12 +21,13 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? limit,
   });
 
   Future<List<Order>> getDeliveryOrdersWithDriver();
 
   /// Orders with any amount on credit (local), newest first. Excludes cancelled.
-  Future<List<Order>> getCreditSales();
+  Future<List<Order>> getCreditSales({int? userId});
 
   /// Next short receipt id for the channel (`TA01`, `DI02`, `DL01`, …).
   /// Serialized with [createCartWithReservedInvoice] so concurrent sales cannot reuse the same number.

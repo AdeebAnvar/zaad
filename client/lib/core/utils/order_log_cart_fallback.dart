@@ -4,6 +4,7 @@ import 'package:get_it/get_it.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
+import 'package:pos/data/repository_impl/cart_repository_impl.dart';
 import 'package:pos/data/repository/item_repository.dart';
 
 /// SUB → MAIN mirrored orders often have no [`CartItem`] rows (shadow [`Carts`] only).
@@ -22,19 +23,27 @@ class OrderLogCartFallback {
     }
   }
 
-  /// Prefer hub snapshot JSON, then normal SQLite cart lines, then [`OrderLog`] snapshot (never the LAN shadow cart alone).
+  /// Prefer frozen sale snapshots over live [Carts] rows (shadow carts are reused on LAN SUB).
+  static Future<List<CartItem>> resolveWithDb({
+    required Order order,
+    required AppDatabase db,
+  }) =>
+      resolve(order: order, db: db, cartRepo: CartRepositoryImpl(db));
+
+  /// Prefer hub snapshot JSON, then [`OrderLog`] snapshot, then live cart (never shadow cart alone).
   static Future<List<CartItem>> resolve({
     required Order order,
     required AppDatabase db,
     required CartRepository cartRepo,
   }) async {
-    // Hub-mirrored orders often share a shadow [cartId]. Prefer the LAN snapshot in [hubMetadata]
-    // so we never show another order's SQLite cart rows on SUB terminals.
     final hm = order.hubMetadata?.trim();
     if (hm != null && hm.isNotEmpty) {
       final fromHub = decodeCartItemsFromPayloadJson(hm, order.cartId);
       if (fromHub.isNotEmpty) return fromHub;
     }
+
+    final fromLog = await _linesFromOrderLog(db, order);
+    if (fromLog.isNotEmpty) return fromLog;
 
     if (!isLanHubShadowCart(order.cartId)) {
       final fromDb = await cartRepo.getCartItemsByCartId(order.cartId);
@@ -42,18 +51,22 @@ class OrderLogCartFallback {
       if (list.isNotEmpty) return list;
     }
 
+    return [];
+  }
+
+  static Future<List<CartItem>> _linesFromOrderLog(AppDatabase db, Order order) async {
     final log = await db.ordersDao.findLatestOrderLogByLocalOrderId(order.id);
-    if (log != null) {
-      try {
-        final decoded = jsonDecode(log.orderJson);
-        if (decoded is Map<String, dynamic>) {
-          final items = decoded['items'];
-          if (items is List && items.isNotEmpty) {
-            final fromLog = decodeCartItemsFromItemsList(items, order.cartId);
-            if (fromLog.isNotEmpty) return fromLog;
-          }
+    if (log == null) return [];
+    try {
+      final decoded = jsonDecode(log.orderJson);
+      if (decoded is Map<String, dynamic>) {
+        final items = decoded['items'];
+        if (items is List && items.isNotEmpty) {
+          return decodeCartItemsFromItemsList(items, order.cartId);
         }
-      } catch (_) {}
+      }
+    } catch (_) {
+      /* ignore */
     }
     return [];
   }

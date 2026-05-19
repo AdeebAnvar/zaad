@@ -1,4 +1,5 @@
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/data/local/drift_database.dart';
 
 double _sumOrders(Iterable<Order> list, double Function(Order o) pick) =>
@@ -298,17 +299,26 @@ class DayClosingCancelledRow {
   });
 }
 
+List<Order> _ordersForCashierScope(List<Order> orders, int? cashierUserId) {
+  if (cashierUserId == null) return orders;
+  return orders.where((o) => o.userId == cashierUserId).toList();
+}
+
 /// Computes the same aggregates previously inlined in [DayClosingScreen._load].
 ///
 /// [counterAccess] scopes **displayed** unsettled totals and [openBills] to logs the user may open.
-/// Branch-wide [unpaidAmount] and reconciliation stay full-branch for correctness and submit.
+/// [scopedCashierUserId] limits sales/unpaid rows to one cashier (SUB tablets); MAIN passes `null`.
 Future<DayClosingSummary> computeDayClosingSummary(
   AppDatabase db, {
   CounterAccess counterAccess = const CounterAccess.admin(),
+  int? scopedCashierUserId,
 }) async {
   final session = await db.sessionDao.getActiveSession();
   final branchId = session?.branchId ?? 1;
-  final rawOrders = await db.ordersDao.getAllOrders(branchId: branchId);
+  final rawOrders = _ordersForCashierScope(
+    await db.ordersDao.getAllOrders(branchId: branchId),
+    scopedCashierUserId,
+  );
   final cutoff = await db.dayClosingCheckpointDao.lastSettledAtForBranch(branchId);
   /// Sales/cancel rows after last successful close (reset “today” without re-counting settled history).
   final ordersInWindow = cutoff == null
@@ -331,19 +341,17 @@ Future<DayClosingSummary> computeDayClosingSummary(
   final unpaidBranchList = rawOrders.where(_isUnsettledForDayClose).toList();
   final unpaidVisible =
       unpaidBranchList.where((o) => _unsettledMatchesUserLogAccess(o, counterAccess)).toList();
-  final linesByCartId = <int, List<CartItem>>{};
+  final linesByOrderId = <int, List<CartItem>>{};
   if (settled.isNotEmpty) {
-    final cartIds = settled.map((o) => o.cartId).toSet().toList();
-    // Chunked parallel reads — faster than strictly sequential awaits on large histories.
-    const parallel = 48;
-    for (var i = 0; i < cartIds.length; i += parallel) {
-      final end = i + parallel > cartIds.length ? cartIds.length : i + parallel;
-      final slice = cartIds.sublist(i, end);
+    const parallel = 24;
+    for (var i = 0; i < settled.length; i += parallel) {
+      final end = i + parallel > settled.length ? settled.length : i + parallel;
+      final slice = settled.sublist(i, end);
       final batch = await Future.wait(
-        slice.map((cid) => db.cartsDao.getItemsByCart(cid)),
+        slice.map((o) => OrderLogCartFallback.resolveWithDb(order: o, db: db)),
       );
       for (var j = 0; j < slice.length; j++) {
-        linesByCartId[slice[j]] = batch[j];
+        linesByOrderId[slice[j].id] = batch[j];
       }
     }
   }
@@ -365,7 +373,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
       (o.totalAmount - effectiveOrderDiscount(o)).clamp(0.0, o.totalAmount).toDouble();
 
   double lineDiscountForOrder(Order o) =>
-      _lineDiscountSum(linesByCartId[o.cartId] ?? const <CartItem>[]);
+      _lineDiscountSum(linesByOrderId[o.id] ?? const <CartItem>[]);
 
   final orderDiscount = _sumOrders(settled, effectiveOrderDiscount);
   final lineItemDiscount = _sumOrders(settled, lineDiscountForOrder);
@@ -468,7 +476,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
   if (settled.isNotEmpty) {
     final settledItemIds = <int>{};
     for (final order in settled) {
-      final lines = linesByCartId[order.cartId] ?? const <CartItem>[];
+      final lines = linesByOrderId[order.id] ?? const <CartItem>[];
       for (final line in lines) {
         settledItemIds.add(line.itemId);
       }
@@ -484,7 +492,7 @@ Future<DayClosingSummary> computeDayClosingSummary(
       }
     }
     for (final order in settled) {
-      final lines = linesByCartId[order.cartId] ?? const <CartItem>[];
+      final lines = linesByOrderId[order.id] ?? const <CartItem>[];
       for (final line in lines) {
         final item = itemByAny[line.itemId];
         final category = _categoryLabelForLine(line, item, categoryNameByCatId);

@@ -8,10 +8,12 @@ import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/auth/terminal_branch_scope.dart';
 import 'package:pos/core/auth/login_credentials_prefs.dart';
 import 'package:pos/core/network/pos_server_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
+import 'package:pos/core/sync/lan_hub_reconnect_service.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
 import 'package:pos/core/util/error_diagnostics.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -119,6 +121,24 @@ class LoginCubit extends Cubit<LoginState> {
       return;
     }
 
+    final hub = locator.isRegistered<LocalHubSettings>() ? locator<LocalHubSettings>() : null;
+    if (hub != null) {
+      final terminalBranchId = hub.terminalBranchId;
+      if (terminalBranchId != null) {
+        final block = TerminalBranchScope.loginBlockMessage(
+          user: user,
+          terminalBranchId: terminalBranchId,
+          terminalBranchName: await TerminalBranchScope.branchDisplayName(db, terminalBranchId),
+        );
+        if (block != null) {
+          emit(LoginError(block));
+          return;
+        }
+      } else if (!hub.isHubSub) {
+        await hub.setTerminalBranchId(user.branchId);
+      }
+    }
+
     final branch = await db.branchesDao.getBranchById(user.branchId);
     if (branch == null) {
       // #region agent log
@@ -176,6 +196,14 @@ class LoginCubit extends Cubit<LoginState> {
       showExpiryPopup: critical,
     ));
 
+    if (locator.isRegistered<LanHubReconnectService>()) {
+      unawaited(locator<LanHubReconnectService>().kickReconnectNow(reason: 'login_success'));
+    }
+
+    if (hub != null && !hub.isHubSub) {
+      unawaited(HubCompanySnapshotPublisher.broadcastForTerminalBranch(db));
+    }
+
     // 🚀 Run sync AFTER UI transition
   }
 
@@ -220,6 +248,9 @@ class LoginCubit extends Cubit<LoginState> {
       }
 
       final db = locator<AppDatabase>();
+      if (locator.isRegistered<LocalHubSettings>()) {
+        await locator<LocalHubSettings>().clearTerminalBranchId();
+      }
       final newBaseUrl = normalizedTenantBaseUrl(resolvedBaseUrl);
       if (newBaseUrl != null && priorBaseUrl != newBaseUrl) {
         await clearLocalDataForNewTenant(db);

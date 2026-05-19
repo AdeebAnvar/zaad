@@ -34,6 +34,8 @@ OrderType parseOrderTypeFromRouteArg(dynamic raw) {
       case 'dinein':
       case 'dine-in':
         return OrderType.dineIn;
+      case 'delivery':
+        return OrderType.delivery;
       case 'counter':
         return OrderType.counterSale;
     }

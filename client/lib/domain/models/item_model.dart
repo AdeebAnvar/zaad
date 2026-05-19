@@ -180,7 +180,7 @@ class ItemCreatedUpdated {
       ingredient: json["ingredient"] ?? '',
       orderTypeRaw: '${json["order_type"] ?? ''}'.trim(),
       orderType: _orderTypeFromItemJson(json["order_type"]),
-      deliveryService: json["delivery_service"] ?? '',
+      deliveryService: '${json["delivery_service"] ?? ''}'.trim(),
       image: json["image"] ?? '',
       expiryDate: json["expiry_date"] ?? '',
       active: json["active"] == 'yes' ? YesOrNo.yes : YesOrNo.no,

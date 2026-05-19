@@ -9,6 +9,7 @@ import 'package:pos/core/sync/ws_detach_done_errors.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/features/orders/data/hub_orders_payload_builder.dart';
+import 'package:pos/features/orders/data/order_push_status.dart';
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -34,13 +35,20 @@ class HubOrderLanPublisher {
       final n = u?.name.trim() ?? '';
       if (n.isNotEmpty) cashierName = n;
     }
+    final orderType = (order.orderType?.trim().isNotEmpty == true)
+        ? order.orderType!.trim()
+        : (flutter['order_type']?.toString() ?? 'take_away');
     return <String, dynamic>{
       'order_id': order.id,
       'cart_id': order.cartId,
+      'branch_id': order.branchId,
       'invoice_number': order.invoiceNumber,
       'created_at': order.createdAt.toIso8601String(),
-      'status': order.status,
+      'status': OrderPushStatus.toRemote(orderType: orderType, localStatus: order.status),
+      'order_type': orderType,
+      'delivery_partner': order.deliveryPartner,
       ...flutter,
+      'order_type': orderType,
       if (cashierName != null) 'cashier_name': cashierName,
       'items': HubOrdersPayloadBuilder.cartLinesToJson(cartItems),
     };

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import '../../core/constants/enums.dart';
-import '../../core/utils/json_int_parse.dart';
+import 'package:pos/core/constants/enums.dart';
+import 'package:pos/core/utils/json_int_parse.dart';
 
 class UserModel {
   final int id;

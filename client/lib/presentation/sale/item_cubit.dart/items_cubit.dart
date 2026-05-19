@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' hide Category;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/utils/image_utils.dart';
 import 'package:pos/core/utils/item_order_channels.dart';
+import 'package:pos/core/utils/delivery_partner_catalog_signal.dart';
+import 'package:pos/core/utils/items_delivery_catalog_filter.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
@@ -17,7 +20,15 @@ class ItemsCubit extends Cubit<ItemState> {
     this.deliveryPartner,
     this.deliveryServiceId,
     required this.saleOrderType,
-  }) : super(ItemsInitialState());
+    this.relaxedCatalogForLogEdit = false,
+  }) : super(ItemsInitialState()) {
+    if (saleOrderType == OrderType.delivery) {
+      _partnersRevisionListener = () {
+        unawaited(_onDeliveryPartnersRevision());
+      };
+      DeliveryPartnerCatalogSignal.revision.addListener(_partnersRevisionListener!);
+    }
+  }
 
   final ItemRepository _repo;
   final DeliveryPartnerRepository _deliveryPartnerRepo;
@@ -31,12 +42,16 @@ class ItemsCubit extends Cubit<ItemState> {
   /// Current counter mode (take away / dine in / delivery) from [SaleScreen].
   final OrderType saleOrderType;
 
+  /// Log edit: show delivery-channel catalog without partner-id filter (SUB may lack partner rows).
+  final bool relaxedCatalogForLogEdit;
+
   List<Item> _allItems = [];
   List<Category> _allCategories = [];
   Set<int> _variantItemIds = {};
   StreamSubscription<List<Item>>? _itemsSub;
   StreamSubscription<List<Category>>? _categoriesSub;
   StreamSubscription<List<ItemVariant>>? _variantsSub;
+  VoidCallback? _partnersRevisionListener;
 
   /// Avoid spamming debug log on every keystroke/category tap.
   String? _lastFilterLogSignature;
@@ -47,6 +62,9 @@ class ItemsCubit extends Cubit<ItemState> {
 
   /// Canonical token for `[Item.deliveryPartner]` comparison (often numeric id string).
   String? _deliveryFilterToken;
+
+  /// Aggregator ids from [DeliveryPartnerRepository] (`delivery_service` on items).
+  Set<String> _thirdPartyPartnerServiceIds = {};
 
   Future<void> fetchItemsAndCategories() async {
     unawaited(TenantImageUrlCache.ensureBaseUrlLoaded());
@@ -78,7 +96,7 @@ class ItemsCubit extends Cubit<ItemState> {
 
     _itemsSub = _repo.watchItemsFromLocal().listen((items) {
       _allItems = items;
-      _applyFilters();
+      unawaited(_refreshDeliveryFilterIfNeeded());
     });
     _categoriesSub = _repo.watchCategoriesFromLocal().listen((categories) {
       _allCategories = categories;
@@ -109,9 +127,25 @@ class ItemsCubit extends Cubit<ItemState> {
     _applyFilters();
   }
 
+  Future<void> _onDeliveryPartnersRevision() async {
+    await _resolveDeliveryFilterToken();
+    _applyFilters();
+  }
+
+  Future<void> _refreshDeliveryFilterIfNeeded() async {
+    if (saleOrderType == OrderType.delivery) {
+      await _resolveDeliveryFilterToken();
+    }
+    _applyFilters();
+  }
+
   Future<void> _resolveDeliveryFilterToken() async {
     _deliveryFilterToken = null;
+    _thirdPartyPartnerServiceIds = {};
     if (saleOrderType != OrderType.delivery) return;
+
+    final partners = await _deliveryPartnerRepo.getAll();
+    _thirdPartyPartnerServiceIds = partners.map((p) => p.id.toString()).toSet();
 
     final sid = deliveryServiceId?.trim();
     if (sid != null && sid.isNotEmpty) {
@@ -131,7 +165,6 @@ class ItemsCubit extends Cubit<ItemState> {
       return;
     }
 
-    final partners = await _deliveryPartnerRepo.getAll();
     for (final p in partners) {
       if (p.name.trim().toLowerCase() == lbl.toLowerCase()) {
         _deliveryFilterToken = p.id.toString();
@@ -142,29 +175,29 @@ class ItemsCubit extends Cubit<ItemState> {
     _deliveryFilterToken = lbl;
   }
 
-  bool _itemMatchesDeliveryService(Item i, String token) {
-    final raw = i.deliveryPartner?.trim() ?? '';
-    if (raw.isEmpty) return true;
-
-    final t = token.trim();
-    if (raw == t || raw.toLowerCase() == t.toLowerCase()) return true;
-
-    final ri = int.tryParse(raw);
-    final ti = int.tryParse(t);
-    return ri != null && ti != null && ri == ti;
-  }
+  bool _itemMatchesDeliveryService(Item i, String token) => itemMatchesDeliveryService(
+        itemDeliveryService: i.deliveryPartner,
+        filterToken: token,
+        thirdPartyPartnerServiceIds: _thirdPartyPartnerServiceIds,
+      );
 
   void _applyFilters() {
     List<Item> filtered = _allItems;
     final rawCount = filtered.length;
 
     final token = _deliveryFilterToken;
-    if (saleOrderType == OrderType.delivery && token != null && token.isNotEmpty) {
+    final applyPartnerFilter = saleOrderType == OrderType.delivery &&
+        !relaxedCatalogForLogEdit &&
+        token != null &&
+        token.isNotEmpty;
+    if (applyPartnerFilter) {
       filtered = filtered.where((i) => _itemMatchesDeliveryService(i, token)).toList();
     }
     final afterDeliveryCount = filtered.length;
 
-    filtered = filtered.where((i) => i.supportsCurrentSale(saleOrderType)).toList();
+    if (!relaxedCatalogForLogEdit) {
+      filtered = filtered.where((i) => i.supportsCurrentSale(saleOrderType)).toList();
+    }
     final afterChannelCount = filtered.length;
 
     if (_selectedCategoryId != -1) {
@@ -188,6 +221,7 @@ class ItemsCubit extends Cubit<ItemState> {
         message: 'filtered_catalog_emit',
         data: <String, Object?>{
           'saleOrderType': saleOrderType.name,
+          'relaxedCatalogForLogEdit': relaxedCatalogForLogEdit,
           'deliveryTokenSet': token != null && token.isNotEmpty,
           'rawCount': rawCount,
           'afterDeliveryFilter': afterDeliveryCount,
@@ -223,6 +257,10 @@ class ItemsCubit extends Cubit<ItemState> {
 
   @override
   Future<void> close() async {
+    final listener = _partnersRevisionListener;
+    if (listener != null) {
+      DeliveryPartnerCatalogSignal.revision.removeListener(listener);
+    }
     await _itemsSub?.cancel();
     await _categoriesSub?.cancel();
     await _variantsSub?.cancel();

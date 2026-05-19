@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/print/cash_drawer_on_payment.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -121,6 +122,9 @@ class _PayCreditBillDialogState extends State<_PayCreditBillDialog> {
         creditAmount: newCredit,
       );
       await repo.updateOrder(updated);
+      if (type == 'cash') {
+        await openCashDrawerForCashPayment(pay);
+      }
 
       if (!mounted) return;
       Navigator.of(context).pop();

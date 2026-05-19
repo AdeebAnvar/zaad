@@ -32,6 +32,29 @@ class OrderPushStatus {
     return 'pending';
   }
 
+  /// Higher rank = further along the delivery lifecycle (used for LAN merge).
+  static int lifecycleRank(String? localStatus) {
+    final s = (localStatus ?? '').trim().toLowerCase();
+    if (s == 'cancelled' || s == 'canceled' || s == 'reject') return 100;
+    if (s == 'completed' || s == 'delivered') return 90;
+    if (s == 'out_of_delivery' ||
+        s == 'assigned' ||
+        s == 'dispatched' ||
+        s == 'out_for_delivery') {
+      return 50;
+    }
+    if (s == 'kot' || s == 'placed' || s == 'pending') return 10;
+    return 0;
+  }
+
+  /// True when an inbound hub/LAN status should win over a newer-but-less-advanced local row.
+  static bool incomingStatusShouldWin({
+    required String currentLocal,
+    required String incomingMappedLocal,
+  }) {
+    return lifecycleRank(incomingMappedLocal) > lifecycleRank(currentLocal);
+  }
+
   /// When applying Hub / LAN snapshot INTO Drift — keep local enums consistent.
   static String localFromHub({
     required String? orderType,

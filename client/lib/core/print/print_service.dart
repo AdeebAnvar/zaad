@@ -1348,36 +1348,90 @@ class PrintService {
     return out;
   }
 
-  /// ESC/POS pulse to open cash drawer via the **bill printer** (same IP/USB as receipt).
+  /// ESC/POS pulse to open cash drawer via bill printer, or first configured kitchen printer.
   Future<List<String>> openCashDrawer({PosDrawer pin = PosDrawer.pin2}) async {
     final failed = <String>[];
+
+    String printerIp = '';
+    var printerPort = _defaultPort;
+    var printerLabel = 'Cash drawer';
+
     final billPrinter = await _db.itemDao.getBillPrinter();
-    if (billPrinter == null || billPrinter.printerIp.isEmpty) {
-      if (kDebugMode) debugPrint('PrintService: No bill printer configured for cash drawer');
+    if (billPrinter != null && billPrinter.printerIp.trim().isNotEmpty) {
+      printerIp = billPrinter.printerIp.trim();
+      printerPort = billPrinter.printerPort > 0 ? billPrinter.printerPort : _defaultPort;
+      printerLabel = 'Cash drawer (bill printer)';
+    } else {
+      final fb = await _firstNonBillKitchenPrinter();
+      if (fb != null) {
+        printerIp = fb.ip.trim();
+        printerPort = fb.port;
+        printerLabel = 'Cash drawer (${fb.kitchenLabel})';
+        if (kDebugMode) {
+          debugPrint(
+            'PrintService: Bill printer unset; cash drawer via kitchen "${fb.kitchenLabel}"',
+          );
+        }
+      }
+    }
+
+    if (printerIp.isEmpty) {
+      if (kDebugMode) {
+        debugPrint('PrintService: No printer configured for cash drawer');
+      }
+      await _dbg(
+        runId: 'drawer-fix',
+        hypothesisId: 'H2',
+        location: 'print_service.dart:openCashDrawer',
+        message: 'cash_drawer_no_printer',
+        data: const <String, Object?>{},
+      );
+      failed.add('Cash drawer (no bill or kitchen printer configured)');
       return failed;
     }
 
-    const printerLabel = 'Cash drawer (bill printer)';
-    try {
-      final profile = await CapabilityProfile.load();
-      final generator = Generator(PaperSize.mm80, profile);
-      final bytes = generator.drawer(pin: pin);
-      final (address, vendorId, productId, connType) = _decodeAddress(billPrinter.printerIp);
-      await _sendToPrinter(
-        jobKind: 'CASH_DRAWER',
-        address: address,
-        port: billPrinter.printerPort,
-        bytes: bytes,
-        printerLabel: printerLabel,
-        connectionType: connType,
-        vendorId: vendorId,
-        productId: productId,
-      );
-    } catch (e, st) {
-      debugPrint('PrintService: Cash drawer failed [$printerLabel]: $e');
-      debugPrint('PrintService: stack trace:\n$st');
-      failed.add(printerLabel);
+    Future<bool> pulseOnce(PosDrawer drawerPin) async {
+      try {
+        final profile = await CapabilityProfile.load();
+        final generator = Generator(PaperSize.mm80, profile);
+        final bytes = generator.drawer(pin: drawerPin);
+        final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
+        await _sendToPrinter(
+          jobKind: 'CASH_DRAWER',
+          address: address,
+          port: printerPort,
+          bytes: bytes,
+          printerLabel: printerLabel,
+          connectionType: connType,
+          vendorId: vendorId,
+          productId: productId,
+        );
+        return true;
+      } catch (e, st) {
+        debugPrint('PrintService: Cash drawer failed [$printerLabel] pin=$drawerPin: $e');
+        debugPrint('PrintService: stack trace:\n$st');
+        return false;
+      }
     }
+
+    var ok = await pulseOnce(pin);
+    if (!ok && pin != PosDrawer.pin5) {
+      ok = await pulseOnce(PosDrawer.pin5);
+    }
+
+    await _dbg(
+      runId: 'drawer-fix',
+      hypothesisId: 'H-drawer',
+      location: 'print_service.dart:openCashDrawer',
+      message: ok ? 'cash_drawer_pulse_ok' : 'cash_drawer_pulse_failed',
+      data: <String, Object?>{
+        'printerLabel': printerLabel,
+        'printerIpLen': printerIp.length,
+        'port': printerPort,
+      },
+    );
+
+    if (!ok) failed.add(printerLabel);
     return failed;
   }
 

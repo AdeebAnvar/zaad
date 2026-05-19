@@ -156,6 +156,28 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     return linked.isNotEmpty ? linked.first : rows.first;
   }
 
+  /// SUB/MAIN row with same invoice but no hub correlation yet (delivery pending, KOT, etc.).
+  /// Used before inserting a mirrored hub row so we do not duplicate invoice + time labels.
+  Future<Order?> findLocalOrderAwaitingHubLinkByInvoice(
+    String invoiceNumber, {
+    required int branchId,
+  }) async {
+    final inv = invoiceNumber.trim();
+    if (inv.isEmpty) return null;
+    final rows = await (select(orders)
+          ..where((o) => o.invoiceNumber.equals(inv))
+          ..where((o) => o.branchId.equals(branchId))
+          ..where((o) => o.serverOrderId.isNull() | o.serverOrderId.equals(''))
+          ..orderBy([(o) => OrderingTerm.desc(o.id)]))
+        .get();
+    for (final r in rows) {
+      final s = r.status.toLowerCase();
+      if (s == 'completed' || s == 'cancelled') continue;
+      return r;
+    }
+    return null;
+  }
+
   /// Non-empty distinct `referenceNumber` values from recent orders (KOT autocomplete).
   Future<List<String>> getRecentDistinctReferenceNumbers({
     int limit = 40,
@@ -318,6 +340,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     int? driverId,
     int? userId,
     int? branchId,
+    int? limit,
   }) {
     var query = select(orders);
 
@@ -373,12 +396,15 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       query = query..where((o) => o.userId.equals(userId));
     }
 
-    return (query
-          ..orderBy([
-            (o) => OrderingTerm.desc(o.createdAt),
-            (o) => OrderingTerm.desc(o.id),
-          ]))
-        .get();
+    query = query
+      ..orderBy([
+        (o) => OrderingTerm.desc(o.createdAt),
+        (o) => OrderingTerm.desc(o.id),
+      ]);
+    if (limit != null && limit > 0) {
+      query = query..limit(limit);
+    }
+    return query.get();
   }
 
   /// Highest numeric suffix for invoices in [branchId] and [prefix].
