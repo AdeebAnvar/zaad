@@ -305,6 +305,25 @@ void main() {
       expect(kots.any((o) => o.invoiceNumber == 'INV-2-306'), isTrue);
     });
 
+    test('filterOrdersForList omits hubMetadata from memory', () async {
+      final orderId = await insertOrder(invoice: 'INV-2-306b', status: 'completed');
+      await (db.update(db.orders)..where((o) => o.id.equals(orderId))).write(
+        const OrdersCompanion(
+          hubMetadata: Value('{"snapshot":{"items":[]},"updatedAt":1}'),
+        ),
+      );
+      final full = await db.ordersDao.getOrderById(orderId);
+      expect(full?.hubMetadata, isNotNull);
+
+      final listed = await db.ordersDao.filterOrdersForList(
+        branchId: 2,
+        status: 'completed',
+        invoiceNumber: '306b',
+      );
+      expect(listed, hasLength(1));
+      expect(listed.single.hubMetadata, isNull);
+    });
+
     test('setHubCorrelationIfUnset writes serverOrderId once', () async {
       final orderId = await insertOrder(invoice: 'INV-2-307');
       await db.ordersDao.setHubCorrelationIfUnset(

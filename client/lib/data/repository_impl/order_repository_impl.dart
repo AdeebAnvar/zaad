@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:pos/core/services/backup_service.dart';
 import 'package:synchronized/synchronized.dart';
+import 'package:pos/core/constants/order_log_list_limits.dart';
 import 'package:pos/core/sync/cloud_order_push_queue.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/outbound_push_coordinator.dart';
@@ -279,6 +280,39 @@ class OrderRepositoryImpl implements OrderRepository {
   }
 
   @override
+  Future<List<Order>> filterOrdersForList({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? status,
+    List<String>? statusAnyOf,
+    String? orderType,
+    String? deliveryPartner,
+    String? customerPhone,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? driverId,
+    int? userId,
+    int? limit,
+  }) async {
+    final bid = await _activeBranchId();
+    return db.ordersDao.filterOrdersForList(
+      invoiceNumber: invoiceNumber,
+      referenceNumber: referenceNumber,
+      status: status,
+      statusAnyOf: statusAnyOf,
+      orderType: orderType,
+      deliveryPartner: deliveryPartner,
+      customerPhone: customerPhone,
+      startDate: startDate,
+      endDate: endDate,
+      driverId: driverId,
+      userId: userId,
+      branchId: bid,
+      limit: limit,
+    );
+  }
+
+  @override
   Future<List<Order>> getDeliveryOrdersWithDriver() async {
     final bid = await _activeBranchId();
     return db.ordersDao.getDeliveryOrdersWithDriver(branchId: bid);
@@ -287,11 +321,11 @@ class OrderRepositoryImpl implements OrderRepository {
   @override
   Future<List<Order>> getCreditSales({int? userId}) async {
     final bid = await _activeBranchId();
-    final all = await db.ordersDao.getAllOrders(branchId: bid);
-    var list = all.where((o) => o.creditAmount > 0.004 && o.status != 'cancelled').toList();
-    if (userId != null) {
-      list = list.where((o) => o.userId == userId).toList();
-    }
+    final list = await db.ordersDao.filterCreditSalesForList(
+      branchId: bid,
+      userId: userId,
+      limit: kOrderLogDefaultListLimit,
+    );
     sortOrdersNewestFirst(list);
     return list;
   }

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart';
 import 'package:pos/app/app_startup.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/enums.dart';
@@ -22,6 +23,11 @@ void main() async {
   HttpOverrides.global = MyHttpOverrides();
 
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Cap decoded catalog bitmap RAM (full sale snapshots stay in SQLite, not image cache).
+  PaintingBinding.instance.imageCache
+    ..maximumSize = 200
+    ..maximumSizeBytes = 50 << 20;
 
   await AppDirectories.migrateLegacyLayoutIfNeeded();
   await AppDirectories.migrateAndroidInternalToPublicDocumentsIfNeeded();

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/constants/order_log_list_limits.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
@@ -166,7 +167,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
       final partners = await deliveryPartnerRepo.getAll();
       final drivers = await driverRepo.getAll();
       final partnerForQuery = _selectedPartner?.trim();
-      var orders = await orderRepo.filterOrders(
+      var orders = await orderRepo.filterOrdersForList(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
         orderType: 'delivery',
@@ -177,6 +178,13 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         startDate: startDate,
         endDate: endDate,
         userId: userId,
+        limit: orderLogDefaultQueryLimit(
+          invoiceNumber: invoiceNumber,
+          referenceNumber: referenceNumber,
+          customerPhone: customerPhone,
+          startDate: startDate,
+          endDate: endDate,
+        ),
       );
       orders = _filterDeliveryLogList(orders);
       sortOrdersNewestFirst(orders);

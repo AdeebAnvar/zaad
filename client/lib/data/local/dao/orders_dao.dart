@@ -206,18 +206,75 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
 
   /// Distinct non-null [Orders.userId] for [branchId] — aligns user filters with branch-scoped orders.
   Future<List<int>> getDistinctCashierUserIdsForBranch(int branchId) async {
-    final rows = await (select(orders)
-          ..where((o) => o.branchId.equals(branchId))
-          ..where((o) => o.userId.isNotNull()))
-        .get();
-    final ids = <int>{};
-    for (final r in rows) {
-      final u = r.userId;
-      if (u != null) ids.add(u);
-    }
-    final list = ids.toList();
-    list.sort();
-    return list;
+    final rows = await customSelect(
+      'SELECT DISTINCT user_id AS uid FROM orders '
+      'WHERE branch_id = ? AND user_id IS NOT NULL '
+      'ORDER BY uid',
+      variables: [Variable.withInt(branchId)],
+      readsFrom: {orders},
+    ).get();
+    return rows.map((r) => r.read<int>('uid')).toList();
+  }
+
+  List<GeneratedColumn<Object>> get _listOrderColumns => [
+    orders.id,
+    orders.cartId,
+    orders.invoiceNumber,
+    orders.referenceNumber,
+    orders.totalAmount,
+    orders.discountAmount,
+    orders.discountType,
+    orders.finalAmount,
+    orders.customerName,
+    orders.customerEmail,
+    orders.customerPhone,
+    orders.customerGender,
+    orders.cashAmount,
+    orders.creditAmount,
+    orders.cardAmount,
+    orders.onlineAmount,
+    orders.createdAt,
+    orders.status,
+    orders.orderType,
+    orders.deliveryPartner,
+    orders.driverId,
+    orders.driverName,
+    orders.userId,
+    orders.branchId,
+    orders.serverOrderId,
+    orders.hubSyncPending,
+  ];
+
+  Order _orderFromListRow(TypedResult row) {
+    return Order(
+      id: row.read(orders.id)!,
+      cartId: row.read(orders.cartId)!,
+      invoiceNumber: row.read(orders.invoiceNumber)!,
+      referenceNumber: row.read(orders.referenceNumber),
+      totalAmount: row.read(orders.totalAmount)!,
+      discountAmount: row.read(orders.discountAmount)!,
+      discountType: row.read(orders.discountType),
+      finalAmount: row.read(orders.finalAmount)!,
+      customerName: row.read(orders.customerName),
+      customerEmail: row.read(orders.customerEmail),
+      customerPhone: row.read(orders.customerPhone),
+      customerGender: row.read(orders.customerGender),
+      cashAmount: row.read(orders.cashAmount)!,
+      creditAmount: row.read(orders.creditAmount)!,
+      cardAmount: row.read(orders.cardAmount)!,
+      onlineAmount: row.read(orders.onlineAmount)!,
+      createdAt: row.read(orders.createdAt)!,
+      status: row.read(orders.status)!,
+      orderType: row.read(orders.orderType),
+      deliveryPartner: row.read(orders.deliveryPartner),
+      driverId: row.read(orders.driverId),
+      driverName: row.read(orders.driverName),
+      userId: row.read(orders.userId),
+      branchId: row.read(orders.branchId)!,
+      serverOrderId: row.read(orders.serverOrderId),
+      hubMetadata: null,
+      hubSyncPending: row.read(orders.hubSyncPending)!,
+    );
   }
 
   Future<void> updateOrder(OrdersCompanion order) {
@@ -405,6 +462,109 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       query = query..limit(limit);
     }
     return query.get();
+  }
+
+  /// Same filters as [filterOrders] but omits [Orders.hubMetadata] from SQLite reads (log UIs).
+  Future<List<Order>> filterOrdersForList({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? status,
+    List<String>? statusAnyOf,
+    String? orderType,
+    String? deliveryPartner,
+    String? customerPhone,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? driverId,
+    int? userId,
+    int? branchId,
+    int? limit,
+  }) {
+    var query = selectOnly(orders)..addColumns(_listOrderColumns);
+
+    if (branchId != null) {
+      query = query..where(orders.branchId.equals(branchId));
+    }
+
+    if (invoiceNumber != null && invoiceNumber.isNotEmpty) {
+      query = query..where(orders.invoiceNumber.like('%$invoiceNumber%'));
+    }
+
+    if (referenceNumber != null && referenceNumber.isNotEmpty) {
+      query = query..where(orders.referenceNumber.like('%$referenceNumber%'));
+    }
+
+    if (statusAnyOf != null && statusAnyOf.isNotEmpty) {
+      query = query..where(orders.status.isIn(statusAnyOf));
+    } else if (status != null && status.isNotEmpty) {
+      query = query..where(orders.status.equals(status));
+    }
+
+    if (orderType != null && orderType.isNotEmpty) {
+      if (orderType == 'take_away') {
+        query = query..where(orders.orderType.isNull() | orders.orderType.equals('take_away'));
+      } else {
+        query = query..where(orders.orderType.equals(orderType));
+      }
+    }
+
+    if (deliveryPartner != null && deliveryPartner.isNotEmpty) {
+      query = query..where(orders.deliveryPartner.like('%$deliveryPartner%'));
+    }
+
+    if (customerPhone != null && customerPhone.isNotEmpty) {
+      query = query..where(orders.customerPhone.like('%$customerPhone%'));
+    }
+
+    if (startDate != null) {
+      query = query..where(orders.createdAt.isBiggerOrEqualValue(startDate));
+    }
+
+    if (endDate != null) {
+      final endDateTime = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
+      query = query..where(orders.createdAt.isSmallerOrEqualValue(endDateTime));
+    }
+
+    if (driverId != null) {
+      query = query..where(orders.driverId.equals(driverId));
+    }
+
+    if (userId != null) {
+      query = query..where(orders.userId.equals(userId));
+    }
+
+    query = query
+      ..orderBy([
+        OrderingTerm.desc(orders.createdAt),
+        OrderingTerm.desc(orders.id),
+      ]);
+    if (limit != null && limit > 0) {
+      query = query..limit(limit);
+    }
+    return query.map(_orderFromListRow).get();
+  }
+
+  /// Credit sales list without loading [Orders.hubMetadata].
+  Future<List<Order>> filterCreditSalesForList({
+    required int branchId,
+    int? userId,
+    int limit = 400,
+  }) {
+    var query = selectOnly(orders)..addColumns(_listOrderColumns);
+    query = query
+      ..where(orders.branchId.equals(branchId))
+      ..where(orders.creditAmount.isBiggerThanValue(0.004))
+      ..where(orders.status.equals('cancelled').not());
+    if (userId != null) {
+      query = query..where(orders.userId.equals(userId));
+    }
+    query = query
+      ..orderBy([
+        OrderingTerm.desc(orders.createdAt),
+        OrderingTerm.desc(orders.id),
+      ])
+      ..limit(limit);
+    return query.map(_orderFromListRow).get();
   }
 
   /// Highest numeric suffix for invoices in [branchId] and [prefix].

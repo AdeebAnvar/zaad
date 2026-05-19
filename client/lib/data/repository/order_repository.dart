@@ -24,6 +24,22 @@ abstract class OrderRepository {
     int? limit,
   });
 
+  /// Log screens: same filters as [filterOrders] but skips [Order.hubMetadata] in RAM.
+  Future<List<Order>> filterOrdersForList({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? status,
+    List<String>? statusAnyOf,
+    String? orderType,
+    String? deliveryPartner,
+    String? customerPhone,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? driverId,
+    int? userId,
+    int? limit,
+  });
+
   Future<List<Order>> getDeliveryOrdersWithDriver();
 
   /// Orders with any amount on credit (local), newest first. Excludes cancelled.

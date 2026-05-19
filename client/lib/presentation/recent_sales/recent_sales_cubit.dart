@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/constants/order_log_list_limits.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
@@ -11,9 +12,6 @@ import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 
 part 'recent_sales_state.dart';
-
-/// Default cap when the list is not narrowed by receipt/reference/date search.
-const int kRecentSalesDefaultListLimit = 400;
 
 class RecentSalesCubit extends Cubit<RecentSalesState> {
   RecentSalesCubit(
@@ -50,17 +48,6 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
         sessionUser: counterSession.user,
         uiSelectedUserId: uiUserId,
       );
-
-  static bool _useDefaultLimit({
-    String? invoiceNumber,
-    String? referenceNumber,
-    DateTime? startDate,
-    DateTime? endDate,
-  }) {
-    final hasInvoice = invoiceNumber != null && invoiceNumber.trim().isNotEmpty;
-    final hasRef = referenceNumber != null && referenceNumber.trim().isNotEmpty;
-    return !hasInvoice && !hasRef && startDate == null && endDate == null;
-  }
 
   Future<void> loadOrders() async {
     emit(RecentSalesLoading());
@@ -106,14 +93,14 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
     final prior = state;
     try {
       final dbOrderType = orderTypeFilterToDb(orderType);
-      final narrowed = !_useDefaultLimit(
+      final narrowed = orderLogListIsNarrowed(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
         startDate: startDate,
         endDate: endDate,
       );
 
-      var orders = await orderRepo.filterOrders(
+      var orders = await orderRepo.filterOrdersForList(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
         status: status == null || status == 'All' ? 'completed' : status,
@@ -121,7 +108,12 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
         startDate: startDate,
         endDate: endDate,
         userId: userId ?? _scopedUserId(uiUserId: null),
-        limit: narrowed ? null : kRecentSalesDefaultListLimit,
+        limit: orderLogDefaultQueryLimit(
+          invoiceNumber: invoiceNumber,
+          referenceNumber: referenceNumber,
+          startDate: startDate,
+          endDate: endDate,
+        ),
       );
 
       if (status == null || status.isEmpty || status == 'All') {
@@ -150,7 +142,7 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
       sortOrdersNewestFirst(orders);
       emit(RecentSalesLoaded(
         orders,
-        cappedToLatest: !narrowed && orders.length >= kRecentSalesDefaultListLimit,
+        cappedToLatest: !narrowed && orders.length >= kOrderLogDefaultListLimit,
       ));
     } catch (e) {
       if (prior is RecentSalesLoaded) {

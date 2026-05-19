@@ -11,7 +11,7 @@ class RecentSalesLoading extends RecentSalesState {}
 class RecentSalesLoaded extends RecentSalesState {
   final List<Order> orders;
 
-  /// True when the list hit [kRecentSalesDefaultListLimit] — narrow filters to see older rows.
+  /// True when the list hit [kOrderLogDefaultListLimit] — narrow filters to see older rows.
   final bool cappedToLatest;
 
   RecentSalesLoaded(this.orders, {this.cappedToLatest = false});

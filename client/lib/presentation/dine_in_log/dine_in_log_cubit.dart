@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/constants/order_log_list_limits.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
@@ -105,7 +106,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
   }) async {
     final prior = state;
     try {
-      var orders = await orderRepo.filterOrders(
+      var orders = await orderRepo.filterOrdersForList(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
         status: status,
@@ -113,6 +114,12 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         startDate: startDate,
         endDate: endDate,
         userId: userId,
+        limit: orderLogDefaultQueryLimit(
+          invoiceNumber: invoiceNumber,
+          referenceNumber: referenceNumber,
+          startDate: startDate,
+          endDate: endDate,
+        ),
       );
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where(_dineInLogListVisible).toList();

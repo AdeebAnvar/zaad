@@ -10,6 +10,7 @@ import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/core/constants/order_log_list_limits.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_actions.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_cubit.dart';
 import 'package:pos/presentation/widgets/order_log_user_filter_autocomplete.dart';
@@ -78,7 +79,7 @@ class RecentSalesScreen extends StatelessWidget {
                                     Padding(
                                       padding: const EdgeInsets.only(bottom: 12),
                                       child: Text(
-                                        'Showing the latest $kRecentSalesDefaultListLimit sales. '
+                                        'Showing the latest $kOrderLogDefaultListLimit sales. '
                                         'Use receipt or reference filters to find older ones.',
                                         style: TextStyle(
                                           fontSize: 13,
