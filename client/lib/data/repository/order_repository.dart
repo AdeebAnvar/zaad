@@ -8,7 +8,8 @@ abstract class OrderRepository {
   Future<void> updateOrderStatus(int orderId, String status);
   Future<void> deleteOrder(int orderId);
   Future<Order?> getKOTByReference(String referenceNumber);
-  Future<void> updateOrder(Order order);
+  /// Persists locally. When [publishToHub] is false, skips LAN/cloud fan-out (draft cart edits).
+  Future<void> updateOrder(Order order, {bool publishToHub = true});
   Future<List<Order>> filterOrders({
     String? invoiceNumber,
     String? referenceNumber,

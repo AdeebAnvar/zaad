@@ -170,7 +170,7 @@ class OrderRepositoryImpl implements OrderRepository {
   }
 
   @override
-  Future<void> updateOrder(Order order) async {
+  Future<void> updateOrder(Order order, {bool publishToHub = true}) async {
     await db.ordersDao.updateOrder(order.toCompanion(false));
     final row = await db.ordersDao.getOrderById(order.id);
     if (row != null) {
@@ -178,10 +178,12 @@ class OrderRepositoryImpl implements OrderRepository {
         orderId: row.id,
         correlationId: HubOrderLanPublisher.hubOrderCorrelationId(row, row.id),
       );
-      final patched = await db.ordersDao.getOrderById(row.id) ?? row;
-      await _enqueueOutboundOrderSnapshot(patched);
-      final cartItems = await db.cartsDao.getItemsByCart(patched.cartId);
-      HubOrderLanPublisher.scheduleOrderUpsert(order: patched, cartItems: cartItems, isCreate: false);
+      if (publishToHub) {
+        final patched = await db.ordersDao.getOrderById(row.id) ?? row;
+        await _enqueueOutboundOrderSnapshot(patched);
+        final cartItems = await db.cartsDao.getItemsByCart(patched.cartId);
+        HubOrderLanPublisher.scheduleOrderUpsert(order: patched, cartItems: cartItems, isCreate: false);
+      }
     }
     await _afterMutation();
   }

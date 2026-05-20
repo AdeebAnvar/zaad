@@ -798,6 +798,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     showCartStylePaymentDialogForOrder(
       context,
       order: order,
+      fromDeliveryLog: true,
       onPaymentRecorded: () => context.read<DeliveryLogCubit>().refreshOrders(),
     );
   }

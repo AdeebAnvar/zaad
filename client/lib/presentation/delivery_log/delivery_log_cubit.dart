@@ -18,11 +18,18 @@ part 'delivery_log_state.dart';
 /// Delivered, cancelled, and out-for-delivery rows belong in Driver Log or order history.
 const List<String> _kDeliverySaleLogPendingStatuses = ['placed', 'pending', 'kot'];
 
+/// Pending dispatch and still owes payment (fully paid rows leave this log).
+bool deliveryLogOrderVisible(Order o) {
+  final s = o.status.toLowerCase();
+  if (!_kDeliverySaleLogPendingStatuses.contains(s)) return false;
+  final payable = o.finalAmount > 0.009 ? o.finalAmount : o.totalAmount;
+  if (payable <= 0.009) return true;
+  final paid = o.cashAmount + o.cardAmount + o.creditAmount + o.onlineAmount;
+  return paid + 0.02 < payable;
+}
+
 List<Order> _filterDeliveryLogList(List<Order> orders) {
-  return orders.where((o) {
-    final s = o.status.toLowerCase();
-    return _kDeliverySaleLogPendingStatuses.contains(s);
-  }).toList();
+  return orders.where(deliveryLogOrderVisible).toList();
 }
 
 bool _isNormalOrder(Order o) => o.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
@@ -210,17 +217,11 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     if (order == null) return 'Order not found.';
     if (_isNormalOrder(order)) {
       final s = newStatus.toLowerCase();
-      if ((s == 'out_of_delivery' || s == 'assigned' || s == 'dispatched') &&
-          !_hasDriver(order)) {
+      if ((s == 'out_of_delivery' || s == 'assigned' || s == 'dispatched') && !_hasDriver(order)) {
         return 'Assign a driver before marking out for delivery.';
       }
       final cur = order.status.toLowerCase();
-      if (s == 'pending' &&
-          (cur == 'assigned' ||
-              cur == 'out_of_delivery' ||
-              cur == 'dispatched' ||
-              cur == 'delivered' ||
-              cur == 'completed')) {
+      if (s == 'pending' && (cur == 'assigned' || cur == 'out_of_delivery' || cur == 'dispatched' || cur == 'delivered' || cur == 'completed')) {
         return 'Cannot change status back to Pending after dispatch.';
       }
     }

@@ -13,12 +13,12 @@ double _parseNonNegativeAmount(String raw) {
   return v < 0 ? 0.0 : v;
 }
 
-/// Day-close cash reconciliation: expected (system) + excess − short = actual.
-Future<DayClosingCloseCashReconciliation?> showDayClosingReconciliationDialog(
+/// Day-close reconciliation: expected (system) + excess − short = actual, per payment channel.
+Future<DayClosingCloseReconciliation?> showDayClosingReconciliationDialog(
   BuildContext context, {
-  required double expectedCashSaleAfterDiscount,
+  required DayClosingSummary summary,
 }) {
-  return showDialog<DayClosingCloseCashReconciliation?>(
+  return showDialog<DayClosingCloseReconciliation?>(
     context: context,
     barrierDismissible: false,
     builder: (ctx) {
@@ -29,9 +29,7 @@ Future<DayClosingCloseCashReconciliation?> showDayClosingReconciliationDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: AppDialogLayout.maxContentWidth(context)),
-          child: _DayClosingReconciliationBody(
-            expectedCashSaleAfterDiscount: expectedCashSaleAfterDiscount,
-          ),
+          child: _DayClosingReconciliationBody(summary: summary),
         ),
       );
     },
@@ -39,45 +37,86 @@ Future<DayClosingCloseCashReconciliation?> showDayClosingReconciliationDialog(
 }
 
 class _DayClosingReconciliationBody extends StatefulWidget {
-  const _DayClosingReconciliationBody({required this.expectedCashSaleAfterDiscount});
+  const _DayClosingReconciliationBody({required this.summary});
 
-  final double expectedCashSaleAfterDiscount;
+  final DayClosingSummary summary;
 
   @override
   State<_DayClosingReconciliationBody> createState() => _DayClosingReconciliationBodyState();
 }
 
-class _DayClosingReconciliationBodyState extends State<_DayClosingReconciliationBody> {
-  late final TextEditingController _excessCtrl;
-  late final TextEditingController _shortCtrl;
+class _ChannelFields {
+  _ChannelFields({
+    required this.label,
+    required this.expected,
+    required this.excessCtrl,
+    required this.shortCtrl,
+  });
 
+  final String label;
+  final double expected;
+  final TextEditingController excessCtrl;
+  final TextEditingController shortCtrl;
+
+  double get excess => _parseNonNegativeAmount(excessCtrl.text);
+  double get short => _parseNonNegativeAmount(shortCtrl.text);
+  double get actual => expected + excess - short;
+}
+
+class _DayClosingReconciliationBodyState extends State<_DayClosingReconciliationBody> {
   static const _green = Color(0xFF28A745);
   static const _red = Color(0xFFDC3545);
+
+  late final List<_ChannelFields> _channels;
 
   @override
   void initState() {
     super.initState();
-    _excessCtrl = TextEditingController(text: '0');
-    _shortCtrl = TextEditingController(text: '0');
-    _excessCtrl.addListener(_onFieldChanged);
-    _shortCtrl.addListener(_onFieldChanged);
+    final s = widget.summary;
+    _channels = [
+      _ChannelFields(
+        label: 'CASH',
+        expected: s.cashSaleAfterDiscount,
+        excessCtrl: TextEditingController(text: '0'),
+        shortCtrl: TextEditingController(text: '0'),
+      ),
+      _ChannelFields(
+        label: 'CARD',
+        expected: s.cardSale,
+        excessCtrl: TextEditingController(text: '0'),
+        shortCtrl: TextEditingController(text: '0'),
+      ),
+      _ChannelFields(
+        label: 'CREDIT',
+        expected: s.creditSale,
+        excessCtrl: TextEditingController(text: '0'),
+        shortCtrl: TextEditingController(text: '0'),
+      ),
+      _ChannelFields(
+        label: 'ONLINE',
+        expected: s.onlineSale,
+        excessCtrl: TextEditingController(text: '0'),
+        shortCtrl: TextEditingController(text: '0'),
+      ),
+    ];
+    for (final ch in _channels) {
+      ch.excessCtrl.addListener(_onFieldChanged);
+      ch.shortCtrl.addListener(_onFieldChanged);
+    }
   }
 
   void _onFieldChanged() => setState(() {});
 
   @override
   void dispose() {
-    _excessCtrl.removeListener(_onFieldChanged);
-    _shortCtrl.removeListener(_onFieldChanged);
-    _excessCtrl.dispose();
-    _shortCtrl.dispose();
+    for (final ch in _channels) {
+      ch.excessCtrl.removeListener(_onFieldChanged);
+      ch.shortCtrl.removeListener(_onFieldChanged);
+      ch.excessCtrl.dispose();
+      ch.shortCtrl.dispose();
+    }
     super.dispose();
   }
-
-  double get _excess => _parseNonNegativeAmount(_excessCtrl.text);
-  double get _short => _parseNonNegativeAmount(_shortCtrl.text);
-
-  double get _actual => widget.expectedCashSaleAfterDiscount + _excess - _short;
 
   Widget _readOnlyAmountField(String value) {
     return Container(
@@ -139,6 +178,79 @@ class _DayClosingReconciliationBodyState extends State<_DayClosingReconciliation
     );
   }
 
+  Widget _channelSection(_ChannelFields ch) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            ch.label,
+            style: AppStyles.getBoldTextStyle(fontSize: 14, color: AppColors.textColor),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Expected ${ch.label} Sale',
+            style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: AppColors.hintFontColor),
+          ),
+          const SizedBox(height: 4),
+          _readOnlyAmountField(RuntimeAppSettings.money(ch.expected)),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _amountInput(
+                  label: '${ch.label} Excess (+)',
+                  controller: ch.excessCtrl,
+                  labelColor: _green,
+                  borderColor: _green,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _amountInput(
+                  label: '${ch.label} Short (-)',
+                  controller: ch.shortCtrl,
+                  labelColor: _red,
+                  borderColor: _red,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Actual ${ch.label} Sale',
+            style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: AppColors.hintFontColor),
+          ),
+          const SizedBox(height: 4),
+          _readOnlyAmountField(RuntimeAppSettings.money(ch.actual)),
+        ],
+      ),
+    );
+  }
+
+  DayClosingCloseReconciliation _buildResult() {
+    final cash = _channels[0];
+    final card = _channels[1];
+    final credit = _channels[2];
+    final online = _channels[3];
+    return DayClosingCloseReconciliation(
+      cashExpected: cash.expected,
+      cashExcess: cash.excess,
+      cashShort: cash.short,
+      cardExpected: card.expected,
+      cardExcess: card.excess,
+      cardShort: card.short,
+      creditExpected: credit.expected,
+      creditExcess: credit.excess,
+      creditShort: credit.short,
+      onlineExpected: online.expected,
+      onlineExcess: online.excess,
+      onlineShort: online.short,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -163,44 +275,24 @@ class _DayClosingReconciliationBodyState extends State<_DayClosingReconciliation
               ),
             ],
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Enter excess or short for each payment type. Actual = expected + excess − short.',
+            style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: (MediaQuery.sizeOf(context).height * 0.52).clamp(240.0, 520.0),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final ch in _channels) _channelSection(ch),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 8),
-          Text(
-            'Expected Cash Sale',
-            style: AppStyles.getSemiBoldTextStyle(fontSize: 13, color: AppColors.textColor),
-          ),
-          const SizedBox(height: 6),
-          _readOnlyAmountField(RuntimeAppSettings.money(widget.expectedCashSaleAfterDiscount)),
-          const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _amountInput(
-                  label: 'Excess (+)',
-                  controller: _excessCtrl,
-                  labelColor: _green,
-                  borderColor: _green,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _amountInput(
-                  label: 'Short (-)',
-                  controller: _shortCtrl,
-                  labelColor: _red,
-                  borderColor: _red,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Actual Cash Sale (Total)',
-            style: AppStyles.getSemiBoldTextStyle(fontSize: 13, color: AppColors.textColor),
-          ),
-          const SizedBox(height: 6),
-          _readOnlyAmountField(RuntimeAppSettings.money(_actual)),
-          const SizedBox(height: 22),
           Wrap(
             alignment: WrapAlignment.end,
             spacing: 12,
@@ -214,16 +306,7 @@ class _DayClosingReconciliationBodyState extends State<_DayClosingReconciliation
               CustomButton(
                 hugContent: true,
                 text: 'Confirm & Close Day',
-                onPressed: () {
-                  Navigator.pop(
-                    context,
-                    DayClosingCloseCashReconciliation(
-                      expectedCashSaleAfterDiscount: widget.expectedCashSaleAfterDiscount,
-                      manualExcess: _excess,
-                      manualShort: _short,
-                    ),
-                  );
-                },
+                onPressed: () => Navigator.pop(context, _buildResult()),
               ),
             ],
           ),

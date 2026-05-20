@@ -638,7 +638,6 @@ class _ReceiptPaper extends StatelessWidget {
     }
 
     children.add(const SizedBox(height: 8));
-    children.add(const Text('Sip, smile, Repeat!', style: mono, textAlign: TextAlign.center));
     final brand = branch?.branchName.trim() ?? '';
     if (brand.isNotEmpty) {
       children.add(

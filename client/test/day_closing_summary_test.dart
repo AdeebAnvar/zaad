@@ -51,10 +51,9 @@ void main() {
       expect(summary.netTotal, closeTo(90, 0.01));
       expect(summary.discount, closeTo(10, 0.01));
       expect(summary.grossTotal, closeTo(100, 0.01));
-      expect(summary.itemRows, hasLength(1));
-      expect(summary.itemRows.single.item, 'BURGER');
-      expect(summary.itemRows.single.qty, 1);
-      expect(summary.itemRows.single.amount, closeTo(90, 0.01));
+      expect(summary.categoryRows, hasLength(1));
+      expect(summary.categoryRows.single.qty, 1);
+      expect(summary.categoryRows.single.amount, closeTo(90, 0.01));
       expect(summary.shortAmount, 0.0);
       expect(summary.excessAmount, closeTo(0, 0.02));
 
@@ -65,15 +64,12 @@ void main() {
         userId: 1,
         at: DateTime.utc(2026, 1, 15, 10),
       );
-      final itemDecoded = (jsonDecode(payload['item_wise_product_list'] as String) as List<dynamic>)
-          .cast<Map<String, dynamic>>();
-      expect(itemDecoded, hasLength(1));
-      expect(itemDecoded.single['item'], 'BURGER');
-      expect(itemDecoded.single['qty'], 1);
-      expect(itemDecoded.single['amount'], closeTo(90, 0.01));
       final catDecoded = (jsonDecode(payload['category_wise_product_list'] as String) as List<dynamic>)
           .cast<Map<String, dynamic>>();
-      expect(catDecoded, isNotEmpty);
+      expect(catDecoded, hasLength(1));
+      expect(catDecoded.single['qty'], 1);
+      expect(catDecoded.single['amount'], closeTo(90, 0.01));
+      expect(payload.containsKey('item_wise_product_list'), isFalse);
     },
   );
 
@@ -176,7 +172,84 @@ void main() {
     },
   );
 
-  test('SettleSalePushMapper: cash close reconciliation overrides cash_sale and drawer fields', () async {
+  test('computeDayClosingSummary: fully paid delivery pending is not unpaid', () async {
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+    await _seedMinimalCatalogAndSession(db);
+
+    final cartId = await db.cartsDao.createCart('INV-D1', branchId: 1);
+    await db.ordersDao.createOrder(
+      OrdersCompanion.insert(
+        cartId: cartId,
+        invoiceNumber: 'INV-D1',
+        totalAmount: 80,
+        finalAmount: 80,
+        discountAmount: const Value(0),
+        createdAt: DateTime(2026, 1, 15, 14),
+        status: const Value('pending'),
+        orderType: const Value('delivery'),
+        branchId: const Value(1),
+        cashAmount: const Value(80),
+        cardAmount: const Value(0),
+        creditAmount: const Value(0),
+        onlineAmount: const Value(0),
+        userId: const Value(1),
+      ),
+    );
+
+    final summary = await computeDayClosingSummary(db);
+    expect(summary.unpaidAmount, closeTo(0, 0.02));
+    expect(summary.openBills, isEmpty);
+  });
+
+  test('computeDayClosingSummary: unpaid delivery pending blocks unpaid total', () async {
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+    await _seedMinimalCatalogAndSession(db);
+
+    final cartId = await db.cartsDao.createCart('INV-D2', branchId: 1);
+    await db.ordersDao.createOrder(
+      OrdersCompanion.insert(
+        cartId: cartId,
+        invoiceNumber: 'INV-D2',
+        totalAmount: 50,
+        finalAmount: 50,
+        discountAmount: const Value(0),
+        createdAt: DateTime(2026, 1, 15, 14),
+        status: const Value('pending'),
+        orderType: const Value('delivery'),
+        branchId: const Value(1),
+        cashAmount: const Value(0),
+        cardAmount: const Value(0),
+        creditAmount: const Value(0),
+        onlineAmount: const Value(0),
+        userId: const Value(1),
+      ),
+    );
+
+    final summary = await computeDayClosingSummary(db);
+    expect(summary.unpaidAmount, closeTo(50, 0.02));
+    expect(summary.openBills, hasLength(1));
+  });
+
+  test('computeSystemPaymentVariances splits collected-vs-net across channels', () {
+    final variances = computeSystemPaymentVariances(
+      cashExpected: 60,
+      cardExpected: 40,
+      creditExpected: 0,
+      onlineExpected: 0,
+      netTotal: 90,
+    );
+    expect(variances, hasLength(4));
+    expect(variances.fold<double>(0, (s, v) => s + v.excess), closeTo(10, 0.02));
+    expect(variances.fold<double>(0, (s, v) => s + v.short), closeTo(0, 0.02));
+    final cash = variances.firstWhere((v) => v.channel == 'CASH');
+    final card = variances.firstWhere((v) => v.channel == 'CARD');
+    expect(cash.excess, closeTo(6, 0.02));
+    expect(card.excess, closeTo(4, 0.02));
+  });
+
+  test('SettleSalePushMapper: close reconciliation overrides sales and drawer fields', () async {
     final db = AppDatabase.memory();
     addTearDown(db.close);
 
@@ -216,10 +289,19 @@ void main() {
     final summary = await computeDayClosingSummary(db);
     expect(summary.cashSaleAfterDiscount, closeTo(90, 0.01));
 
-    final recon = DayClosingCloseCashReconciliation(
-      expectedCashSaleAfterDiscount: summary.cashSaleAfterDiscount,
-      manualExcess: 10,
-      manualShort: 2,
+    final recon = DayClosingCloseReconciliation(
+      cashExpected: summary.cashSaleAfterDiscount,
+      cashExcess: 10,
+      cashShort: 2,
+      cardExpected: summary.cardSale,
+      cardExcess: 0,
+      cardShort: 0,
+      creditExpected: summary.creditSale,
+      creditExcess: 0,
+      creditShort: 0,
+      onlineExpected: summary.onlineSale,
+      onlineExcess: 0,
+      onlineShort: 0,
     );
     final payload = SettleSalePushMapper.buildSettleSalePayload(
       summary,
@@ -227,11 +309,12 @@ void main() {
       branchId: 1,
       userId: 1,
       at: DateTime.utc(2026, 1, 15, 10),
-      cashCloseReconciliation: recon,
+      closeReconciliation: recon,
     );
     expect((payload['cash_sale'] as num).toDouble(), closeTo(98, 0.01));
     expect((payload['excess'] as num).toDouble(), 10);
     expect((payload['short'] as num).toDouble(), 2);
+    expect(payload['payment_reconciliation'], isNotNull);
     expect((payload['cash_in'] as num).toDouble(), closeTo(98, 0.01));
     expect(double.parse(payload['cash_drawer'] as String), closeTo(98, 0.01));
   });

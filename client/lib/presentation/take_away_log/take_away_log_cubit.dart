@@ -101,7 +101,17 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
         pickupToken: pickupToken,
       );
       if (status == null || status.isEmpty || status == 'All') {
-        orders = orders.where((o) => o.status == 'kot').toList();
+        orders = orders.where((o) {
+          final s = o.status.toLowerCase();
+          if (s == 'kot') return true;
+          if (s == 'placed' || s == 'pending') {
+            final payable = o.finalAmount > 0.009 ? o.finalAmount : o.totalAmount;
+            if (payable <= 0.009) return false;
+            final paid = o.cashAmount + o.cardAmount + o.creditAmount + o.onlineAmount;
+            return paid + 0.02 < payable;
+          }
+          return false;
+        }).toList();
       } else if (status != 'completed') {
         orders = orders.where((o) => o.status != 'completed').toList();
       } else {

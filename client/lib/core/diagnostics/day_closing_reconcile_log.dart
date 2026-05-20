@@ -27,6 +27,14 @@ Future<void> appendDayClosingReconcileLogIfNeeded(DayClosingSummary s) async {
       'collectedSum': paid,
       'excessAmount': s.excessAmount,
       'shortAmount': s.shortAmount,
+      'paymentVariances': [
+        for (final v in s.paymentVariances)
+          <String, Object?>{
+            'channel': v.channel,
+            'excess': v.excess,
+            'short': v.short,
+          },
+      ],
       'unpaidAmount': s.unpaidAmount,
       'openingCash': s.openingCash,
       'defaultOpeningCash': s.defaultOpeningCash,

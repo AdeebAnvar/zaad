@@ -612,6 +612,7 @@ class CartCubit extends Cubit<CartState> {
     }
   }
 
+  /// Keeps local KOT totals in sync while editing; does not LAN-publish until [saveKOT].
   Future<void> _updateKOTIfExists() async {
     if (_activeCartId == null) return;
     final hasKot = _currentKOTOrderId != null ||
@@ -650,7 +651,7 @@ class CartCubit extends Cubit<CartState> {
         cartId: _activeCartId!,
         hubMetadata: mergedHub != null ? Value<String?>(mergedHub) : const Value.absent(),
       );
-      await orderRepo.updateOrder(updatedOrder);
+      await orderRepo.updateOrder(updatedOrder, publishToHub: false);
     }
   }
 

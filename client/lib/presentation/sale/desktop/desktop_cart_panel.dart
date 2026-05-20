@@ -206,10 +206,33 @@ class _AppliedOffer {
   });
 }
 
+/// After pay from Delivery Sale Log: pending/placed/kot + full payment → Delivered (`completed`).
+String _statusAfterOrderLogPayment(
+  Order order,
+  double finalAmount,
+  Map<String, dynamic> payments, {
+  required bool fromDeliveryLog,
+}) {
+  final type = (order.orderType ?? '').trim().toLowerCase();
+  if (type != 'delivery') return 'completed';
+  if (!fromDeliveryLog) return order.status;
+  final s = order.status.toLowerCase();
+  if (s != 'pending' && s != 'placed' && s != 'kot') return order.status;
+  final paid = (payments['cash'] as num? ?? 0).toDouble() +
+      (payments['credit'] as num? ?? 0).toDouble() +
+      (payments['card'] as num? ?? 0).toDouble() +
+      (payments['online'] as num? ?? 0).toDouble() +
+      (payments['other'] as num? ?? 0).toDouble();
+  if (paid + 0.02 < finalAmount) return order.status;
+  return 'completed';
+}
+
 Future<void> showCartStylePaymentDialogForOrder(
   BuildContext context, {
   required Order order,
   VoidCallback? onPaymentRecorded,
+  /// When true, a fully paid pre-dispatch delivery order becomes Delivered (`completed`).
+  bool fromDeliveryLog = false,
 }) async {
   Map<String, dynamic>? appliedOffer;
   try {
@@ -319,7 +342,12 @@ Future<void> showCartStylePaymentDialogForOrder(
           creditAmount: payments['credit'] ?? 0.0,
           cardAmount: payments['card'] ?? 0.0,
           onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
-          status: freshOrder.orderType == 'delivery' ? freshOrder.status : 'completed',
+          status: _statusAfterOrderLogPayment(
+            freshOrder,
+            finalAmount,
+            payments,
+            fromDeliveryLog: fromDeliveryLog,
+          ),
           hubMetadata: Value(hubMetadataWithOffer),
         );
 
