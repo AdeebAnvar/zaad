@@ -1,6 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/constants/order_log_list_limits.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -11,7 +15,9 @@ part 'recent_sales_state.dart';
 
 class RecentSalesCubit extends Cubit<RecentSalesState> {
   RecentSalesCubit(
-    this.orderRepo, {
+    this.orderRepo,
+    this.hubSettings,
+    this.counterSession, {
     HubOrdersLiveSync? hubOrdersLive,
   })  : _hubLive = hubOrdersLive,
         super(RecentSalesInitial()) {
@@ -20,6 +26,8 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
   }
 
   final OrderRepository orderRepo;
+  final LocalHubSettings hubSettings;
+  final CurrentCounterSession counterSession;
   final HubOrdersLiveSync? _hubLive;
   void Function()? _detachHubLive;
 
@@ -35,21 +43,19 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
     _detachHubLive = () => h.revision.removeListener(onRev);
   }
 
+  int? _scopedUserId({int? uiUserId}) => HubLogOrderUserScope.effectiveFilterUserId(
+        hub: hubSettings,
+        sessionUser: counterSession.user,
+        uiSelectedUserId: uiUserId,
+      );
+
   Future<void> loadOrders() async {
     emit(RecentSalesLoading());
-    try {
-      // Recent Sales = paid orders only (completed). Exclude kot (unpaid, in Take Away Log)
-      final allOrders = await orderRepo.getAllOrders();
-      final filteredOrders = allOrders.where((order) => order.status == 'completed').toList();
-      sortOrdersNewestFirst(filteredOrders);
-      emit(RecentSalesLoaded(filteredOrders));
-    } catch (e) {
-      emit(RecentSalesError(e.toString()));
-    }
+    await _reloadOrders();
   }
 
   Future<void> refreshOrders() async {
-    await loadOrders();
+    await _reloadOrders();
   }
 
   Future<void> filterOrders({
@@ -62,29 +68,60 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
     DateTime? endDate,
     int? userId,
   }) async {
-    emit(RecentSalesLoading());
+    await _reloadOrders(
+      invoiceNumber: invoiceNumber,
+      referenceNumber: referenceNumber,
+      status: status,
+      orderType: orderType,
+      paymentMethod: paymentMethod,
+      startDate: startDate,
+      endDate: endDate,
+      userId: _scopedUserId(uiUserId: userId),
+    );
+  }
+
+  Future<void> _reloadOrders({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? status,
+    String? orderType,
+    String? paymentMethod,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? userId,
+  }) async {
+    final prior = state;
     try {
       final dbOrderType = orderTypeFilterToDb(orderType);
-
-      // First filter by status, date, invoice, reference, order type (all channels)
-      var orders = await orderRepo.filterOrders(
+      final narrowed = orderLogListIsNarrowed(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
-        status: status == null || status == 'All' ? null : status,
+        startDate: startDate,
+        endDate: endDate,
+      );
+
+      var orders = await orderRepo.filterOrdersForList(
+        invoiceNumber: invoiceNumber,
+        referenceNumber: referenceNumber,
+        status: status == null || status == 'All' ? 'completed' : status,
         orderType: dbOrderType,
         startDate: startDate,
         endDate: endDate,
-        userId: userId,
+        userId: userId ?? _scopedUserId(uiUserId: null),
+        limit: orderLogDefaultQueryLimit(
+          invoiceNumber: invoiceNumber,
+          referenceNumber: referenceNumber,
+          startDate: startDate,
+          endDate: endDate,
+        ),
       );
 
-      // Recent Sales default: completed only. If user picks a status, respect it (except hide kot noise).
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where((order) => order.status == 'completed').toList();
       } else {
         orders = orders.where((order) => order.status != 'kot').toList();
       }
 
-      // Filter by payment method
       if (paymentMethod != null && paymentMethod.isNotEmpty) {
         orders = orders.where((order) {
           switch (paymentMethod.toLowerCase()) {
@@ -103,16 +140,23 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
       }
 
       sortOrdersNewestFirst(orders);
-      emit(RecentSalesLoaded(orders));
+      emit(RecentSalesLoaded(
+        orders,
+        cappedToLatest: !narrowed && orders.length >= kOrderLogDefaultListLimit,
+      ));
     } catch (e) {
-      emit(RecentSalesError(e.toString()));
+      if (prior is RecentSalesLoaded) {
+        emit(prior);
+      } else {
+        emit(RecentSalesError(e.toString()));
+      }
     }
   }
 
   Future<void> deleteOrder(int orderId) async {
     try {
       await orderRepo.deleteOrder(orderId);
-      await loadOrders(); // Reload orders after deletion
+      await loadOrders();
     } catch (e) {
       emit(RecentSalesError(e.toString()));
     }

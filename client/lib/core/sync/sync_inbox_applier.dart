@@ -3,12 +3,15 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
+import 'package:get_it/get_it.dart';
 import 'package:path/path.dart' as p;
 import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/cloud_order_push_queue.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/core/utils/app_directories.dart';
+import 'package:pos/core/utils/delivery_partner_catalog_signal.dart';
+import 'package:pos/core/utils/json_int_parse.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/utils/order_owner_display_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -22,8 +25,10 @@ import 'package:pos/domain/models/company_data.dart';
 import 'package:pos/domain/models/item_model.dart';
 import 'package:pos/domain/models/settings_model.dart';
 import 'package:pos/domain/models/user_model.dart';
+import 'package:pos/features/day_closing/data/day_closing_live_sync.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/features/orders/data/order_push_status.dart';
+import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 import 'package:uuid/uuid.dart';
 
 String? _nonEmptyDynamic(dynamic v) {
@@ -98,13 +103,16 @@ class SyncInboxApplier {
     required UserRepository userRepo,
     required BranchRepository branchRepo,
     required SettingsRepository settingsRepo,
+    DayClosingLiveSync? dayClosingLiveSync,
   })  : _userRepo = userRepo,
         _branchRepo = branchRepo,
-        _settingsRepo = settingsRepo;
+        _settingsRepo = settingsRepo,
+        _dayClosingLive = dayClosingLiveSync;
 
   final AppDatabase db;
   final LocalHubSettings settings;
   final HubOrdersLiveSync ordersLiveSync;
+  final DayClosingLiveSync? _dayClosingLive;
   final PullDataRepository pullData;
   final UserRepository _userRepo;
   final BranchRepository _branchRepo;
@@ -133,6 +141,11 @@ class SyncInboxApplier {
           break;
         case PosSyncEventTypes.apiMirror:
           await _applyApiMirror(env.payload);
+          break;
+        case PosSyncEventTypes.dayClosingSettled:
+          if (await _applyDayClosingSettled(env.payload)) {
+            _dayClosingLive?.notifyDayClosingChanged();
+          }
           break;
         case PosSyncEventTypes.kotCreate:
         case PosSyncEventTypes.paymentCreate:
@@ -228,6 +241,13 @@ class SyncInboxApplier {
     final branchesBare = branchesRaw.map((e) => BranchModel.fromJson(Map<String, dynamic>.from(e as Map))).toList();
     final settingsModel = SettingsModel.fromJson(Map<String, dynamic>.from(settingsRaw));
 
+    final terminalBid = parseIntLoose(payload['terminal_branch_id']);
+    if (terminalBid != null &&
+        terminalBid > 0 &&
+        GetIt.instance.isRegistered<LocalHubSettings>()) {
+      await GetIt.instance<LocalHubSettings>().setTerminalBranchId(terminalBid);
+    }
+
     final inline = payload['branchImageInline'];
     final branches = inline is Map
         ? await _branchesWithInlineLogos(
@@ -236,11 +256,39 @@ class SyncInboxApplier {
           )
         : branchesBare;
 
+    final partnersRaw = payload['delivery_partners'];
+    final partnerRows = <({int id, String name})>[];
+    if (partnersRaw is List) {
+      for (final row in partnersRaw) {
+        if (row is! Map) continue;
+        final m = Map<String, dynamic>.from(row);
+        final id = parseIntLoose(m['id']);
+        final name = m['name']?.toString().trim() ?? '';
+        if (id != null && id > 0 && name.isNotEmpty) {
+          partnerRows.add((id: id, name: name));
+        }
+      }
+    }
+
     await db.transaction(() async {
       await _userRepo.saveUsersToLocal(users);
       await _branchRepo.saveBranchesToLocal(branches, downloadRemoteImages: false);
       await _settingsRepo.saveSettingsToLocal(settingsModel);
+      if (partnerRows.isNotEmpty) {
+        for (final p in partnerRows) {
+          await db.deliveryPartnersDao.upsertDeliveryPartner(
+            DeliveryPartnersCompanion.insert(
+              id: Value(p.id),
+              name: p.name,
+            ),
+          );
+        }
+      }
     });
+
+    if (partnerRows.isNotEmpty) {
+      DeliveryPartnerCatalogSignal.notifyPartnersChanged();
+    }
 
     ordersLiveSync.notifyHubOrdersChanged();
     // #region agent log
@@ -251,6 +299,7 @@ class SyncInboxApplier {
       data: <String, Object?>{
         'savedUserCount': users.length,
         'savedBranchCount': branches.length,
+        'savedDeliveryPartnerCount': partnerRows.length,
       },
     );
     // #endregion
@@ -356,6 +405,36 @@ class SyncInboxApplier {
     }
   }
 
+  /// Returns true when the local checkpoint was advanced.
+  Future<bool> _applyDayClosingSettled(Map<String, dynamic> payload) async {
+    final branchId = coerceUserId(payload['branchId']) ??
+        coerceUserId(payload['branch_id']);
+    if (branchId == null || branchId <= 0) return false;
+
+    final atRaw = payload['lastSettledAt'] ?? payload['last_settled_at'];
+    if (atRaw == null) return false;
+    DateTime incoming;
+    try {
+      incoming = DateTime.parse(atRaw.toString());
+    } catch (_) {
+      return false;
+    }
+
+    final existing = await db.dayClosingCheckpointDao.lastSettledAtForBranch(branchId);
+    if (existing != null && !incoming.isAfter(existing)) {
+      return false;
+    }
+
+    await db.dayClosingCheckpointDao.upsertLastSettledAt(branchId, incoming);
+    if (kDebugMode) {
+      debugPrint(
+        '[SyncInbox] DAY_CLOSING_SETTLED branch=$branchId '
+        '${existing?.toIso8601String() ?? "null"} -> ${incoming.toIso8601String()}',
+      );
+    }
+    return true;
+  }
+
   int _hubPayloadUpdatedAtMs(Map<String, dynamic> payload) {
     final u = payload['updatedAt'];
     if (u is num) return u.toInt();
@@ -397,10 +476,14 @@ class SyncInboxApplier {
     int? existingCartId,
   }) async {
     final shadowId = settings.shadowCartRowIdOrNull();
+    final dedicatedInvoice = '_hub_$serverOrderId';
     var cartId = existingCartId;
-    if (cartId == null || (shadowId != null && cartId == shadowId)) {
+    final dedicated = await db.cartsDao.getCartByInvoice(dedicatedInvoice);
+    if (dedicated != null) {
+      cartId = dedicated.id;
+    } else if (cartId == null || (shadowId != null && cartId == shadowId)) {
       cartId = await db.cartsDao.createCart(
-        '_hub_$serverOrderId',
+        dedicatedInvoice,
         orderType: orderType ?? 'take_away',
         branchId: branchId,
       );
@@ -468,7 +551,6 @@ class SyncInboxApplier {
     final snap = Map<String, dynamic>.from(snapRaw);
 
     final invoice = snap['invoice_number']?.toString() ?? sid;
-    final ot = snap['order_type']?.toString();
     Map<String, dynamic>? flutterSnap;
     final meta = snap['metadata'];
     if (meta is Map<String, dynamic>) {
@@ -476,7 +558,17 @@ class SyncInboxApplier {
           ? Map<String, dynamic>.from(meta['flutter'] as Map)
           : null;
     }
-    final orderTypeRaw = ot ?? flutterSnap?['order_type']?.toString();
+    String? cartTypeHint;
+    final cartIdHint = parseIntLoose(snap['cart_id'] ?? snap['cartId'] ?? flutterSnap?['cart_id']);
+    if (cartIdHint != null && cartIdHint > 0) {
+      final cartRow = await db.cartsDao.getCartByCartId(cartIdHint);
+      cartTypeHint = cartRow?.orderType;
+    }
+    final orderTypeRaw = resolveMirroredOrderType(
+      snap: snap,
+      flutterSnap: flutterSnap,
+      cartOrderType: cartTypeHint,
+    );
     final hubStatusRaw = snap['status']?.toString() ?? 'pending';
     final status = OrderPushStatus.localFromHub(
       orderType: orderTypeRaw,
@@ -494,9 +586,24 @@ class SyncInboxApplier {
     final totalAmt =
         flutterSnap != null && flutterSnap['total_amount'] is num ? (flutterSnap['total_amount'] as num).toDouble() : finalAmt;
 
-    final hubMeta = jsonEncode(payload);
+    var hubMeta = jsonEncode(payload);
+    final routingAnchor = DineInRefParser.routingAnchorFromLanSnapshot(snap, flutterSnap);
+    if (routingAnchor != null) {
+      hubMeta = DineInRefParser.mergeHubMetadataAnchor(hubMeta, routingAnchor);
+    }
     var existing = await db.ordersDao.getOrderByServerId(sid);
     final sess = await db.sessionDao.getActiveSession();
+    final branchBid = resolveMirroredOrderBranchId(
+      snap: snap,
+      flutterSnap: flutterSnap,
+      sessionBranchId: sess?.branchId,
+    );
+    if (branchBid <= 0) {
+      if (kDebugMode) {
+        debugPrint('[SyncInbox] ORDER_* skipped sid=$sid — no branch_id in snapshot or session');
+      }
+      return;
+    }
 
     final ref =
         (flutterSnap?['reference_number'] ?? snap['reference_number'])?.toString();
@@ -506,20 +613,10 @@ class SyncInboxApplier {
 
     final mirroredExtra = _mirroredCustomerPaymentCompanion(snap, flutterSnap);
 
-    final branchFromSnap = _snapshotPick(snap, flutterSnap, 'branch_id', 'branchId');
-    var branchBid = sess?.branchId ?? 1;
-    if (branchFromSnap != null) {
-      final parsed = branchFromSnap is int
-          ? branchFromSnap
-          : (branchFromSnap is num ? branchFromSnap.toInt() : int.tryParse(branchFromSnap.toString()));
-      if (parsed != null && parsed > 0) {
-        branchBid = parsed;
-      }
-    }
-
-    // Avoid duplicate KOT rows when MAIN edited before hub correlation was stored.
+    // Avoid duplicate rows when MAIN hub upsert arrives before local row had [serverOrderId].
     if (existing == null && invoice.trim().isNotEmpty) {
-      final byInvoice = await db.ordersDao.getKotByInvoiceAndBranch(invoice, branchId: branchBid);
+      final byInvoice = await db.ordersDao.getKotByInvoiceAndBranch(invoice, branchId: branchBid) ??
+          await db.ordersDao.findLocalOrderAwaitingHubLinkByInvoice(invoice, branchId: branchBid);
       if (byInvoice != null) {
         await db.ordersDao.setHubCorrelationIfUnset(orderId: byInvoice.id, correlationId: sid);
         existing = await db.ordersDao.getOrderById(byInvoice.id);
@@ -527,13 +624,33 @@ class SyncInboxApplier {
     }
 
     final incomingMs = _hubPayloadUpdatedAtMs(payload);
+    var stalePayload = false;
+    var staleStatusWins = false;
+    var staleDineInRoutingPatch = false;
     if (existing != null) {
       final existingMs = _hubMetadataUpdatedAtMs(existing.hubMetadata);
       if (incomingMs > 0 && existingMs > 0 && incomingMs < existingMs) {
-        if (kDebugMode) {
-          debugPrint('[SyncInbox] ORDER_* ignored stale payload sid=$sid ($incomingMs < $existingMs)');
+        stalePayload = true;
+        staleStatusWins = OrderPushStatus.incomingStatusShouldWin(
+          currentLocal: existing.status,
+          incomingMappedLocal: status,
+        );
+        if (orderTypeRaw == 'dine_in' && routingAnchor != null) {
+          final currentRoute = DineInRefParser.dineInRoutingAnchorForMatching(existing);
+          staleDineInRoutingPatch = currentRoute != routingAnchor;
         }
-        return;
+        if (!staleStatusWins && !staleDineInRoutingPatch) {
+          if (kDebugMode) {
+            debugPrint('[SyncInbox] ORDER_* ignored stale payload sid=$sid ($incomingMs < $existingMs)');
+          }
+          return;
+        }
+        if (kDebugMode) {
+          debugPrint(
+            '[SyncInbox] ORDER_* stale payload sid=$sid partial apply '
+            '(statusWin=$staleStatusWins dineInRoute=$staleDineInRoutingPatch, $incomingMs < $existingMs)',
+          );
+        }
       }
     }
 
@@ -547,20 +664,50 @@ class SyncInboxApplier {
     );
 
     if (existing != null) {
-      await (db.update(db.orders)..where((o) => o.id.equals(existing!.id))).write(
-        mirroredExtra.copyWith(
-          cartId: Value(mirroredCartId),
-          invoiceNumber: Value(invoice),
-          totalAmount: Value(totalAmt),
-          finalAmount: Value(finalAmt),
-          status: Value(status),
-          orderType: orderTypeRaw != null ? Value(orderTypeRaw) : null,
-          referenceNumber: ref != null && ref.isNotEmpty ? Value(ref) : null,
-          userId: mirroredUserId != null ? Value(mirroredUserId) : null,
-          hubMetadata: Value(hubMeta),
-          branchId: Value(branchBid),
-        ),
-      );
+      final priorStatus = existing.status;
+      if (stalePayload) {
+        await (db.update(db.orders)..where((o) => o.id.equals(existing!.id))).write(
+          OrdersCompanion(
+            status: staleStatusWins ? Value(status) : const Value.absent(),
+            hubMetadata: Value(hubMeta),
+          ),
+        );
+      } else {
+        await (db.update(db.orders)..where((o) => o.id.equals(existing!.id))).write(
+          mirroredExtra.copyWith(
+            cartId: Value(mirroredCartId),
+            invoiceNumber: Value(invoice),
+            totalAmount: Value(totalAmt),
+            finalAmount: Value(finalAmt),
+            status: Value(status),
+            orderType: orderTypeRaw != null ? Value(orderTypeRaw) : const Value.absent(),
+            referenceNumber: ref != null && ref.isNotEmpty ? Value(ref) : const Value.absent(),
+            userId: mirroredUserId != null ? Value(mirroredUserId) : const Value.absent(),
+            hubMetadata: Value(hubMeta),
+            branchId: Value(branchBid),
+          ),
+        );
+      }
+      // #region agent log
+      if (orderTypeRaw == 'delivery' || orderTypeRaw == 'take_away') {
+        agentDebugLog(
+          hypothesisId: 'H5',
+          location: 'sync_inbox_applier.dart:_upsertOrder',
+          message: 'lan_order_mirror_status',
+          data: <String, Object?>{
+            'sid': sid,
+            'invoice': invoice,
+            'orderType': orderTypeRaw,
+            'priorStatus': priorStatus,
+            'incomingMappedStatus': status,
+            'stalePayload': stalePayload,
+            'staleStatusWins': staleStatusWins,
+            'incomingMs': incomingMs,
+            'existingMs': _hubMetadataUpdatedAtMs(existing.hubMetadata),
+          },
+        );
+      }
+      // #endregion
     } else {
       await db.into(db.orders).insert(
             OrdersCompanion.insert(
@@ -573,7 +720,7 @@ class SyncInboxApplier {
               finalAmount: finalAmt,
               createdAt: created,
               status: Value(status),
-              orderType: orderTypeRaw != null ? Value(orderTypeRaw) : const Value.absent(),
+              orderType: Value(orderTypeRaw),
               userId: Value(mirroredUserId),
               serverOrderId: Value(sid),
               hubMetadata: Value(hubMeta),

@@ -13,6 +13,7 @@ import 'package:pos/data/repository/branch_repository.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
 import 'package:pos/data/repository/settings_repository.dart';
 import 'package:pos/data/repository/user_repository.dart';
+import 'package:pos/features/day_closing/data/day_closing_live_sync.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -27,9 +28,11 @@ class LocalHubSyncCoordinator {
     required UserRepository userRepo,
     required BranchRepository branchRepo,
     required SettingsRepository settingsRepo,
+    DayClosingLiveSync? dayClosingLiveSync,
   })  : _db = db,
         _settings = settings,
         _ordersLive = ordersLiveSync,
+        _dayClosingLive = dayClosingLiveSync,
         _applier = SyncInboxApplier(
           db,
           settings,
@@ -38,11 +41,13 @@ class LocalHubSyncCoordinator {
           userRepo: userRepo,
           branchRepo: branchRepo,
           settingsRepo: settingsRepo,
+          dayClosingLiveSync: dayClosingLiveSync,
         );
 
   final AppDatabase _db;
   final LocalHubSettings _settings;
   final HubOrdersLiveSync _ordersLive;
+  final DayClosingLiveSync? _dayClosingLive;
   final SyncInboxApplier _applier;
 
   static const _uuid = Uuid();
@@ -50,7 +55,11 @@ class LocalHubSyncCoordinator {
   bool _stopDesired = false;
   bool _loopRunning = false;
   WebSocketChannel? _channel;
-  int _backoffSec = 1;
+  int _backoffSec = 0;
+  bool _fastReconnectRequested = false;
+
+  /// True while a hub WebSocket is connected (SUB sync path).
+  bool get hasActiveSocket => _channel != null;
 
   bool get _enabled {
     final url = _settings.hubWsUrl;
@@ -94,6 +103,18 @@ class LocalHubSyncCoordinator {
     await startIfEnabled();
   }
 
+  /// Wi‑Fi restore / app resume / watchdog — skip long backoff and reconnect now.
+  void requestFastReconnect() {
+    if (!_enabled) {
+      unawaited(startIfEnabled());
+      return;
+    }
+    _fastReconnectRequested = true;
+    _backoffSec = 0;
+    unawaited(_channel?.sink.close());
+    unawaited(startIfEnabled());
+  }
+
   /// Full envelope JSON is queued with `PENDING` until MAIN `ACK`.
   Future<String?> enqueueOutbound(String type, Map<String, dynamic> payload) async {
     if (!_enabled) return null;
@@ -117,16 +138,14 @@ class LocalHubSyncCoordinator {
         continue;
       }
 
-      if (_backoffSec > 0) {
-        await Future<void>.delayed(Duration(seconds: _backoffSec));
-      }
+      await _waitBeforeReconnect();
       if (_stopDesired) break;
 
       try {
         final uri = Uri.parse(_settings.hubWsUrl!);
         final ch = WebSocketChannel.connect(uri);
         _channel = ch;
-        _backoffSec = 1;
+        _backoffSec = 0;
         detachWebSocketSinkDone(ch);
         // #region agent log
         agentDebugLog(
@@ -156,7 +175,7 @@ class LocalHubSyncCoordinator {
         }
       } catch (e, st) {
         if (kDebugMode) debugPrint('[LocalHub] socket error: $e\n$st');
-        _backoffSec = (_backoffSec * 2).clamp(1, 120);
+        _backoffSec = _backoffSec <= 0 ? 1 : (_backoffSec * 2).clamp(1, 120);
       } finally {
         try {
           await _channel?.sink.close();
@@ -167,6 +186,19 @@ class LocalHubSyncCoordinator {
       }
     }
     _loopRunning = false;
+  }
+
+  Future<void> _waitBeforeReconnect() async {
+    if (_backoffSec <= 0) return;
+    final slices = _backoffSec * 2;
+    for (var i = 0; i < slices; i++) {
+      if (_stopDesired) return;
+      if (_fastReconnectRequested) {
+        _fastReconnectRequested = false;
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
   }
 
   String _stringFromDynamic(dynamic raw) {
@@ -339,7 +371,11 @@ class LocalHubSyncCoordinator {
     await _persistInboxAndApply(env, raw);
     final st = payloadTimestampMs(env.payload, fallbackSec: env.timestamp);
     await _maybeAdvanceWatermark(st);
-    _ordersLive.notifyHubOrdersChanged();
+    if (env.type == PosSyncEventTypes.dayClosingSettled) {
+      _dayClosingLive?.notifyDayClosingChanged();
+    } else {
+      _ordersLive.notifyHubOrdersChanged();
+    }
   }
 
   int payloadTimestampMs(Map<String, dynamic> p, {required int fallbackSec}) {
@@ -391,6 +427,7 @@ class LocalHubSyncCoordinator {
     );
     // #endregion
 
+    var dayClosingTouched = false;
     for (final item in list) {
       final inner = PosSyncJournalReplay.envelopeFromItem(item);
       if (inner == null) continue;
@@ -398,9 +435,16 @@ class LocalHubSyncCoordinator {
       final encoded = inner.encode();
       await _persistInboxAndApply(inner, encoded);
       await _maybeAdvanceWatermark(effMs);
+      if (inner.type == PosSyncEventTypes.dayClosingSettled) {
+        dayClosingTouched = true;
+      }
     }
 
-    _ordersLive.notifyHubOrdersChanged();
+    if (dayClosingTouched) {
+      _dayClosingLive?.notifyDayClosingChanged();
+    } else {
+      _ordersLive.notifyHubOrdersChanged();
+    }
   }
 
   Future<void> _persistInboxAndApply(PosSyncEnvelope env, String raw) async {

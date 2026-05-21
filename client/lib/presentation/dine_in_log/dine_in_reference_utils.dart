@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 
 import 'package:pos/data/local/drift_database.dart';
 
@@ -136,15 +136,53 @@ class DineInRefParser {
 
   static const String hubMetadataAnchorKey = 'dine_in_anchor';
 
-  /// Table/floor routing is stored in [Order.hubMetadata] under [hubMetadataAnchorKey].
+  /// Table/floor routing stored in [Order.hubMetadata] when staff ref is separate from routing.
   static String? dineInAnchorFromHubMetadata(String? hubMetadata) {
     try {
       if (hubMetadata == null || hubMetadata.trim().isEmpty) return null;
       final root = jsonDecode(hubMetadata);
       if (root is! Map) return null;
-      final a = root[hubMetadataAnchorKey];
-      if (a is String && a.trim().isNotEmpty) return a.trim();
+      final map = Map<String, dynamic>.from(root);
+
+      final direct = map[hubMetadataAnchorKey];
+      if (direct is String && direct.trim().isNotEmpty) return direct.trim();
+
+      final snap = map['snapshot'];
+      if (snap is Map) {
+        final fromSnap = _anchorFromMap(Map<String, dynamic>.from(snap));
+        if (fromSnap != null) return fromSnap;
+      }
+
+      final meta = map['metadata'];
+      if (meta is Map) {
+        final flutter = meta['flutter'];
+        if (flutter is Map) {
+          final fromFlutter = _anchorFromMap(Map<String, dynamic>.from(flutter));
+          if (fromFlutter != null) return fromFlutter;
+        }
+      }
     } catch (_) {}
+    return null;
+  }
+
+  static String? _anchorFromMap(Map<String, dynamic> map) {
+    final a = map[hubMetadataAnchorKey];
+    if (a is String && a.trim().isNotEmpty) return a.trim();
+    final ref = map['reference_number']?.toString().trim() ?? '';
+    if (ref.isNotEmpty && extractLeadingFloorId(ref) != null) return ref;
+    return null;
+  }
+
+  /// Floor/table routing from a LAN order snapshot (top-level flutter spread or metadata.flutter).
+  static String? routingAnchorFromLanSnapshot(
+    Map<String, dynamic> snap, [
+    Map<String, dynamic>? flutterSnap,
+  ]) {
+    final fromSnap = _anchorFromMap(snap);
+    if (fromSnap != null) return fromSnap;
+    if (flutterSnap != null) {
+      return _anchorFromMap(flutterSnap);
+    }
     return null;
   }
 
@@ -189,6 +227,15 @@ class DineInRefParser {
     return o.invoiceNumber;
   }
 
+  /// Floor/table routing only — ignores plain staff KOT text on [Order.referenceNumber].
+  static String? dineInRoutingAnchorForMatching(Order o) {
+    final fromHub = dineInAnchorFromHubMetadata(o.hubMetadata);
+    if (fromHub != null && fromHub.isNotEmpty) return fromHub;
+    final r = o.referenceNumber?.trim();
+    if (r != null && r.isNotEmpty && extractLeadingFloorId(r) != null) return r;
+    return null;
+  }
+
   /// Whether [o] is assigned to [floorId] + [tableCodeUpper] (same rules as floor plan).
   static bool orderMatchesFloorTable(
     Order o,
@@ -196,7 +243,7 @@ class DineInRefParser {
     String tableCodeUpper,
     Map<String, Set<int>> tableCodeToFloorIds,
   ) {
-    final ref = dineInAnchorForMatching(o);
+    final ref = dineInRoutingAnchorForMatching(o);
     if (ref == null || ref.isEmpty) return false;
     final leadFloor = extractLeadingFloorId(ref);
     final normalized = stripLeadingFloorId(ref);
@@ -225,7 +272,7 @@ class DineInRefParser {
     for (final o in activeDineInOrders) {
       if (o.id == excludeOrderId) continue;
       if (!orderMatchesFloorTable(o, floorId, tableCodeUpper, codeToFloors)) continue;
-      sum += extractPaxFromReference(dineInAnchorForMatching(o));
+      sum += extractPaxFromReference(dineInRoutingAnchorForMatching(o));
     }
     return sum;
   }

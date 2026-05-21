@@ -389,7 +389,7 @@ class _DineInLogCardState extends State<DineInLogCard> {
   void _handleMerge(BuildContext context, Order order) {
     final state = context.read<DineInLogCubit>().state;
     if (state is! DineInLogLoaded) return;
-    final ref = DineInRefParser.dineInAnchorForMatching(order)?.trim();
+    final ref = DineInRefParser.dineInRoutingAnchorForMatching(order)?.trim();
     if (ref == null || ref.isEmpty) {
       showAppMessageDialog(
         context,
@@ -401,8 +401,8 @@ class _DineInLogCardState extends State<DineInLogCard> {
     final others = state.orders.where((o) {
       if (o.id == order.id) return false;
       if (!DineInRefParser.sameTableRouting(
-        DineInRefParser.dineInAnchorForMatching(o),
-        DineInRefParser.dineInAnchorForMatching(order),
+        DineInRefParser.dineInRoutingAnchorForMatching(o),
+        DineInRefParser.dineInRoutingAnchorForMatching(order),
       )) {
         return false;
       }

@@ -5,16 +5,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
-import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/print/kot_kitchen_update_diff.dart';
+import 'package:pos/core/print/cash_drawer_on_payment.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/core/update/updater_manager.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 
 part 'cart_state.dart';
@@ -400,6 +401,12 @@ class CartCubit extends Cubit<CartState> {
     emit(CartState([]));
   }
 
+  /// Staff-entered KOT label for [Order.referenceNumber] (not floor routing).
+  String? _staffKotReferenceForDb(String? staffKotReference) {
+    final staff = staffKotReference?.trim();
+    return (staff != null && staff.isNotEmpty) ? staff : null;
+  }
+
   String? _hubMetadataWithDineInAnchor(String? existingHub) {
     final anchor = _dineInFloorTableAnchor?.trim();
     if (orderType != OrderType.dineIn || anchor == null || anchor.isEmpty) return existingHub;
@@ -455,8 +462,26 @@ class CartCubit extends Cubit<CartState> {
 
     final refForDb = orderType == OrderType.dineIn
         ? null
-        : (effectiveReference.isEmpty ? null : effectiveReference);
+        : _staffKotReferenceForDb(
+            effectiveReference.isEmpty ? null : effectiveReference,
+          );
     final hubForDb = _hubMetadataWithDineInAnchor(null);
+    // #region agent log
+    if (orderType == OrderType.dineIn) {
+      agentDebugLog(
+        hypothesisId: 'H_kot',
+        location: 'cart_cubit.dart:saveKOT',
+        message: 'dine_in_kot_persist',
+        data: <String, Object?>{
+          'runId': 'post-fix',
+          'effectiveReference': effectiveReference.isEmpty ? null : effectiveReference,
+          'refForDb': refForDb,
+          'floorAnchor': _dineInFloorTableAnchor,
+          'hubHasRoutingAnchor': hubForDb != null && hubForDb.contains(DineInRefParser.hubMetadataAnchorKey),
+        },
+      );
+    }
+    // #endregion
 
     if (orderToUpdate != null) {
       final mergedHub = _hubMetadataWithDineInAnchor(orderToUpdate.hubMetadata);
@@ -665,36 +690,36 @@ class CartCubit extends Cubit<CartState> {
     // Editing an order is not "new item" flow — clear session's active cart so we don't restore this later
     await _clearPersistedCartId();
 
-    // Load cart items first (mirrored SUB→MAIN orders often have a shadow cart_id with no rows yet).
-    List<CartItem> resolvedLines = await cartRepo.getCartItemsByCartId(order.cartId) ?? [];
-    if (resolvedLines.isEmpty) {
-      final hydrated = await OrderLogCartFallback.resolve(
-        order: order,
-        db: locator<AppDatabase>(),
-        cartRepo: cartRepo,
-      );
-      if (hydrated.isNotEmpty) {
-        for (final line in hydrated) {
-          await cartRepo.addItemToCart(
-            order.cartId,
-            CartItem(
-              id: 0,
-              cartId: order.cartId,
-              itemId: line.itemId,
-              itemName: line.itemName,
-              itemVariantId: line.itemVariantId,
-              itemToppingId: line.itemToppingId,
-              quantity: line.quantity,
-              total: line.total,
-              discount: line.discount,
-              discountType: line.discountType,
-              notes: line.notes,
-            ),
-          );
-        }
-        resolvedLines = await cartRepo.getCartItemsByCartId(order.cartId) ?? [];
-      }
+    final appDb = locator<AppDatabase>();
+    final frozenLines = await OrderLogCartFallback.resolve(
+      order: order,
+      db: appDb,
+      cartRepo: cartRepo,
+    );
+    final existingOnCart = await cartRepo.getCartItemsByCartId(order.cartId) ?? [];
+    for (final line in existingOnCart) {
+      await cartRepo.removeCartItem(line.id);
     }
+    for (final line in frozenLines) {
+      await cartRepo.addItemToCart(
+        order.cartId,
+        CartItem(
+          id: 0,
+          cartId: order.cartId,
+          itemId: line.itemId,
+          itemName: line.itemName,
+          itemVariantId: line.itemVariantId,
+          itemToppingId: line.itemToppingId,
+          quantity: line.quantity,
+          total: line.total,
+          discount: line.discount,
+          discountType: line.discountType,
+          notes: line.notes,
+        ),
+      );
+    }
+    final fromDb = await cartRepo.getCartItemsByCartId(order.cartId) ?? [];
+    final resolvedLines = fromDb.isNotEmpty ? fromDb : frozenLines;
 
     // Clear any existing cart state first - do this AFTER loading to avoid race conditions
     _activeCartId = null;
@@ -832,6 +857,11 @@ class CartCubit extends Cubit<CartState> {
       final saved = await orderRepo.getOrderById(newId) ?? order;
 
       final printFailed = <String>[];
+      printFailed.addAll(
+        await openCashDrawerForCashPayment(
+          resolveCashTenderForDrawer(payments, orderCashAmount: saved.cashAmount),
+        ),
+      );
       final ref = DineInRefParser.printableRoutingLabel(saved);
       if (printKot && state.items.isNotEmpty) {
         printFailed.addAll(
@@ -853,10 +883,6 @@ class CartCubit extends Cubit<CartState> {
             asTaxInvoice: printInvoice,
           ),
         );
-      }
-      final cashAmt = payments['cash'] ?? 0.0;
-      if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
-        printFailed.addAll(await printService.openCashDrawer());
       }
 
       await _clearCartStateOnly();
@@ -980,6 +1006,8 @@ class CartCubit extends Cubit<CartState> {
     final hubMeta = isDineIn
         ? _hubMetadataWithDineInAnchor(_withOfferMetadata(existingOrder.hubMetadata, offer))
         : _withOfferMetadata(existingOrder.hubMetadata, offer);
+    final deliveryStatus =
+        existingOrder.orderType == 'delivery' ? existingOrder.status : 'completed';
     final updatedOrder = Order(
       id: existingOrder.id,
       cartId: _activeCartId!,
@@ -999,7 +1027,7 @@ class CartCubit extends Cubit<CartState> {
       cardAmount: payments['card'] ?? 0.0,
       onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
       createdAt: existingOrder.createdAt,
-      status: existingOrder.orderType == 'delivery' ? existingOrder.status : 'completed',
+      status: deliveryStatus,
       orderType: existingOrder.orderType,
       deliveryPartner: existingOrder.deliveryPartner,
       userId: existingOrder.userId,
@@ -1014,6 +1042,11 @@ class CartCubit extends Cubit<CartState> {
     await orderRepo.updateOrder(updatedOrder);
 
     final printFailed = <String>[];
+    printFailed.addAll(
+      await openCashDrawerForCashPayment(
+        resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
+      ),
+    );
     final ref = DineInRefParser.printableRoutingLabel(updatedOrder);
     if (printKot && state.items.isNotEmpty) {
       final snap = List<CartItem>.from(state.items);
@@ -1051,14 +1084,9 @@ class CartCubit extends Cubit<CartState> {
         await printService.printFinalBill(
           order: updatedOrder,
           cartItems: state.items,
-          updatedOrder: true,
           asTaxInvoice: printInvoice,
         ),
       );
-    }
-    final cashAmt = payments['cash'] ?? 0.0;
-    if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
-      printFailed.addAll(await printService.openCashDrawer());
     }
 
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)

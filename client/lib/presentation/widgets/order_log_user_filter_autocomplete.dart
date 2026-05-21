@@ -50,18 +50,19 @@ class _OrderLogUserFilterAutocompleteState
       final db = locator<AppDatabase>();
       final session = await db.sessionDao.getActiveSession();
       final branchId = session?.branchId ?? 1;
-      // Use cashiers who actually have orders on this branch — [Users.branchId] from sync is often wrong/shared.
-      final ids = await db.ordersDao.getDistinctCashierUserIdsForBranch(branchId);
-      final users = <UserModel>[];
-      for (final id in ids) {
-        final u = await db.usersDao.findUserById(id);
-        if (u != null) users.add(u);
+      var users = await db.usersDao.getUsersForBranch(branchId);
+      if (users.isEmpty) {
+        final ids = await db.ordersDao.getDistinctCashierUserIdsForBranch(branchId);
+        for (final id in ids) {
+          final u = await db.usersDao.findUserById(id);
+          if (u != null && u.branchId == branchId) users.add(u);
+        }
       }
       if (users.isEmpty) {
         final selfId = session?.userId;
         if (selfId != null) {
           final self = await db.usersDao.findUserById(selfId);
-          if (self != null) users.add(self);
+          if (self != null && self.branchId == branchId) users.add(self);
         }
       }
       users.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));

@@ -226,8 +226,11 @@ function handleEnvelope(db, ws, wss, data, rawStr) {
   if (data.type === 'CONNECT') {
     const welcome = connectWelcome();
     send(ws, welcome, {
-      trafficExtras: { note: `handshake answering SUB CONNECT ${data.eventId}` },
+      trafficExtras: { note: `handshake answering CONNECT ${data.eventId}` },
     });
+    // Tell other peers (MAIN Flutter listener) that a terminal joined so it can push COMPANY_SNAPSHOT.
+    const connectBroadcast = JSON.parse(rawStr);
+    broadcast(wss, connectBroadcast, ws);
     return;
   }
 

@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -26,11 +26,25 @@ class BackupService {
 
   static const Duration _periodicCheckInterval = Duration(hours: 6);
 
+  static const int _orderMutationBackupThreshold = 10;
+
   int? _lastBackedUpSize;
   DateTime? _lastBackedUpSourceModified;
   DateTime _lastBackupAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _pendingOrderMutations = 0;
   Future<void> _queue = Future<void>.value();
   Timer? _periodicTimer;
+
+  /// Debounced backup after local order writes (day close still uses [backupNow] with `force: true`).
+  Future<void> recordOrderMutation(AppDatabase db) async {
+    _pendingOrderMutations += 1;
+    final now = DateTime.now();
+    final shouldBackup = _pendingOrderMutations >= _orderMutationBackupThreshold ||
+        now.difference(_lastBackupAt) >= _minIntervalBetweenBackups;
+    if (!shouldBackup) return;
+    await backupNow(db);
+    _pendingOrderMutations = 0;
+  }
 
   Future<Directory> _backupDir() => AppDirectories.backupDir();
 

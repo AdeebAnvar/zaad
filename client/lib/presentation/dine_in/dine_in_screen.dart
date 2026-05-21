@@ -93,6 +93,7 @@ class _DineInScreenState extends State<DineInScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
+    final priorFloorIndex = _selectedFloorIndex;
     final session = await _db.sessionDao.getActiveSession();
     final branchId = session?.branchId ?? 1;
     final floors = await _db.diningTablesDao.getFloorsForBranch(branchId);
@@ -109,9 +110,10 @@ class _DineInScreenState extends State<DineInScreen> {
       codeToFloors.putIfAbsent(_tableKey(t.code), () => {}).add(t.floorId);
     }
 
+    final floorIndex = floors.isEmpty ? 0 : priorFloorIndex.clamp(0, floors.length - 1);
     List<DiningTable> tables = [];
     if (floors.isNotEmpty) {
-      tables = await _db.diningTablesDao.getTablesByFloorForBranch(floors.first.id, branchId);
+      tables = await _db.diningTablesDao.getTablesByFloorForBranch(floors[floorIndex].id, branchId);
     }
 
     if (!mounted) return;
@@ -120,7 +122,7 @@ class _DineInScreenState extends State<DineInScreen> {
       _tables = tables;
       _activeDineInOrders = active;
       _tableCodeToFloorIds = codeToFloors;
-      _selectedFloorIndex = 0;
+      _selectedFloorIndex = floorIndex;
       _loading = false;
       _rebuildAllocationMaps();
     });

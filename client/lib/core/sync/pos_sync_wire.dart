@@ -11,6 +11,8 @@ abstract final class PosSyncEventTypes {
   static const companySnapshot = 'COMPANY_SNAPSHOT';
   /// MAIN → SUB: mirrored tenant REST JSON responses (subset applied on SUB).
   static const apiMirror = 'API_MIRROR';
+  /// Branch day-close watermark (MAIN ⇄ SUB) — updates [DayClosingCheckpoint] on all peers.
+  static const dayClosingSettled = 'DAY_CLOSING_SETTLED';
   static const orderCreate = 'ORDER_CREATE';
   static const orderUpdate = 'ORDER_UPDATE';
   static const kotCreate = 'KOT_CREATE';

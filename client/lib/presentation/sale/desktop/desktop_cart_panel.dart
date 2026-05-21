@@ -6,7 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
-import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
+import 'package:pos/core/print/cash_drawer_on_payment.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/print/print_service.dart';
@@ -17,6 +18,8 @@ import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/models/pos_customer.dart';
+import 'package:pos/core/utils/order_log_cart_fallback.dart';
+import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/customer_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -259,10 +262,13 @@ Future<void> showCartStylePaymentDialogForOrder(
 
   final db = locator<AppDatabase>();
   final itemRepo = locator<ItemRepository>();
-  final cartLines = await db.cartsDao.getItemsByCart(order.cartId);
-  final offerLines = cartLines.isEmpty
-      ? <PaymentOfferLine>[]
-      : await buildPaymentOfferLines(cartLines, itemRepo);
+  final cartRepo = locator<CartRepository>();
+  final cartLines = await OrderLogCartFallback.resolve(
+    order: order,
+    db: db,
+    cartRepo: cartRepo,
+  );
+  final offerLines = cartLines.isEmpty ? <PaymentOfferLine>[] : await buildPaymentOfferLines(cartLines, itemRepo);
 
   await showDialog<bool>(
     context: context,
@@ -286,8 +292,7 @@ Future<void> showCartStylePaymentDialogForOrder(
             : discountAmount.clamp(0.0, freshOrder.totalAmount).toDouble();
         final rawOffer = discount['offer'];
         final offer = rawOffer is Map ? Map<String, dynamic>.from(rawOffer) : null;
-        final offerDiscountAmount = (offer?['discountAmount'] as num?)?.toDouble() ??
-            (double.tryParse(offer?['discountAmount']?.toString() ?? '') ?? 0.0);
+        final offerDiscountAmount = (offer?['discountAmount'] as num?)?.toDouble() ?? (double.tryParse(offer?['discountAmount']?.toString() ?? '') ?? 0.0);
         final totalDiscount = (manualDiscountAmount + offerDiscountAmount).clamp(0.0, freshOrder.totalAmount).toDouble();
         final finalAmount = (freshOrder.totalAmount - totalDiscount).clamp(0.0, double.infinity);
         final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
@@ -312,14 +317,11 @@ Future<void> showCartStylePaymentDialogForOrder(
             'discountAmount': offerDiscountAmount,
             'toDate': offer['toDate']?.toString() ?? '',
             if (offer['autoDayDiscount'] != null)
-              'autoDayDiscount': (offer['autoDayDiscount'] as num?)?.toDouble() ??
-                  (double.tryParse(offer['autoDayDiscount']?.toString() ?? '') ?? 0.0),
+              'autoDayDiscount': (offer['autoDayDiscount'] as num?)?.toDouble() ?? (double.tryParse(offer['autoDayDiscount']?.toString() ?? '') ?? 0.0),
             if (offer['autoDayOfferNames'] is List) 'autoDayOfferNames': offer['autoDayOfferNames'],
           };
           try {
-            final existing = (hubMetadataWithOffer != null && hubMetadataWithOffer.trim().isNotEmpty)
-                ? jsonDecode(hubMetadataWithOffer)
-                : <String, dynamic>{};
+            final existing = (hubMetadataWithOffer != null && hubMetadataWithOffer.trim().isNotEmpty) ? jsonDecode(hubMetadataWithOffer) : <String, dynamic>{};
             final map = existing is Map ? Map<String, dynamic>.from(existing) : <String, dynamic>{};
             map['applied_offer'] = cleanedOffer;
             hubMetadataWithOffer = jsonEncode(map);
@@ -327,6 +329,8 @@ Future<void> showCartStylePaymentDialogForOrder(
             hubMetadataWithOffer = jsonEncode({'applied_offer': cleanedOffer});
           }
         }
+
+        final deliveryStatus = freshOrder.orderType == 'delivery' ? freshOrder.status : 'completed';
 
         final updatedOrder = freshOrder.copyWith(
           referenceNumber: Value(updatedRef),
@@ -352,12 +356,36 @@ Future<void> showCartStylePaymentDialogForOrder(
         );
 
         await repo.updateOrder(updatedOrder);
+        // #region agent log
+        agentDebugLog(
+          hypothesisId: 'H1',
+          location: 'desktop_cart_panel.dart:pay',
+          message: 'counter_pay_saved',
+          data: <String, Object?>{
+            'orderId': updatedOrder.id,
+            'orderType': updatedOrder.orderType,
+            'status': updatedOrder.status,
+            'invoice': updatedOrder.invoiceNumber,
+            'paid': updatedOrder.cashAmount + updatedOrder.cardAmount + updatedOrder.creditAmount + updatedOrder.onlineAmount,
+          },
+        );
+        // #endregion
 
         final db = locator<AppDatabase>();
         final printSvc = locator<PrintService>();
-        final cartItems = await db.cartsDao.getItemsByCart(updatedOrder.cartId);
+        final cartItems = await OrderLogCartFallback.resolve(
+          order: updatedOrder,
+          db: db,
+          cartRepo: cartRepo,
+        );
         final ref = DineInRefParser.printableRoutingLabel(updatedOrder);
         final printFailed = <String>[];
+        // Cash drawer: any cash tender — independent of Invoice/KOT print toggles.
+        printFailed.addAll(
+          await openCashDrawerForCashPayment(
+            resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
+          ),
+        );
         if (printKot && cartItems.isNotEmpty) {
           printFailed.addAll(
             await printSvc.printKOTPerKitchen(
@@ -379,10 +407,6 @@ Future<void> showCartStylePaymentDialogForOrder(
             ),
           );
         }
-        final cashAmt = payments['cash'] ?? 0.0;
-        if (cashAmt > 0.004 && locator<CurrentCounterSession>().access.canOpenDrawer) {
-          printFailed.addAll(await printSvc.openCashDrawer());
-        }
         if (printFailed.isNotEmpty && dialogContext.mounted) {
           showPrintFailedDialog(dialogContext, printFailed);
         }
@@ -399,6 +423,7 @@ class CartPanel extends StatelessWidget {
     super.key,
     this.scrollController,
     this.closeOnComplete = false,
+
     /// When true ([CartPanel] is shown inside [showModalBottomSheet]), successful KOT / Pay closes the sheet via [onCloseCart].
     /// [closeOnComplete] still controls dine‑in behaviours (e.g. payment dialog **Close** also dismisses sheet).
     this.isModalBottomSheet = false,
@@ -762,9 +787,7 @@ class CartPanel extends StatelessWidget {
     final cartCubit = context.read<CartCubit>();
     final prefill = await cartCubit.getPaymentPrefillForEdit();
     final cartLines = cartCubit.state.items;
-    final offerLines = cartLines.isEmpty
-        ? <PaymentOfferLine>[]
-        : await buildPaymentOfferLines(cartLines, locator<ItemRepository>());
+    final offerLines = cartLines.isEmpty ? <PaymentOfferLine>[] : await buildPaymentOfferLines(cartLines, locator<ItemRepository>());
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => PaymentDialog(
@@ -865,6 +888,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _genderController = TextEditingController();
   final _addressController = TextEditingController();
 
   final _cashController = TextEditingController();
@@ -899,6 +923,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   bool _isSubmitting = false;
   bool _showOtherPaymentField = false;
   bool _printInvoice = true;
+
   /// Off by default: KOT is usually sent earlier via the KOT button; enable when settling should re-print kitchen.
   bool _printKot = false;
 
@@ -913,6 +938,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     if (prefill != null) {
       _nameController.text = (prefill['name'] as String?)?.trim() ?? '';
       _phoneController.text = (prefill['phone'] as String?)?.trim() ?? '';
+      _genderController.text = (prefill['gender'] as String?)?.trim() ?? '';
       _addressController.text = (prefill['address'] as String?)?.trim() ?? '';
       _onlineOrderNumberController.text = (prefill['onlineOrderNumber'] as String?)?.trim() ?? '';
     }
@@ -974,11 +1000,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
         final rawType = payload['type']?.toString().trim().toLowerCase() ?? '';
         final type = (rawType == 'percentage' || rawType == 'percent' || rawType == '%')
             ? _OfferValueType.percentage
-            : (rawType == 'amount' ||
-                    rawType == 'fixed' ||
-                    rawType == 'flat' ||
-                    rawType == 'fixed_amount' ||
-                    rawType == 'value')
+            : (rawType == 'amount' || rawType == 'fixed' || rawType == 'flat' || rawType == 'fixed_amount' || rawType == 'value')
                 ? _OfferValueType.amount
                 : null;
         if (type == null) continue;
@@ -989,9 +1011,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
         final applicable = _offerApplicableSubtotal(payload, lines, widget.totalAmount);
         if (applicable <= 0) continue;
 
-        final discount = type == _OfferValueType.percentage
-            ? (applicable * (value / 100)).clamp(0.0, applicable).toDouble()
-            : value.clamp(0.0, applicable).toDouble();
+        final discount = type == _OfferValueType.percentage ? (applicable * (value / 100)).clamp(0.0, applicable).toDouble() : value.clamp(0.0, applicable).toDouble();
         if (discount <= 0) continue;
 
         final days = _offerJsonDayList(payload['day'] ?? payload['days']);
@@ -1004,14 +1024,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
           continue;
         }
 
-        final offerUuid = (payload['uuid']?.toString().trim().isNotEmpty == true)
-            ? payload['uuid'].toString().trim()
-            : row.uuid;
+        final offerUuid = (payload['uuid']?.toString().trim().isNotEmpty == true) ? payload['uuid'].toString().trim() : row.uuid;
 
         final offerNameFromPayload = payload['offer_name']?.toString().trim() ?? '';
-        final displayName = offerNameFromPayload.isNotEmpty
-            ? offerNameFromPayload
-            : (row.categoryName.trim().isEmpty ? 'Offer' : row.categoryName.trim());
+        final displayName = offerNameFromPayload.isNotEmpty ? offerNameFromPayload : (row.categoryName.trim().isEmpty ? 'Offer' : row.categoryName.trim());
 
         final built = _AppliedOffer(
           offerId: row.id,
@@ -1098,9 +1114,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
       if (savedDiscType == 'percentage') {
         _manualDiscountMode = 'percentage';
         final subtotal = widget.totalAmount;
-        final pct = (savedDisc >= 0 && savedDisc <= 100)
-            ? savedDisc
-            : (subtotal > 0 ? (savedDisc / subtotal * 100) : 0.0);
+        final pct = (savedDisc >= 0 && savedDisc <= 100) ? savedDisc : (subtotal > 0 ? (savedDisc / subtotal * 100) : 0.0);
         _manualRawValue = pct;
       } else {
         _manualDiscountMode = 'amount';
@@ -1118,8 +1132,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     var percentText = '';
     if (_manualRawValue > 0) {
       if (_manualDiscountMode == 'percentage') {
-        percentText =
-            _manualRawValue % 1 == 0 ? _manualRawValue.round().toString() : _manualRawValue.toStringAsFixed(2);
+        percentText = _manualRawValue % 1 == 0 ? _manualRawValue.round().toString() : _manualRawValue.toStringAsFixed(2);
       } else {
         amountText = _manualRawValue.toStringAsFixed(2);
       }
@@ -1234,6 +1247,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     setState(() {
       _nameController.text = customer.name;
       _phoneController.text = customer.phone ?? '';
+      _genderController.text = customer.gender ?? '';
       _addressController.text = customer.address ?? '';
     });
   }
@@ -1298,11 +1312,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
     final base = _nonNegativeOrderSubtotal(widget.totalAmount);
     final manualDisc = _manualDiscountAmountComputed();
     final autoDisc = _autoDayOffers.fold<double>(0, (a, o) => a + o.discountAmount);
-    final dropdownDisc = _selectedOfferIndex != null &&
-            _selectedOfferIndex! >= 0 &&
-            _selectedOfferIndex! < _dropdownOffers.length
-        ? _dropdownOffers[_selectedOfferIndex!].discountAmount
-        : 0.0;
+    final dropdownDisc =
+        _selectedOfferIndex != null && _selectedOfferIndex! >= 0 && _selectedOfferIndex! < _dropdownOffers.length ? _dropdownOffers[_selectedOfferIndex!].discountAmount : 0.0;
     _finalAmount = (base - manualDisc - autoDisc - dropdownDisc).clamp(0.0, double.infinity);
   }
 
@@ -1323,20 +1334,20 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(12),
+      insetPadding: const EdgeInsets.all(16),
       child: Center(
         child: Container(
           width: width > 1200
-              ? 920
+              ? 820
               : width > 900
-                  ? 860
+                  ? 760
                   : width > 700
-                      ? width * 0.94
-                      : width * 0.96,
-          constraints: BoxConstraints(maxHeight: height * 0.92),
+                      ? width * 0.9
+                      : width * 0.92,
+          constraints: BoxConstraints(maxHeight: height * 0.88),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20),
             boxShadow: const [
               BoxShadow(blurRadius: 40, color: Colors.black26),
             ],
@@ -1348,7 +1359,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
               children: [
                 _header(),
                 const Divider(height: 1),
-                Expanded(child: _content()),
+                _content(),
                 _footer(),
               ],
             ),
@@ -1365,10 +1376,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
   Widget _header() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       decoration: const BoxDecoration(
         color: AppColors.primaryColor,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -1379,7 +1390,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
               letterSpacing: 1.2,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -1387,17 +1398,17 @@ class _PaymentDialogState extends State<PaymentDialog> {
             children: [
               Text(
                 _currencyLabel,
-                style: AppStyles.getRegularTextStyle(fontSize: 16, color: Colors.white),
+                style: AppStyles.getRegularTextStyle(fontSize: 15, color: Colors.white),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Text(
                 widget.totalAmount.toStringAsFixed(2),
-                style: AppStyles.getBoldTextStyle(fontSize: 32, color: Colors.white),
+                style: AppStyles.getBoldTextStyle(fontSize: 28, color: Colors.white),
               ),
             ],
           ),
           if (!_loadingOffers && _autoDayOffers.isNotEmpty) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
@@ -1406,9 +1417,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
-                    _autoDayOffers.length == 1
-                        ? 'Day offer: ${_autoDayOffers.first.name}'
-                        : 'Day offers active (${_autoDayOffers.length})',
+                    _autoDayOffers.length == 1 ? 'Day offer: ${_autoDayOffers.first.name}' : 'Day offers active (${_autoDayOffers.length})',
                     style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: Colors.white),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1423,50 +1432,48 @@ class _PaymentDialogState extends State<PaymentDialog> {
     );
   }
 
-  /* ───────── CONTENT (scrollable sections) ───────── */
+  /* ───────── CONTENT (fixed height — no scroll) ───────── */
 
   Widget _content() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.person_outline, size: 20, color: AppColors.primaryColor),
-              const SizedBox(width: 10),
-              Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
+              Icon(Icons.person_outline, size: 18, color: AppColors.primaryColor),
+              const SizedBox(width: 8),
+              Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 14)),
             ],
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: 6),
             child: _customerFields(),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           _discountSectionTitle(),
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: 6),
             child: _discountFields(),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Row(
             children: [
-              Icon(Icons.payment, size: 20, color: AppColors.primaryColor),
-              const SizedBox(width: 10),
-              Text('Payment Methods', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
+              Icon(Icons.payment, size: 18, color: AppColors.primaryColor),
+              const SizedBox(width: 8),
+              Text('Payment Methods', style: AppStyles.getSemiBoldTextStyle(fontSize: 14)),
             ],
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.only(top: 6),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _paymentFields(),
-               if (!_validatePayments() &&
-                    (_cashController.text.isNotEmpty ||
-                        _creditController.text.isNotEmpty ||
-                        _cardController.text.isNotEmpty ||
-                        _onlineController.text.isNotEmpty))
+                if (!_validatePayments() &&
+                    (_cashController.text.isNotEmpty || _creditController.text.isNotEmpty || _cardController.text.isNotEmpty || _onlineController.text.isNotEmpty))
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
                     child: Text(
@@ -1495,6 +1502,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    const genderOptions = ['Male', 'Female', 'Other'];
     final phoneSuggestions = _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList();
     final nameSuggestions = _allCustomers.map((c) => c.name).toSet().toList();
     final customersByName = _allCustomers.where((c) => c.name.toLowerCase().contains(_nameController.text.toLowerCase())).toList();
@@ -1544,6 +1552,57 @@ class _PaymentDialogState extends State<PaymentDialog> {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: genderOptions.contains(_genderController.text) ? _genderController.text : null,
+          decoration: InputDecoration(
+            labelStyle: TextStyle(
+              color: AppColors.hintFontColor,
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+            ),
+            filled: false,
+            hintText: 'Choose Gender',
+            fillColor: Colors.white,
+            hintStyle: TextStyle(
+              color: AppColors.hintFontColor,
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+            ),
+            isDense: true,
+            isCollapsed: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 11,
+            ),
+            errorStyle: const TextStyle(
+              fontSize: 10,
+              height: 1,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: Theme.of(context).dividerColor.withOpacity(0.5),
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: Theme.of(context).dividerColor.withOpacity(0.5),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: Theme.of(context).dividerColor.withOpacity(0.5),
+              ),
+            ),
+          ),
+          items: genderOptions.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+          onChanged: (v) {
+            setState(() => _genderController.text = v ?? '');
+          },
         ),
         const SizedBox(height: 12),
         CustomTextField(
@@ -1615,7 +1674,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                   ),
                   const SizedBox(height: 4),
                   Container(
-                    height: 50,
+                    height: 44,
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     decoration: BoxDecoration(
                       color: Colors.grey.shade100,
@@ -1634,7 +1693,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
           ],
         ),
         if (!_loadingOffers && _dropdownOffers.isNotEmpty) ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
               final maxW = constraints.maxWidth;
@@ -1655,7 +1714,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
           ),
         ],
         if (!_loadingOffers && _autoDayOffers.isNotEmpty) ...[
-          if (_dropdownOffers.isNotEmpty) const SizedBox(height: 10) else const SizedBox(height: 12),
+          if (_dropdownOffers.isNotEmpty) const SizedBox(height: 8) else const SizedBox(height: 8),
           Text(
             'Today\'s offer(s): ${_autoDayOffers.map((e) => '${e.name} (-$_currencyLabel ${e.discountAmount.toStringAsFixed(2)})').join('; ')}',
             style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
@@ -1689,11 +1748,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
           alignment: Alignment.centerLeft,
           child: DropdownButtonHideUnderline(
             child: DropdownButton<int?>(
-              value: _selectedOfferIndex != null &&
-                      _selectedOfferIndex! >= 0 &&
-                      _selectedOfferIndex! < _dropdownOffers.length
-                  ? _selectedOfferIndex
-                  : null,
+              value: _selectedOfferIndex != null && _selectedOfferIndex! >= 0 && _selectedOfferIndex! < _dropdownOffers.length ? _selectedOfferIndex : null,
               isDense: true,
               isExpanded: true,
               icon: Icon(Icons.arrow_drop_down, size: 22, color: AppColors.textColor.withValues(alpha: 0.75)),
@@ -1732,9 +1787,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   String _offerDropdownLabel(_AppliedOffer o) {
-    final valuePart = o.type == _OfferValueType.percentage
-        ? '${_formatOfferValue(o.value)}%'
-        : '$_currencyLabel ${_formatOfferValue(o.value)}';
+    final valuePart = o.type == _OfferValueType.percentage ? '${_formatOfferValue(o.value)}%' : '$_currencyLabel ${_formatOfferValue(o.value)}';
     return '${o.name} ($valuePart) — ${o.discountAmount.toStringAsFixed(2)} off';
   }
 
@@ -1747,9 +1800,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(Icons.discount_outlined, size: 20, color: AppColors.primaryColor),
-        const SizedBox(width: 10),
-        Text('Discount', style: AppStyles.getSemiBoldTextStyle(fontSize: 15)),
+        Icon(Icons.discount_outlined, size: 18, color: AppColors.primaryColor),
+        const SizedBox(width: 8),
+        Text('Discount', style: AppStyles.getSemiBoldTextStyle(fontSize: 14)),
       ],
     );
   }
@@ -1771,7 +1824,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(children: fields),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Row(
           children: [
             OutlinedButton.icon(
@@ -1794,7 +1847,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
           ],
         ),
         if (_showOtherPaymentField) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           SizedBox(
             width: 180,
             child: _paymentField('OTHER', _otherController, _otherFocusNode),
@@ -1812,7 +1865,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
           label,
           style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         CustomTextField(
           controller: controller,
           focusNode: focusNode,
@@ -1829,10 +1882,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   Widget _footer() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
         boxShadow: const [
           BoxShadow(
             blurRadius: 16,
@@ -1858,20 +1911,20 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 style: TextButton.styleFrom(
                   foregroundColor: AppColors.primaryColor,
                   side: const BorderSide(color: AppColors.primaryColor, width: 1.5),
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
                 child: Text(
                   'CLOSE',
-                  style: AppStyles.getSemiBoldTextStyle(fontSize: 14, color: AppColors.primaryColor),
+                  style: AppStyles.getSemiBoldTextStyle(fontSize: 13, color: AppColors.primaryColor),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               // SUBMIT - only when amount payable is 0 (payments match). Show SnackBar on error.
               CustomButton(
-                width: 120,
+                width: 110,
                 text: _isSubmitting ? 'PROCESSING...' : 'SUBMIT',
                 isLoading: _isSubmitting,
                 onPressed: _isSubmitting
@@ -1932,17 +1985,14 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         try {
                           await _saveNewCustomerIfNeeded();
                           final sel = _selectedOfferIndex;
-                          final applied =
-                              sel != null && sel >= 0 && sel < _dropdownOffers.length ? _dropdownOffers[sel] : null;
+                          final applied = sel != null && sel >= 0 && sel < _dropdownOffers.length ? _dropdownOffers[sel] : null;
                           final autoDisc = _autoDayOffers.fold<double>(0, (a, o) => a + o.discountAmount);
                           final manualAmt = applied?.discountAmount ?? 0.0;
                           final totalOfferDisc = manualAmt + autoDisc;
-                          final autoNamesJoined =
-                              _autoDayOffers.map((e) => e.name.trim()).where((s) => s.isNotEmpty).join(', ');
+                          final autoNamesJoined = _autoDayOffers.map((e) => e.name.trim()).where((s) => s.isNotEmpty).join(', ');
                           String offerDisplayName;
                           if (applied != null && autoDisc > 0.009) {
-                            offerDisplayName =
-                                autoNamesJoined.isNotEmpty ? '${applied.name} + $autoNamesJoined' : applied.name;
+                            offerDisplayName = autoNamesJoined.isNotEmpty ? '${applied.name} + $autoNamesJoined' : applied.name;
                           } else if (applied != null) {
                             offerDisplayName = applied.name;
                           } else if (_autoDayOffers.length == 1) {
@@ -1957,22 +2007,19 @@ class _PaymentDialogState extends State<PaymentDialog> {
                               : {
                                   'name': offerDisplayName,
                                   'uuid': applied?.uuid ?? '',
-                                  'type': applied != null
-                                      ? (applied.type == _OfferValueType.percentage ? 'percentage' : 'amount')
-                                      : 'amount',
+                                  'type': applied != null ? (applied.type == _OfferValueType.percentage ? 'percentage' : 'amount') : 'amount',
                                   'value': applied?.value ?? 0.0,
                                   'discountAmount': totalOfferDisc,
                                   'toDate': applied?.toDateText ?? '',
                                   'autoDayDiscount': autoDisc,
-                                  if (_autoDayOffers.isNotEmpty)
-                                    'autoDayOfferNames': _autoDayOffers.map((e) => e.name).toList(),
+                                  if (_autoDayOffers.isNotEmpty) 'autoDayOfferNames': _autoDayOffers.map((e) => e.name).toList(),
                                 };
                           await widget.onSave(
                             {
                               'name': _nameController.text,
                               'phone': _phoneController.text,
                               'email': '',
-                              'gender': '',
+                              'gender': _genderController.text,
                               'address': _addressController.text,
                               'onlineOrderNumber': _onlineOrderNumberController.text.trim().isEmpty ? null : _onlineOrderNumberController.text.trim(),
                             },
@@ -2079,6 +2126,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _otherFocusNode.dispose();
     _nameController.dispose();
     _phoneController.dispose();
+    _genderController.dispose();
     _addressController.dispose();
     _cashController.dispose();
     _creditController.dispose();

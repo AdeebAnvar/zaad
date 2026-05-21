@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -21,7 +23,11 @@ class CreditSalesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => CreditSalesCubit(locator<OrderRepository>()),
+      create: (_) => CreditSalesCubit(
+        locator<OrderRepository>(),
+        locator<LocalHubSettings>(),
+        locator<CurrentCounterSession>(),
+      ),
       child: const _CreditSalesView(),
     );
   }

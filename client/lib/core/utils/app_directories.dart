@@ -134,6 +134,11 @@ class AppDirectories {
     return _androidPublicDocumentsOk == true;
   }
 
+  /// Drops in-memory Android public-Documents probe (e.g. after an app update cache sweep).
+  static void clearRuntimeProbeCache() {
+    _androidPublicDocumentsOk = null;
+  }
+
   /// Clears the cached probe result and re-checks after the user grants storage.
   static Future<bool> requestAndroidPublicStorageAccess() async {
     if (!Platform.isAndroid) return false;

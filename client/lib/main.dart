@@ -1,11 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart';
 import 'package:pos/app/app_startup.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/app_directories.dart';
+import 'package:pos/core/utils/app_update_cache_clear.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'app/app.dart';
 import 'app/di.dart';
@@ -22,6 +24,11 @@ void main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Cap decoded catalog bitmap RAM (full sale snapshots stay in SQLite, not image cache).
+  PaintingBinding.instance.imageCache
+    ..maximumSize = 200
+    ..maximumSizeBytes = 50 << 20;
+
   await AppDirectories.migrateLegacyLayoutIfNeeded();
   await AppDirectories.migrateAndroidInternalToPublicDocumentsIfNeeded();
   await AppDirectories.recoverAndroidDbFromPublicIfNeeded();
@@ -36,8 +43,9 @@ void main() async {
 
   final startup = AppStartup(db);
 
-  // Auto-clear incompatible local cache (e.g. old DB) after app updates.
+  // Auto-clear incompatible local DB after schema bumps; ephemeral caches after app version bumps.
   await startup.ensureCompatibleLocalData();
+  await AppUpdateCacheClear.runOnColdStartIfNeeded();
   await RuntimeAppSettings.refreshFromLocalSettings();
 
   final UserType? userType = await startup.checkLoggedInUser();

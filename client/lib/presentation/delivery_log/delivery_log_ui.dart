@@ -7,12 +7,19 @@ import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
+import 'package:pos/core/utils/delivery_counter_route_args.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/utils/order_owner_display_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
+import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/data/repository/delivery_partner_repository.dart';
+import 'package:pos/data/repository/driver_repository.dart';
+import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_cubit.dart';
 import 'package:pos/presentation/driver_log/driver_log_screen.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
@@ -34,11 +41,20 @@ class DeliveryLogScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CustomScaffold(
-      title: 'Delivery Sale Log',
-      appBarScreen: 'delivery_log',
-      floatingActionButton: _MobileDeliveryFilterFab(),
-      body: BlocBuilder<DeliveryLogCubit, DeliveryLogState>(
+    return BlocProvider(
+      create: (_) => DeliveryLogCubit(
+        locator<OrderRepository>(),
+        locator<DeliveryPartnerRepository>(),
+        locator<DriverRepository>(),
+        locator<LocalHubSettings>(),
+        locator<CurrentCounterSession>(),
+        hubOrdersLive: locator<HubOrdersLiveSync>(),
+      ),
+      child: CustomScaffold(
+        title: 'Delivery Sale Log',
+        appBarScreen: 'delivery_log',
+        floatingActionButton: _MobileDeliveryFilterFab(),
+        body: BlocBuilder<DeliveryLogCubit, DeliveryLogState>(
         builder: (context, state) {
           if (state is DeliveryLogLoading) {
             return const Center(child: CustomLoading());
@@ -183,6 +199,7 @@ class DeliveryLogScreen extends StatelessWidget {
           }
           return const SizedBox.shrink();
         },
+      ),
       ),
     );
   }
@@ -639,11 +656,12 @@ class _DeliveryCardState extends State<_DeliveryCard> {
           tooltip: 'Edit',
           onTap: () => _handleEdit(context, order),
         ),
-        LogCardAction(
-          icon: Icons.payments_outlined,
-          tooltip: 'Pay',
-          onTap: () => _handlePay(context, order),
-        ),
+        if (!isDeliverySaleLogPendingStatus(order.status))
+          LogCardAction(
+            icon: Icons.payments_outlined,
+            tooltip: 'Pay',
+            onTap: () => _handlePay(context, order),
+          ),
         LogCardAction(
           icon: Icons.drive_file_move_outline,
           tooltip: 'Move',
@@ -718,7 +736,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     const all = _normalStatusOptions;
     if (!hasDriver) {
       return all
-          .where((e) => e.$2 == 'pending' || e.$2 == 'cancelled' || e.$2 == 'completed')
+          .where((e) => e.$2 == 'pending' || e.$2 == 'completed' || e.$2 == 'cancelled')
           .toList();
     }
     if (st == 'assigned' ||
@@ -780,18 +798,25 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     );
   }
 
-  void _handleEdit(BuildContext context, Order order) {
-    Navigator.pushNamed(
+  Future<void> _handleEdit(BuildContext context, Order order) async {
+    final route = await resolveDeliveryCounterRouteArgsFromOrder(
+      order: order,
+      partnerRepo: locator<DeliveryPartnerRepository>(),
+    );
+    if (!context.mounted) return;
+    await Navigator.pushNamed(
       context,
       '/counter',
       arguments: {
         'orderId': order.id,
         'orderType': order.orderType ?? 'delivery',
-        'deliveryPartner': order.deliveryPartner,
+        'deliveryPartner': route.deliveryPartner,
+        'deliveryServiceId': route.deliveryServiceId,
       },
-    ).then((_) {
+    );
+    if (context.mounted) {
       context.read<DeliveryLogCubit>().refreshOrders();
-    });
+    }
   }
 
   void _handlePay(BuildContext context, Order order) {

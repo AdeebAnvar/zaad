@@ -42,6 +42,13 @@ installer/output/
 # Server (Node.js)
 server/node_modules/
 
+# Server local SQLite (runtime / dev data — do not commit)
+server/data/*.sqlite
+server/data/*.sqlite-shm
+server/data/*.sqlite-wal
+server/data/*.lock
+!server/data/.gitkeep
+
 # Deploy / installer output (avoid committing unpacked artifacts)
 **/dist_deploy/
 

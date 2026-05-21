@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/constants/order_log_list_limits.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
+import 'package:pos/core/print/cash_drawer_on_payment.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 
 part 'take_away_log_state.dart';
@@ -90,16 +93,34 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
   }) async {
     final prior = state;
     try {
-      var orders = await orderRepo.filterOrders(
+      final limit = orderLogDefaultQueryLimit(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
-        status: status,
-        orderType: 'take_away',
         startDate: startDate,
         endDate: endDate,
-        userId: _scopedUserId(uiUserId: userId),
-        pickupToken: pickupToken,
       );
+      var orders = pickupToken != null
+          ? await orderRepo.filterOrders(
+              invoiceNumber: invoiceNumber,
+              referenceNumber: referenceNumber,
+              status: status,
+              orderType: 'take_away',
+              startDate: startDate,
+              endDate: endDate,
+              userId: _scopedUserId(uiUserId: userId),
+              pickupToken: pickupToken,
+              limit: limit,
+            )
+          : await orderRepo.filterOrdersForList(
+              invoiceNumber: invoiceNumber,
+              referenceNumber: referenceNumber,
+              status: status,
+              orderType: 'take_away',
+              startDate: startDate,
+              endDate: endDate,
+              userId: _scopedUserId(uiUserId: userId),
+              limit: limit,
+            );
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where((o) {
           final s = o.status.toLowerCase();
@@ -118,6 +139,29 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
         orders = [];
       }
       sortOrdersNewestFirst(orders);
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1-H3',
+        location: 'take_away_log_cubit.dart:_reloadOrders',
+        message: 'takeaway_log_reload',
+        data: <String, Object?>{
+          'kotCount': orders.length,
+          'statusFilter': status,
+          'rows': orders
+              .take(6)
+              .map(
+                (o) => <String, Object?>{
+                  'id': o.id,
+                  'invoice': o.invoiceNumber,
+                  'status': o.status,
+                  'paid': o.cashAmount + o.cardAmount + o.creditAmount + o.onlineAmount,
+                  'finalAmount': o.finalAmount,
+                },
+              )
+              .toList(),
+        },
+      );
+      // #endregion
       emit(TakeAwayLogLoaded(orders));
     } catch (e) {
       if (prior is TakeAwayLogLoaded) {
@@ -141,13 +185,40 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
     try {
       final order = await orderRepo.getOrderById(orderId);
       if (order == null) return;
+      final cash = paymentType == 'CASH' ? finalAmount : 0.0;
+      final card = paymentType == 'CARD' ? finalAmount : 0.0;
+      final credit = paymentType == 'CREDIT' ? finalAmount : 0.0;
+      final online = paymentType == 'ONLINE' ? finalAmount : 0.0;
+      final paid = cash + card + credit + online;
+      final payable = order.finalAmount > 0.009 ? order.finalAmount : order.totalAmount;
+      final fullyPaid = payable <= 0.009 || paid + 0.02 >= payable;
       final updated = order.copyWith(
-        cashAmount: paymentType == 'CASH' ? finalAmount : 0,
-        cardAmount: paymentType == 'CARD' ? finalAmount : 0,
-        creditAmount: paymentType == 'CREDIT' ? finalAmount : 0,
-        onlineAmount: paymentType == 'ONLINE' ? finalAmount : 0,
+        cashAmount: cash,
+        cardAmount: card,
+        creditAmount: credit,
+        onlineAmount: online,
+        status: fullyPaid && order.status.toLowerCase() == 'kot' ? 'completed' : order.status,
       );
       await orderRepo.updateOrder(updated);
+      if (paymentType == 'CASH') {
+        await openCashDrawerForCashPayment(finalAmount);
+      }
+      final after = await orderRepo.getOrderById(orderId);
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H1',
+        location: 'take_away_log_cubit.dart:updateOrderPaymentType',
+        message: 'takeaway_payment_only',
+        data: <String, Object?>{
+          'orderId': orderId,
+          'paymentType': paymentType,
+          'dbStatusAfter': after?.status,
+          'paid': after == null
+              ? null
+              : after.cashAmount + after.cardAmount + after.creditAmount + after.onlineAmount,
+        },
+      );
+      // #endregion
       await loadOrders();
     } catch (e) {
       emit(TakeAwayLogError(e.toString()));

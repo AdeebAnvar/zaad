@@ -23,12 +23,29 @@ abstract class OrderRepository {
     int? driverId,
     int? userId,
     int? pickupToken,
+    int? limit,
+  });
+
+  /// Log screens: same filters as [filterOrders] but skips [Order.hubMetadata] in RAM.
+  Future<List<Order>> filterOrdersForList({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? status,
+    List<String>? statusAnyOf,
+    String? orderType,
+    String? deliveryPartner,
+    String? customerPhone,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? driverId,
+    int? userId,
+    int? limit,
   });
 
   Future<List<Order>> getDeliveryOrdersWithDriver();
 
   /// Orders with any amount on credit (local), newest first. Excludes cancelled.
-  Future<List<Order>> getCreditSales();
+  Future<List<Order>> getCreditSales({int? userId});
 
   /// Next short receipt id for the channel (`TA01`, `DI02`, `DL01`, …).
   /// Serialized with [createCartWithReservedInvoice] so concurrent sales cannot reuse the same number.

@@ -13,6 +13,10 @@ class DioBadApiStatusInterceptor extends Interceptor {
 
   static final DioBadApiStatusInterceptor instance = DioBadApiStatusInterceptor._();
 
+  /// Set on non-API requests (e.g. [ImageUtils.downloadImage]) so missing assets
+  /// do not surface the tenant "failed to connect" toast.
+  static const String skipUserToastExtraKey = 'skipBadApiStatusToast';
+
   static DateTime? _lastToastAt;
   static const Duration _minGapBetweenToasts = Duration(seconds: 3);
 
@@ -21,6 +25,11 @@ class DioBadApiStatusInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
+    if (err.requestOptions.extra[skipUserToastExtraKey] == true) {
+      handler.next(err);
+      return;
+    }
+
     final code = err.response?.statusCode;
     if ((code == 404 || code == 500) && isTenantApiRequest(err.requestOptions)) {
       final now = DateTime.now();

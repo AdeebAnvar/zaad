@@ -52,6 +52,9 @@ class LocalHubSettings {
 
   static const shadowCartKey = 'pos_lan_shadow_cart_id';
 
+  /// MAIN + SUB: first successful MAIN login sets this; only matching [UserModel.branchId] may log in.
+  static const terminalBranchIdKey = 'pos_terminal_branch_id';
+
   /// Millis; last applied journal watermark from SYNC_RESPONSE / inbound events ([event_journal.effective_ms] on MAIN).
   static const lastJournalMsKey = 'pos_hub_last_journal_ms';
 
@@ -135,4 +138,15 @@ class LocalHubSettings {
   }
 
   Future<void> cacheShadowCartId(int id) => _prefs.setInt(shadowCartKey, id);
+
+  int? get terminalBranchId {
+    final v = _prefs.getInt(terminalBranchIdKey);
+    if (v != null && v > 0) return v;
+    return null;
+  }
+
+  Future<void> setTerminalBranchId(int branchId) =>
+      _prefs.setInt(terminalBranchIdKey, branchId);
+
+  Future<void> clearTerminalBranchId() => _prefs.remove(terminalBranchIdKey);
 }

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import 'package:pos/core/debug/agent_debug_log.dart';
-import 'package:pos/core/network/lan_hub_health.dart';
+import 'package:pos/core/auth/terminal_branch_scope.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
@@ -61,29 +61,20 @@ class HubCompanySnapshotPublisher {
       return;
     }
 
-    final solitarySkip = await LanHeavyMirrorGate.shouldSkipForSolitaryWsHub(hub);
-    if (solitarySkip) {
-      if (kDebugMode) {
-        debugPrint(
-          '[HubCompanySnapshotPublisher] skip: hub reports ≤1 open WS client (solitary MAIN — toggle in LAN hub settings)',
-        );
-      }
-      // #region agent log
-      agentDebugLog(
-        hypothesisId: 'H1',
-        location: 'hub_company_snapshot_publisher.dart:broadcastAfterTenantLink',
-        message: 'skip_solitary_ws_gate',
-        data: <String, Object?>{
-          'skipHeavyLanMirrorUnlessExtraWsPeers': hub.skipHeavyLanMirrorUnlessExtraWsPeers,
-        },
-      );
-      // #endregion
-      return;
-    }
+    // Never skip COMPANY_SNAPSHOT when the hub is solitary: SUB tablets need users/branches
+    // in Drift before they can log in. Catalog mirrors still use [LanHeavyMirrorGate].
 
-    final users = await db.usersDao.getAllUsers();
-    final branches = await db.branchesDao.getAllBranches();
+    final allUsers = await db.usersDao.getAllUsers();
+    final allBranches = await db.branchesDao.getAllBranches();
     final settings = await db.settingsDao.getSettings();
+    final deliveryPartners = await db.deliveryPartnersDao.getAll();
+    final terminalBranchId = await _resolveSnapshotBranchId(db, hub);
+    final users = terminalBranchId == null
+        ? allUsers
+        : TerminalBranchScope.filterUsers(allUsers, terminalBranchId);
+    final branches = terminalBranchId == null
+        ? allBranches
+        : TerminalBranchScope.filterBranches(allBranches, terminalBranchId);
     if (users.isEmpty || branches.isEmpty || settings == null) {
       if (kDebugMode) {
         debugPrint(
@@ -113,7 +104,11 @@ class HubCompanySnapshotPublisher {
         'users': users.map((u) => u.toJson()).toList(),
         'branches': branches.map((b) => b.toJson()).toList(),
         'settings': settings.toJson(),
+        'delivery_partners': deliveryPartners
+            .map((p) => <String, dynamic>{'id': p.id, 'name': p.name})
+            .toList(),
         'updatedAt': nowMs,
+        if (terminalBranchId != null) 'terminal_branch_id': terminalBranchId,
       };
       if (branchImageInline.isNotEmpty) {
         payload['branchImageInline'] = branchImageInline;
@@ -125,7 +120,7 @@ class HubCompanySnapshotPublisher {
       );
       if (kDebugMode) {
         debugPrint(
-          '[HubCompanySnapshotPublisher] queued COMPANY_SNAPSHOT (${users.length} users, ${branches.length} branches, ${branchImageInline.length} branch images)',
+          '[HubCompanySnapshotPublisher] queued COMPANY_SNAPSHOT (${users.length} users, ${branches.length} branches, ${deliveryPartners.length} delivery partners, ${branchImageInline.length} branch images)',
         );
       }
       // #region agent log
@@ -137,6 +132,7 @@ class HubCompanySnapshotPublisher {
           'userCount': users.length,
           'branchCount': branches.length,
           'branchInlineKeys': branchImageInline.length,
+          'deliveryPartnerCount': deliveryPartners.length,
         },
       );
       // #endregion
@@ -153,6 +149,18 @@ class HubCompanySnapshotPublisher {
       );
       // #endregion
     }
+  }
+
+  /// Re-push company identity after MAIN login sets [LocalHubSettings.terminalBranchId].
+  static Future<void> broadcastForTerminalBranch(AppDatabase db) =>
+      broadcastAfterTenantLink(db);
+
+  static Future<int?> _resolveSnapshotBranchId(AppDatabase db, LocalHubSettings hub) async {
+    final locked = hub.terminalBranchId;
+    if (locked != null && locked > 0) return locked;
+    final sess = await db.sessionDao.getActiveSession();
+    if (sess != null && sess.branchId > 0) return sess.branchId;
+    return null;
   }
 
   static Future<Map<String, Map<String, String>>> _branchImagesPayload(List<BranchModel> branches) async {

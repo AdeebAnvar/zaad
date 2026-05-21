@@ -25,10 +25,8 @@ import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_ui.dart';
 import 'package:pos/presentation/delivery/delivery_sale_screen.dart';
 import 'package:pos/presentation/driver_log/driver_log_screen.dart';
-import 'package:pos/presentation/delivery_log/delivery_log_cubit.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
-import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/presentation/dine_in/dine_in_screen.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_log_ui.dart';
 import 'package:pos/presentation/settings/lan_hub_settings_screen.dart';
@@ -128,6 +126,7 @@ class Routes {
             deliveryPartner: deliveryPartner,
             deliveryServiceId: deliveryServiceId,
             saleOrderType: orderType,
+            relaxedCatalogForLogEdit: orderId != null && orderType == OrderType.delivery,
           ),
           child: SaleScreen(
             orderType: orderType,
@@ -148,17 +147,7 @@ class Routes {
           child: const TakeAwayLogScreen(),
         ),
     deliverySale: (_) => RuntimeAppSettings.deliverySaleEnabled ? const DeliverySaleScreen() : const DashboardScreen(),
-    deliveryLog: (_) => BlocProvider(
-          create: (_) => DeliveryLogCubit(
-            locator<OrderRepository>(),
-            locator<DeliveryPartnerRepository>(),
-            locator<DriverRepository>(),
-            locator<LocalHubSettings>(),
-            locator<CurrentCounterSession>(),
-            hubOrdersLive: locator<HubOrdersLiveSync>(),
-          ),
-          child: const DeliveryLogScreen(),
-        ),
+    deliveryLog: (_) => const DeliveryLogScreen(),
     driverLog: (_) => const DriverLogScreen(),
     dineIn: (_) => const DineInScreen(),
     dineInLog: (_) => const DineInLogScreen(),

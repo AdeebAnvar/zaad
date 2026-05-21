@@ -5,6 +5,7 @@ import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/config/pos_app_runtime_config.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/network/pos_server_settings.dart';
+import 'package:pos/core/sync/lan_hub_reconnect_service.dart';
 import 'package:pos/core/sync/local_hub_primary_inbound_coordinator.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
 import 'package:pos/core/print/print_service.dart';
@@ -38,6 +39,7 @@ import 'package:pos/data/repository/push_records_repository.dart';
 import 'package:pos/data/repository_impl/pull_data_repository_impl.dart';
 import 'package:pos/data/repository_impl/push_records_repository_impl.dart';
 import 'package:pos/domain/models/api/sync/sync_api.dart';
+import 'package:pos/features/day_closing/data/day_closing_live_sync.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -161,12 +163,16 @@ class ZaadDI {
     if (!locator.isRegistered<HubOrdersLiveSync>()) {
       locator.registerLazySingleton<HubOrdersLiveSync>(() => HubOrdersLiveSync());
     }
+    if (!locator.isRegistered<DayClosingLiveSync>()) {
+      locator.registerLazySingleton<DayClosingLiveSync>(() => DayClosingLiveSync());
+    }
     if (!locator.isRegistered<LocalHubSyncCoordinator>()) {
       locator.registerLazySingleton<LocalHubSyncCoordinator>(
         () => LocalHubSyncCoordinator(
           db: locator<AppDatabase>(),
           settings: locator<LocalHubSettings>(),
           ordersLiveSync: locator<HubOrdersLiveSync>(),
+          dayClosingLiveSync: locator<DayClosingLiveSync>(),
           pullData: locator<PullDataRepository>(),
           userRepo: locator<UserRepository>(),
           branchRepo: locator<BranchRepository>(),
@@ -180,6 +186,7 @@ class ZaadDI {
           db: locator<AppDatabase>(),
           settings: locator<LocalHubSettings>(),
           ordersLiveSync: locator<HubOrdersLiveSync>(),
+          dayClosingLiveSync: locator<DayClosingLiveSync>(),
           pullData: locator<PullDataRepository>(),
           userRepo: locator<UserRepository>(),
           branchRepo: locator<BranchRepository>(),
@@ -257,5 +264,12 @@ class ZaadDI {
     }
     unawaited(locator<LocalHubSyncCoordinator>().startIfEnabled());
     unawaited(locator<LocalHubPrimaryInboundCoordinator>().startIfEnabled());
+
+    if (!locator.isRegistered<LanHubReconnectService>()) {
+      locator.registerLazySingleton<LanHubReconnectService>(
+        () => LanHubReconnectService(locator<LocalHubSettings>()),
+      );
+    }
+    locator<LanHubReconnectService>().ensureStarted();
   }
 }
