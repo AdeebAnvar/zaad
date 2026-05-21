@@ -985,15 +985,8 @@ class CartCubit extends Cubit<CartState> {
 
     // Update order with new totals and payment details
     final refNumber = existingOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : existingOrder.referenceNumber;
-    final paidTotal = (payments['cash'] ?? 0.0) +
-        (payments['credit'] ?? 0.0) +
-        (payments['card'] ?? 0.0) +
-        (payments['online'] ?? 0.0) +
-        (payments['other'] ?? 0.0);
-    final fullyPaid = finalAmount <= 0.009 || paidTotal + 0.02 >= finalAmount;
-    final deliveryStatus = existingOrder.orderType == 'delivery'
-        ? (fullyPaid ? 'completed' : existingOrder.status)
-        : 'completed';
+    final deliveryStatus =
+        existingOrder.orderType == 'delivery' ? existingOrder.status : 'completed';
 
     final updatedOrder = Order(
       id: existingOrder.id,

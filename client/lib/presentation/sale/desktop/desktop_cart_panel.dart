@@ -297,9 +297,7 @@ Future<void> showCartStylePaymentDialogForOrder(
           }
         }
 
-        final paidTotal = (payments['cash'] ?? 0.0) + (payments['credit'] ?? 0.0) + (payments['card'] ?? 0.0) + (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0);
-        final fullyPaid = finalAmount <= 0.009 || paidTotal + 0.02 >= finalAmount;
-        final deliveryStatus = freshOrder.orderType == 'delivery' ? (fullyPaid ? 'completed' : freshOrder.status) : 'completed';
+        final deliveryStatus = freshOrder.orderType == 'delivery' ? freshOrder.status : 'completed';
 
         final updatedOrder = freshOrder.copyWith(
           referenceNumber: Value(updatedRef),

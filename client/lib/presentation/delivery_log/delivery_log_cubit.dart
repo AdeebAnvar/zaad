@@ -21,6 +21,10 @@ part 'delivery_log_state.dart';
 /// Delivered, cancelled, and out-for-delivery rows belong in Driver Log or order history.
 const List<String> _kDeliverySaleLogPendingStatuses = ['placed', 'pending', 'kot'];
 
+/// True while the order is still in the sale-log phase (not dispatched / closed).
+bool isDeliverySaleLogPendingStatus(String status) =>
+    _kDeliverySaleLogPendingStatuses.contains(status.toLowerCase());
+
 List<Order> _filterDeliveryLogList(List<Order> orders) {
   return orders.where((o) {
     final s = o.status.toLowerCase();
@@ -316,17 +320,11 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
       final card = paymentType == 'CARD' ? finalAmount : 0.0;
       final credit = paymentType == 'CREDIT' ? finalAmount : 0.0;
       final online = paymentType == 'ONLINE' ? finalAmount : 0.0;
-      final paid = cash + card + credit + online;
-      final payable = order.finalAmount > 0.009 ? order.finalAmount : order.totalAmount;
-      final fullyPaid = payable <= 0.009 || paid + 0.02 >= payable;
-      final closeDelivery =
-          order.orderType == 'delivery' && fullyPaid && _kDeliverySaleLogPendingStatuses.contains(order.status.toLowerCase());
       final updated = order.copyWith(
         cashAmount: cash,
         cardAmount: card,
         creditAmount: credit,
         onlineAmount: online,
-        status: closeDelivery ? 'completed' : order.status,
       );
       await orderRepo.updateOrder(updated);
       if (paymentType == 'CASH') {

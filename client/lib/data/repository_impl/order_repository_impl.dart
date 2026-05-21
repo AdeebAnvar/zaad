@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:get_it/get_it.dart';
 import 'package:pos/core/services/backup_service.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:pos/core/constants/order_log_list_limits.dart';
@@ -14,6 +15,7 @@ import 'package:pos/core/utils/sales_csv_backup.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/core/debug/agent_debug_log.dart';
+import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/features/orders/data/hub_orders_payload_builder.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 
@@ -31,6 +33,18 @@ class OrderRepositoryImpl implements OrderRepository {
   Future<void> _afterMutation() async {
     await SalesCsvBackup.refreshFromDatabase(db);
     await BackupService.instance.recordOrderMutation(db);
+    _notifyOrderLogsRefresh();
+  }
+
+  void _notifyOrderLogsRefresh() {
+    try {
+      final g = GetIt.instance;
+      if (g.isRegistered<HubOrdersLiveSync>()) {
+        g<HubOrdersLiveSync>().notifyHubOrdersChanged();
+      }
+    } catch (_) {
+      /* DI not ready in tests */
+    }
   }
 
   static String? _dineInRoutingRefFromOrderRow(Order order) {
