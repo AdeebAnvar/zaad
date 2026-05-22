@@ -127,6 +127,76 @@ void main() {
   );
 
   test(
+    'computeDayClosingSummary: credit collected after day close appears in cash sale',
+    () async {
+      final db = AppDatabase.memory();
+      addTearDown(db.close);
+
+      await _seedMinimalCatalogAndSession(db);
+
+      final closedAt = DateTime(2026, 1, 15, 18);
+      await db.dayClosingCheckpointDao.upsertLastSettledAt(1, closedAt);
+
+      final cartId = await db.cartsDao.createCart('INV-CR', branchId: 1);
+      await db.into(db.cartItems).insert(
+            CartItemsCompanion.insert(
+              cartId: cartId,
+              itemId: 1,
+              quantity: 1,
+              total: const Value(100),
+              itemName: const Value('Burger'),
+            ),
+          );
+
+      final saleAt = DateTime(2026, 1, 15, 10);
+      final paidAt = DateTime(2026, 1, 15, 19);
+      final orderId = await db.ordersDao.createOrder(
+        OrdersCompanion.insert(
+          cartId: cartId,
+          invoiceNumber: 'INV-CR',
+          totalAmount: 100,
+          finalAmount: 100,
+          createdAt: saleAt,
+          status: const Value('completed'),
+          orderType: const Value('take_away'),
+          branchId: const Value(1),
+          cashAmount: const Value(0),
+          cardAmount: const Value(0),
+          creditAmount: const Value(100),
+          onlineAmount: const Value(0),
+          userId: const Value(1),
+        ),
+      );
+
+      await db.ordersDao.updateOrder(
+        OrdersCompanion(
+          id: Value(orderId),
+          cashAmount: const Value(100),
+          creditAmount: const Value(0),
+          hubMetadata: Value(
+            jsonEncode(<String, dynamic>{
+              'updatedAt': paidAt.millisecondsSinceEpoch,
+              'creditPayments': [
+                <String, dynamic>{
+                  'at': paidAt.millisecondsSinceEpoch,
+                  'amount': 100,
+                  'type': 'cash',
+                },
+              ],
+            }),
+          ),
+        ),
+      );
+
+      final summary = await computeDayClosingSummary(db);
+      expect(summary.cashSale, closeTo(100, 0.01));
+      expect(summary.creditRecovery, closeTo(100, 0.01));
+      expect(summary.creditSale, 0.0);
+      expect(summary.netTotal, 0.0);
+    },
+  );
+
+  test(
     'computeDayClosingSummary: billed gap includes offer when discount_amount under-reports',
     () async {
       final db = AppDatabase.memory();

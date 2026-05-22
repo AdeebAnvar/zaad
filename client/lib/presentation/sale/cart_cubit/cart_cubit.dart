@@ -268,6 +268,35 @@ class CartCubit extends Cubit<CartState> {
     await _updateKOTIfExists();
   }
 
+  /// Sets line quantity directly (tap-to-edit). Preserves effective unit price
+  /// `(total + discount) / quantity`, including manual unit overrides and toppings.
+  Future<void> setQuantityByCartItemId(int cartItemId, int newQuantity) async {
+    if (newQuantity < 1) {
+      await removeItemByCartItemId(cartItemId);
+      return;
+    }
+
+    final cartItem = state.items.firstWhere(
+      (item) => item.id == cartItemId,
+      orElse: () => throw StateError('Cart item not found'),
+    );
+    if (newQuantity == cartItem.quantity) return;
+
+    final perUnit = cartItem.quantity > 0
+        ? (cartItem.total + cartItem.discount) / cartItem.quantity
+        : 0.0;
+    final newTotal = (perUnit * newQuantity - cartItem.discount).clamp(0.0, double.infinity);
+
+    final updatedItem = cartItem.copyWith(
+      quantity: newQuantity,
+      total: newTotal,
+    );
+
+    await cartRepo.updateCartItem(updatedItem);
+    await _loadCartItems();
+    await _updateKOTIfExists();
+  }
+
   Future<void> _ensureCart() async {
     if (_activeCartId != null) return;
 

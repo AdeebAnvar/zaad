@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
@@ -52,21 +53,33 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
   ItemVariant? _variant;
   List<Map<String, dynamic>>? _toppings; // All toppings from JSON
   bool _isEditingUnitPrice = false;
+  bool _isEditingQty = false;
   late TextEditingController _unitPriceController;
+  late TextEditingController _qtyController;
   late final FocusNode _unitPriceFocusNode;
+  late final FocusNode _qtyFocusNode;
 
   @override
   void initState() {
     super.initState();
     _unitPriceController = TextEditingController();
+    _qtyController = TextEditingController();
     _unitPriceFocusNode = FocusNode();
+    _qtyFocusNode = FocusNode();
     _unitPriceFocusNode.addListener(_onUnitPriceFocusChange);
+    _qtyFocusNode.addListener(_onQtyFocusChange);
     _loadItemData();
   }
 
   void _onUnitPriceFocusChange() {
     if (!_unitPriceFocusNode.hasFocus && _isEditingUnitPrice) {
       _commitUnitPriceEdit();
+    }
+  }
+
+  void _onQtyFocusChange() {
+    if (!_qtyFocusNode.hasFocus && _isEditingQty) {
+      _commitQtyEdit();
     }
   }
 
@@ -82,6 +95,57 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
     }
   }
 
+  /// Reason + password when changing qty on a line already on KOT (not newly added).
+  Future<bool> _confirmQtyChangeIfRequired({
+    required bool isNewlyAdded,
+    required int newQty,
+    required int currentQty,
+  }) async {
+    if (isNewlyAdded || newQty == currentQty) return true;
+    return _showQtyChangeDialog(context);
+  }
+
+  Future<void> _commitQtyEdit() async {
+    if (!mounted || !_isEditingQty) return;
+    final cartCubit = context.read<CartCubit>();
+    final parsed = int.tryParse(_qtyController.text.trim());
+    if (parsed == null || parsed < 1) {
+      if (mounted) setState(() => _isEditingQty = false);
+      return;
+    }
+
+    final currentQty = widget.cartItem.quantity;
+    final isNewlyAdded = cartCubit.isNewlyAddedCartItem(widget.cartItem.id);
+    final proceed = await _confirmQtyChangeIfRequired(
+      isNewlyAdded: isNewlyAdded,
+      newQty: parsed,
+      currentQty: currentQty,
+    );
+    if (!proceed || !mounted) {
+      setState(() => _isEditingQty = false);
+      return;
+    }
+
+    await cartCubit.setQuantityByCartItemId(widget.cartItem.id, parsed);
+    if (mounted) setState(() => _isEditingQty = false);
+  }
+
+  void _startQtyEdit() {
+    setState(() {
+      _isEditingQty = true;
+      _isEditingUnitPrice = false;
+      _qtyController.text = '${widget.cartItem.quantity}';
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _qtyFocusNode.requestFocus();
+      _qtyController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _qtyController.text.length,
+      );
+    });
+  }
+
   @override
   void didUpdateWidget(_CartItemContent oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -90,7 +154,11 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
         oldWidget.cartItem.itemId != widget.cartItem.itemId ||
         oldWidget.cartItem.itemVariantId != widget.cartItem.itemVariantId ||
         oldWidget.cartItem.itemToppingId != widget.cartItem.itemToppingId ||
-        oldWidget.cartItem.notes != widget.cartItem.notes) {
+        oldWidget.cartItem.notes != widget.cartItem.notes ||
+        oldWidget.cartItem.quantity != widget.cartItem.quantity) {
+      if (!_isEditingQty && oldWidget.cartItem.quantity != widget.cartItem.quantity) {
+        _qtyController.text = '${widget.cartItem.quantity}';
+      }
       // Only clear cached product when switching to a different catalog item (avoids full-row spinner flash on other updates).
       if (oldWidget.cartItem.itemId != widget.cartItem.itemId) {
         _variant = null;
@@ -103,8 +171,11 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
   @override
   void dispose() {
     _unitPriceFocusNode.removeListener(_onUnitPriceFocusChange);
+    _qtyFocusNode.removeListener(_onQtyFocusChange);
     _unitPriceFocusNode.dispose();
+    _qtyFocusNode.dispose();
     _unitPriceController.dispose();
+    _qtyController.dispose();
     super.dispose();
   }
 
@@ -235,6 +306,7 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                   onTap: () {
                     setState(() {
                       _isEditingUnitPrice = true;
+                      _isEditingQty = false;
                       _unitPriceController.text = unitPrice.toStringAsFixed(2);
                     });
                   },
@@ -370,26 +442,60 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                           QtyButton(
                             icon: Icons.remove,
                             onTap: () async {
-                              if (isNewlyAdded) {
-                                context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
-                              } else {
-                                final proceed = await _showDeleteDialog(context);
-                                if (proceed && context.mounted) {
-                                  context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
-                                }
-                              }
+                              if (_isEditingQty) await _commitQtyEdit();
+                              if (!context.mounted) return;
+                              final targetQty = widget.cartItem.quantity - 1;
+                              final proceed = await _confirmQtyChangeIfRequired(
+                                isNewlyAdded: isNewlyAdded,
+                                newQty: targetQty < 1 ? 0 : targetQty,
+                                currentQty: widget.cartItem.quantity,
+                              );
+                              if (!proceed || !context.mounted) return;
+                              context.read<CartCubit>().decreaseQtyByCartItemId(widget.cartItem.id);
                             },
                           ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            child: Text(
-                              "${widget.cartItem.quantity}",
-                              style: AppStyles.getSemiBoldTextStyle(fontSize: 15),
-                            ),
-                          ),
+                          _isEditingQty
+                              ? SizedBox(
+                                  width: 48,
+                                  child: TextField(
+                                    controller: _qtyController,
+                                    focusNode: _qtyFocusNode,
+                                    textAlign: TextAlign.center,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                    style: AppStyles.getSemiBoldTextStyle(fontSize: 15),
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    onSubmitted: (_) => _commitQtyEdit(),
+                                  ),
+                                )
+                              : GestureDetector(
+                                  onTap: _startQtyEdit,
+                                  behavior: HitTestBehavior.opaque,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    child: Text(
+                                      '${widget.cartItem.quantity}',
+                                      style: AppStyles.getSemiBoldTextStyle(fontSize: 15),
+                                    ),
+                                  ),
+                                ),
                           QtyButton(
                             icon: Icons.add,
-                            onTap: () => context.read<CartCubit>().increaseQtyByCartItemId(widget.cartItem.id),
+                            onTap: () async {
+                              if (_isEditingQty) await _commitQtyEdit();
+                              if (!context.mounted) return;
+                              final proceed = await _confirmQtyChangeIfRequired(
+                                isNewlyAdded: isNewlyAdded,
+                                newQty: widget.cartItem.quantity + 1,
+                                currentQty: widget.cartItem.quantity,
+                              );
+                              if (!proceed || !context.mounted) return;
+                              context.read<CartCubit>().increaseQtyByCartItemId(widget.cartItem.id);
+                            },
                           ),
                         ],
                       ),
@@ -404,13 +510,16 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
     );
   }
 
-  Future<bool> _showDeleteDialog(BuildContext context) async {
+  Future<bool> _showQtyChangeDialog(
+    BuildContext context, {
+    bool forItemDelete = false,
+  }) async {
     final reasonController = TextEditingController();
     final refController = TextEditingController();
-    bool isDeleted = false;
+    bool confirmed = false;
     await showGeneralDialog(
       context: context,
-      barrierLabel: "Delete Dialog",
+      barrierLabel: forItemDelete ? "Delete Dialog" : "Qty Change Dialog",
       barrierDismissible: true,
       barrierColor: Colors.black.withOpacity(0.35),
       transitionDuration: const Duration(milliseconds: 220),
@@ -428,7 +537,7 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _title(),
+                  _qtyGuardDialogTitle(forItemDelete: forItemDelete),
                   const SizedBox(height: 16),
                   _textField(
                     controller: reasonController,
@@ -460,9 +569,9 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
                               return;
                             }
                             Navigator.pop(context);
-                            isDeleted = true;
+                            confirmed = true;
                           },
-                          text: "Delete",
+                          text: forItemDelete ? 'Delete' : 'Confirm',
                         ),
                       ),
                     ],
@@ -488,7 +597,24 @@ class _CartItemContentState extends State<_CartItemContent> with AutomaticKeepAl
         );
       },
     );
-    return isDeleted;
+    return confirmed;
+  }
+
+  Future<bool> _showDeleteDialog(BuildContext context) =>
+      _showQtyChangeDialog(context, forItemDelete: true);
+
+  Widget _qtyGuardDialogTitle({required bool forItemDelete}) {
+    if (forItemDelete) return _title();
+    return Column(
+      children: [
+        Icon(Icons.edit_outlined, color: AppColors.primaryColor, size: 32),
+        const SizedBox(height: 8),
+        Text(
+          'Change quantity',
+          style: AppStyles.getBoldTextStyle(fontSize: 18),
+        ),
+      ],
+    );
   }
 
   Widget _textField({

@@ -258,9 +258,16 @@ Future<void> showCartStylePaymentDialogForOrder(
       deliveryPartner: order.deliveryPartner,
       prefill: prefill,
       onSave: (customerDetails, discount, payments, {required printInvoice, required printKot}) async {
+        final logContext = context;
+        try {
         final repo = locator<OrderRepository>();
         final freshOrder = await repo.getOrderById(order.id);
-        if (freshOrder == null) return;
+        if (freshOrder == null) {
+          if (dialogContext.mounted) {
+            showErrorDialog(dialogContext, 'Order not found. It may have been deleted.');
+          }
+          return;
+        }
 
         final discountAmount = (discount['value'] as num?)?.toDouble() ?? 0.0;
         final discountType = (discount['type'] as String?) ?? 'amount';
@@ -332,48 +339,59 @@ Future<void> showCartStylePaymentDialogForOrder(
         );
         // #endregion
 
-        final db = locator<AppDatabase>();
-        final printSvc = locator<PrintService>();
-        final cartItems = await OrderLogCartFallback.resolve(
-          order: updatedOrder,
-          db: db,
-          cartRepo: cartRepo,
-        );
-        final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
-        final printFailed = <String>[];
-        // Cash drawer: any cash tender — independent of Invoice/KOT print toggles.
-        printFailed.addAll(
-          await openCashDrawerForCashPayment(
-            resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
-          ),
-        );
-        if (printKot && cartItems.isNotEmpty) {
-          printFailed.addAll(
-            await printSvc.printKOTPerKitchen(
-              cartItems: cartItems,
-              order: updatedOrder,
-              referenceNumber: ref,
-              invoiceNumber: updatedOrder.invoiceNumber,
-              branchId: updatedOrder.branchId,
-              orderedAt: updatedOrder.createdAt,
-            ),
-          );
+        if (dialogContext.mounted) {
+          Navigator.of(dialogContext, rootNavigator: true).pop(true);
         }
-        if (printInvoice) {
-          printFailed.addAll(
-            await printSvc.printFinalBill(
-              order: updatedOrder,
-              cartItems: cartItems,
-              asTaxInvoice: printInvoice,
-            ),
-          );
-        }
-        if (printFailed.isNotEmpty && dialogContext.mounted) {
-          showPrintFailedDialog(dialogContext, printFailed);
-        }
-
-        if (dialogContext.mounted) Navigator.of(dialogContext).pop(true);
         onPaymentRecorded?.call();
+
+        final printFailed = <String>[];
+        try {
+          final db = locator<AppDatabase>();
+          final printSvc = locator<PrintService>();
+          final cartItems = await OrderLogCartFallback.resolve(
+            order: updatedOrder,
+            db: db,
+            cartRepo: cartRepo,
+          );
+          final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
+          // Cash drawer: any cash tender — independent of Invoice/KOT print toggles.
+          printFailed.addAll(
+            await openCashDrawerForCashPayment(
+              resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
+            ),
+          );
+          if (printKot && cartItems.isNotEmpty) {
+            printFailed.addAll(
+              await printSvc.printKOTPerKitchen(
+                cartItems: cartItems,
+                order: updatedOrder,
+                referenceNumber: ref,
+                invoiceNumber: updatedOrder.invoiceNumber,
+                branchId: updatedOrder.branchId,
+                orderedAt: updatedOrder.createdAt,
+              ),
+            );
+          }
+          if (printInvoice) {
+            printFailed.addAll(
+              await printSvc.printFinalBill(
+                order: updatedOrder,
+                cartItems: cartItems,
+                asTaxInvoice: printInvoice,
+              ),
+            );
+          }
+        } catch (e) {
+          printFailed.add('Print failed: $e');
+        }
+        if (printFailed.isNotEmpty && logContext.mounted) {
+          showPrintFailedDialog(logContext, printFailed);
+        }
+        } catch (e) {
+          if (dialogContext.mounted) {
+            showErrorDialog(dialogContext, e);
+          }
+        }
       },
     ),
   );
@@ -932,10 +950,10 @@ class CartPanel extends StatelessWidget {
             }
 
             if (dialogContext.mounted) {
-              Navigator.of(dialogContext).pop(true); // ✅ return true
+              Navigator.of(dialogContext, rootNavigator: true).pop(true);
             }
 
-            // Show printer warning before popping the cart sheet, so [context] stays valid.
+            // Show printer warning after closing payment dialog so the route stays valid.
             if (printFailed.isNotEmpty && context.mounted) {
               showPrintFailedDialog(context, printFailed);
             }
@@ -2162,6 +2180,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
                             printInvoice: _printInvoice,
                             printKot: _printKot,
                           );
+                        } catch (e) {
+                          if (mounted) {
+                            showErrorDialog(context, e);
+                          }
                         } finally {
                           if (mounted) {
                             setState(() => _isSubmitting = false);
