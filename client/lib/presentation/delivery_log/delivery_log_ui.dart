@@ -656,7 +656,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
           tooltip: 'Edit',
           onTap: () => _handleEdit(context, order),
         ),
-        if (!isDeliverySaleLogPendingStatus(order.status))
+        if (deliveryLogShowPayAction(order))
           LogCardAction(
             icon: Icons.payments_outlined,
             tooltip: 'Pay',

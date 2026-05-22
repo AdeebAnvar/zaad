@@ -21,19 +21,18 @@ part 'delivery_log_state.dart';
 /// Delivered, cancelled, and out-for-delivery rows belong in Driver Log or order history.
 const List<String> _kDeliverySaleLogPendingStatuses = ['placed', 'pending', 'kot'];
 
-/// Pending dispatch and still owes payment (fully paid rows leave this log).
+/// Sale-log phase only (placed / pending / KOT). Payment may already be recorded at Save.
 bool deliveryLogOrderVisible(Order o) {
-  final s = o.status.toLowerCase();
-  if (!_kDeliverySaleLogPendingStatuses.contains(s)) return false;
-  final payable = o.finalAmount > 0.009 ? o.finalAmount : o.totalAmount;
-  if (payable <= 0.009) return true;
-  final paid = o.cashAmount + o.cardAmount + o.creditAmount + o.onlineAmount;
-  return paid + 0.02 < payable;
+  return _kDeliverySaleLogPendingStatuses.contains(o.status.toLowerCase());
 }
 
 /// True while the order is still in the sale-log phase (not dispatched / closed).
 bool isDeliverySaleLogPendingStatus(String status) =>
     _kDeliverySaleLogPendingStatuses.contains(status.toLowerCase());
+
+/// Pay is not offered in sale log while status is still Pending (use counter Save or Driver Log).
+bool deliveryLogShowPayAction(Order order) =>
+    !isDeliverySaleLogPendingStatus(order.status);
 
 List<Order> _filterDeliveryLogList(List<Order> orders) {
   return orders.where(deliveryLogOrderVisible).toList();

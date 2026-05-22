@@ -38,12 +38,12 @@ void main() {
     );
   });
 
-  test('deliveryLogOrderVisible hides fully paid pending delivery', () {
+  test('deliveryLogOrderVisible keeps fully paid pending delivery', () {
     expect(
       deliveryLogOrderVisible(
         _deliveryOrder(status: 'pending', cash: 100),
       ),
-      isFalse,
+      isTrue,
     );
   });
 
@@ -63,5 +63,16 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  test('deliveryLogShowPayAction hides pay for pending phase', () {
+    expect(deliveryLogShowPayAction(_deliveryOrder(status: 'pending')), isFalse);
+    expect(deliveryLogShowPayAction(_deliveryOrder(status: 'placed')), isFalse);
+    expect(deliveryLogShowPayAction(_deliveryOrder(status: 'kot')), isFalse);
+  });
+
+  test('deliveryLogShowPayAction allows pay after dispatch status', () {
+    expect(deliveryLogShowPayAction(_deliveryOrder(status: 'dispatched')), isTrue);
+    expect(deliveryLogShowPayAction(_deliveryOrder(status: 'out_of_delivery')), isTrue);
   });
 }
