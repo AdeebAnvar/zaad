@@ -239,6 +239,9 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
     }
   }
 
+  bool get _showTargetDetails =>
+      _target != null && !(widget.sourceOrderType == 'dine_in' && _target == 'take_away');
+
   Future<void> _submit() async {
     if (_target == null || _submitting) return;
     setState(() => _submitting = true);
@@ -251,6 +254,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
             cartRepo: _cartRepo,
             order: widget.order,
             referenceNumber: _refTakeAway.text,
+            requireReference: widget.sourceOrderType != 'dine_in',
           );
           break;
         case 'delivery':
@@ -358,7 +362,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
                 )
                 .toList(),
           ),
-          if (_target != null) ...[
+          if (_showTargetDetails) ...[
             const SizedBox(height: 16),
             const Divider(height: 1),
             const SizedBox(height: 12),
@@ -414,6 +418,9 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
   }
 
   Widget _takeAwayForm() {
+    if (widget.sourceOrderType == 'dine_in') {
+      return const SizedBox.shrink();
+    }
     return CustomTextField(
       controller: _refTakeAway,
       labelText: 'Reference No#:',

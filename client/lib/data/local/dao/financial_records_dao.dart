@@ -112,4 +112,29 @@ class FinancialRecordsDao extends DatabaseAccessor<AppDatabase> with _$Financial
       const FinancialRecordsCompanion(synced: Value(true)),
     );
   }
+
+  /// Latest TRN per company name from expense rows (name + TRN both required).
+  Future<List<({String name, String trn})>> listExpenseCompanySuggestions({
+    required int branchId,
+  }) async {
+    final rows = await (select(financialRecords)
+          ..where((t) => t.branchId.equals(branchId))
+          ..where((t) => t.recordType.equals('expense'))
+          ..where((t) => t.companyName.isNotNull())
+          ..where((t) => t.companyTrn.isNotNull())
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .get();
+
+    final seen = <String>{};
+    final out = <({String name, String trn})>[];
+    for (final r in rows) {
+      final name = r.companyName?.trim() ?? '';
+      final trn = r.companyTrn?.trim() ?? '';
+      if (name.isEmpty || trn.isEmpty) continue;
+      final key = name.toLowerCase();
+      if (!seen.add(key)) continue;
+      out.add((name: name, trn: trn));
+    }
+    return out;
+  }
 }

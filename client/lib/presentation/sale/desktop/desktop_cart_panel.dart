@@ -234,6 +234,7 @@ Future<void> showCartStylePaymentDialogForOrder(
   BuildContext context, {
   required Order order,
   VoidCallback? onPaymentRecorded,
+
   /// When true, a fully paid pre-dispatch delivery order becomes Delivered (`completed`).
   bool fromDeliveryLog = false,
 }) async {
@@ -281,138 +282,148 @@ Future<void> showCartStylePaymentDialogForOrder(
       deliveryPartner: order.deliveryPartner,
       prefill: prefill,
       onSave: (customerDetails, discount, payments, {required printInvoice, required printKot}) async {
-        final repo = locator<OrderRepository>();
-        final freshOrder = await repo.getOrderById(order.id);
-        if (freshOrder == null) return;
+        final logContext = context;
+        try {
+          final repo = locator<OrderRepository>();
+          final freshOrder = await repo.getOrderById(order.id);
+          if (freshOrder == null) {
+            if (dialogContext.mounted) {
+              showErrorDialog(dialogContext, 'Order not found. It may have been deleted.');
+            }
+            return;
+          }
 
-        final discountAmount = (discount['value'] as num?)?.toDouble() ?? 0.0;
-        final discountType = (discount['type'] as String?) ?? 'amount';
-        final manualDiscountAmount = discountType == 'percentage'
-            ? (freshOrder.totalAmount * (discountAmount / 100)).clamp(0.0, freshOrder.totalAmount).toDouble()
-            : discountAmount.clamp(0.0, freshOrder.totalAmount).toDouble();
-        final rawOffer = discount['offer'];
-        final offer = rawOffer is Map ? Map<String, dynamic>.from(rawOffer) : null;
-        final offerDiscountAmount = (offer?['discountAmount'] as num?)?.toDouble() ?? (double.tryParse(offer?['discountAmount']?.toString() ?? '') ?? 0.0);
-        final totalDiscount = (manualDiscountAmount + offerDiscountAmount).clamp(0.0, freshOrder.totalAmount).toDouble();
-        final finalAmount = (freshOrder.totalAmount - totalDiscount).clamp(0.0, double.infinity);
-        final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
-        final isDineIn = (freshOrder.orderType ?? '').trim().toLowerCase() == 'dine_in';
-        final updatedRef = isDineIn
-            ? null
-            : (freshOrder.orderType == 'delivery' &&
-                    onlineOrderNumber != null &&
-                    onlineOrderNumber.isNotEmpty
-                ? onlineOrderNumber
-                : freshOrder.referenceNumber);
-        final addrRaw = customerDetails['address'];
-        final customerAddr =
-            addrRaw is String && addrRaw.trim().isNotEmpty ? addrRaw.trim() : null;
-        String? hubMetadataWithOffer = freshOrder.hubMetadata;
-        if (offer != null) {
-          final cleanedOffer = <String, dynamic>{
-            'name': offer['name']?.toString() ?? '',
-            'uuid': offer['uuid']?.toString() ?? '',
-            'type': offer['type']?.toString() ?? '',
-            'value': (offer['value'] as num?)?.toDouble() ?? (double.tryParse(offer['value']?.toString() ?? '') ?? 0.0),
-            'discountAmount': offerDiscountAmount,
-            'toDate': offer['toDate']?.toString() ?? '',
-            if (offer['autoDayDiscount'] != null)
-              'autoDayDiscount': (offer['autoDayDiscount'] as num?)?.toDouble() ?? (double.tryParse(offer['autoDayDiscount']?.toString() ?? '') ?? 0.0),
-            if (offer['autoDayOfferNames'] is List) 'autoDayOfferNames': offer['autoDayOfferNames'],
-          };
+          final discountAmount = (discount['value'] as num?)?.toDouble() ?? 0.0;
+          final discountType = (discount['type'] as String?) ?? 'amount';
+          final manualDiscountAmount = discountType == 'percentage'
+              ? (freshOrder.totalAmount * (discountAmount / 100)).clamp(0.0, freshOrder.totalAmount).toDouble()
+              : discountAmount.clamp(0.0, freshOrder.totalAmount).toDouble();
+          final rawOffer = discount['offer'];
+          final offer = rawOffer is Map ? Map<String, dynamic>.from(rawOffer) : null;
+          final offerDiscountAmount = (offer?['discountAmount'] as num?)?.toDouble() ?? (double.tryParse(offer?['discountAmount']?.toString() ?? '') ?? 0.0);
+          final totalDiscount = (manualDiscountAmount + offerDiscountAmount).clamp(0.0, freshOrder.totalAmount).toDouble();
+          final finalAmount = (freshOrder.totalAmount - totalDiscount).clamp(0.0, double.infinity);
+          final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
+          final isDineIn = (freshOrder.orderType ?? '').trim().toLowerCase() == 'dine_in';
+          final updatedRef =
+              isDineIn ? null : (freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : freshOrder.referenceNumber);
+          final addrRaw = customerDetails['address'];
+          final customerAddr = addrRaw is String && addrRaw.trim().isNotEmpty ? addrRaw.trim() : null;
+          String? hubMetadataWithOffer = freshOrder.hubMetadata;
+          if (offer != null) {
+            final cleanedOffer = <String, dynamic>{
+              'name': offer['name']?.toString() ?? '',
+              'uuid': offer['uuid']?.toString() ?? '',
+              'type': offer['type']?.toString() ?? '',
+              'value': (offer['value'] as num?)?.toDouble() ?? (double.tryParse(offer['value']?.toString() ?? '') ?? 0.0),
+              'discountAmount': offerDiscountAmount,
+              'toDate': offer['toDate']?.toString() ?? '',
+              if (offer['autoDayDiscount'] != null)
+                'autoDayDiscount': (offer['autoDayDiscount'] as num?)?.toDouble() ?? (double.tryParse(offer['autoDayDiscount']?.toString() ?? '') ?? 0.0),
+              if (offer['autoDayOfferNames'] is List) 'autoDayOfferNames': offer['autoDayOfferNames'],
+            };
+            try {
+              final existing = (hubMetadataWithOffer != null && hubMetadataWithOffer.trim().isNotEmpty) ? jsonDecode(hubMetadataWithOffer) : <String, dynamic>{};
+              final map = existing is Map ? Map<String, dynamic>.from(existing) : <String, dynamic>{};
+              map['applied_offer'] = cleanedOffer;
+              hubMetadataWithOffer = jsonEncode(map);
+            } catch (_) {
+              hubMetadataWithOffer = jsonEncode({'applied_offer': cleanedOffer});
+            }
+          }
+
+          final updatedOrder = freshOrder.copyWith(
+            referenceNumber: Value(updatedRef),
+            discountAmount: totalDiscount,
+            discountType: Value(totalDiscount > 0 ? 'amount' : discountType),
+            finalAmount: finalAmount,
+            customerName: Value(customerDetails['name'] as String?),
+            customerEmail: Value(customerDetails['email'] as String?),
+            customerPhone: Value(customerDetails['phone'] as String?),
+            customerGender: Value(customerDetails['gender'] as String?),
+            customerAddress: Value(customerAddr),
+            cashAmount: payments['cash'] ?? 0.0,
+            creditAmount: payments['credit'] ?? 0.0,
+            cardAmount: payments['card'] ?? 0.0,
+            onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
+            status: _statusAfterOrderLogPayment(
+              freshOrder,
+              finalAmount,
+              payments,
+              fromDeliveryLog: fromDeliveryLog,
+            ),
+            hubMetadata: Value(hubMetadataWithOffer),
+          );
+
+          await repo.updateOrder(updatedOrder);
+          // #region agent log
+          agentDebugLog(
+            hypothesisId: 'H1',
+            location: 'desktop_cart_panel.dart:pay',
+            message: 'counter_pay_saved',
+            data: <String, Object?>{
+              'orderId': updatedOrder.id,
+              'orderType': updatedOrder.orderType,
+              'status': updatedOrder.status,
+              'invoice': updatedOrder.invoiceNumber,
+              'paid': updatedOrder.cashAmount + updatedOrder.cardAmount + updatedOrder.creditAmount + updatedOrder.onlineAmount,
+            },
+          );
+          // #endregion
+
+          if (dialogContext.mounted) {
+            Navigator.of(dialogContext, rootNavigator: true).pop(true);
+          }
+          onPaymentRecorded?.call();
+
+          final printFailed = <String>[];
           try {
-            final existing = (hubMetadataWithOffer != null && hubMetadataWithOffer.trim().isNotEmpty) ? jsonDecode(hubMetadataWithOffer) : <String, dynamic>{};
-            final map = existing is Map ? Map<String, dynamic>.from(existing) : <String, dynamic>{};
-            map['applied_offer'] = cleanedOffer;
-            hubMetadataWithOffer = jsonEncode(map);
-          } catch (_) {
-            hubMetadataWithOffer = jsonEncode({'applied_offer': cleanedOffer});
+            final db = locator<AppDatabase>();
+            final printSvc = locator<PrintService>();
+            final cartItems = await OrderLogCartFallback.resolve(
+              order: updatedOrder,
+              db: db,
+              cartRepo: cartRepo,
+            );
+            final ref = DineInRefParser.printableRoutingLabel(updatedOrder);
+            // Cash drawer: any cash tender — independent of Invoice/KOT print toggles.
+            printFailed.addAll(
+              await openCashDrawerForCashPayment(
+                resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
+              ),
+            );
+            if (printKot && cartItems.isNotEmpty) {
+              printFailed.addAll(
+                await printSvc.printKOTPerKitchen(
+                  cartItems: cartItems,
+                  order: updatedOrder,
+                  referenceNumber: ref,
+                  invoiceNumber: updatedOrder.invoiceNumber,
+                  branchId: updatedOrder.branchId,
+                  orderedAt: updatedOrder.createdAt,
+                ),
+              );
+            }
+            if (printInvoice) {
+              printFailed.addAll(
+                await printSvc.printFinalBill(
+                  order: updatedOrder,
+                  cartItems: cartItems,
+                  asTaxInvoice: printInvoice,
+                ),
+              );
+            }
+          } catch (e) {
+            printFailed.add('Print failed: $e');
+          }
+          if (printFailed.isNotEmpty && logContext.mounted) {
+            showPrintFailedDialog(logContext, printFailed);
+          }
+        } catch (e) {
+          if (dialogContext.mounted) {
+            showErrorDialog(dialogContext, e);
           }
         }
-
-        final deliveryStatus = freshOrder.orderType == 'delivery' ? freshOrder.status : 'completed';
-
-        final updatedOrder = freshOrder.copyWith(
-          referenceNumber: Value(updatedRef),
-          discountAmount: totalDiscount,
-          discountType: Value(totalDiscount > 0 ? 'amount' : discountType),
-          finalAmount: finalAmount,
-          customerName: Value(customerDetails['name'] as String?),
-          customerEmail: Value(customerDetails['email'] as String?),
-          customerPhone: Value(customerDetails['phone'] as String?),
-          customerGender: Value(customerDetails['gender'] as String?),
-          customerAddress: Value(customerAddr),
-          cashAmount: payments['cash'] ?? 0.0,
-          creditAmount: payments['credit'] ?? 0.0,
-          cardAmount: payments['card'] ?? 0.0,
-          onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
-          status: _statusAfterOrderLogPayment(
-            freshOrder,
-            finalAmount,
-            payments,
-            fromDeliveryLog: fromDeliveryLog,
-          ),
-          hubMetadata: Value(hubMetadataWithOffer),
-        );
-
-        await repo.updateOrder(updatedOrder);
-        // #region agent log
-        agentDebugLog(
-          hypothesisId: 'H1',
-          location: 'desktop_cart_panel.dart:pay',
-          message: 'counter_pay_saved',
-          data: <String, Object?>{
-            'orderId': updatedOrder.id,
-            'orderType': updatedOrder.orderType,
-            'status': updatedOrder.status,
-            'invoice': updatedOrder.invoiceNumber,
-            'paid': updatedOrder.cashAmount + updatedOrder.cardAmount + updatedOrder.creditAmount + updatedOrder.onlineAmount,
-          },
-        );
-        // #endregion
-
-        final db = locator<AppDatabase>();
-        final printSvc = locator<PrintService>();
-        final cartItems = await OrderLogCartFallback.resolve(
-          order: updatedOrder,
-          db: db,
-          cartRepo: cartRepo,
-        );
-        final ref = DineInRefParser.printableRoutingLabel(updatedOrder);
-        final printFailed = <String>[];
-        // Cash drawer: any cash tender — independent of Invoice/KOT print toggles.
-        printFailed.addAll(
-          await openCashDrawerForCashPayment(
-            resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
-          ),
-        );
-        if (printKot && cartItems.isNotEmpty) {
-          printFailed.addAll(
-            await printSvc.printKOTPerKitchen(
-              cartItems: cartItems,
-              order: updatedOrder,
-              referenceNumber: ref,
-              invoiceNumber: updatedOrder.invoiceNumber,
-              branchId: updatedOrder.branchId,
-              orderedAt: updatedOrder.createdAt,
-            ),
-          );
-        }
-        if (printInvoice) {
-          printFailed.addAll(
-            await printSvc.printFinalBill(
-              order: updatedOrder,
-              cartItems: cartItems,
-              asTaxInvoice: printInvoice,
-            ),
-          );
-        }
-        if (printFailed.isNotEmpty && dialogContext.mounted) {
-          showPrintFailedDialog(dialogContext, printFailed);
-        }
-
-        if (dialogContext.mounted) Navigator.of(dialogContext).pop(true);
-        onPaymentRecorded?.call();
       },
     ),
   );
@@ -681,65 +692,6 @@ class CartPanel extends StatelessWidget {
                               ),
                             ],
                           );
-                          // }
-
-                          // Narrow screens: stack buttons to avoid overflow.
-                          // return Column(
-                          //   crossAxisAlignment: CrossAxisAlignment.stretch,
-                          //   children: [
-                          //     Align(
-                          //       alignment: Alignment.centerRight,
-                          //       child: IconButton(
-                          //         tooltip: 'View cart',
-                          //         icon: Icon(
-                          //           Icons.visibility_outlined,
-                          //           color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
-                          //         ),
-                          //         onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
-                          //       ),
-                          //     ),
-                          //     const SizedBox(height: 4),
-                          //     _KitchenOrderIconButton(
-                          //       width: constraints.maxWidth,
-                          //       onPressed: state.items.isEmpty
-                          //           ? null
-                          //           : () async {
-                          //               final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
-                          //               final skipKotReferenceDialog = hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
-                          //               if (skipKotReferenceDialog) {
-                          //                 try {
-                          //                   final printFailed = await cartCubit.saveKOTWithExistingReference();
-                          //                   if (context.mounted) {
-                          //                     CustomSnackBar.showKotSaved(context: context);
-                          //                     if (printFailed.isNotEmpty) {
-                          //                       showPrintFailedDialog(context, printFailed);
-                          //                     }
-                          //                     if (closeOnComplete) {
-                          //                       Navigator.maybePop(context);
-                          //                     }
-                          //                     schedulePopSaleScreenToDineIn(context);
-                          //                   }
-                          //                 } catch (e) {
-                          //                   if (context.mounted) showErrorDialog(context, e);
-                          //                 }
-                          //               } else {
-                          //                 showKOTDialog(context);
-                          //               }
-                          //             },
-                          //     ),
-                          //     const SizedBox(height: 10),
-                          //     CustomButton(
-                          //       width: 80,
-                          //       onPressed: state.items.isEmpty
-                          //           ? () {}
-                          //           : () async {
-                          //               await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
-                          //               onCloseCart?.call(true);
-                          //             },
-                          //       text: "Pay",
-                          //     ),
-                          //   ],
-                          // );
                         },
                       );
 
@@ -822,10 +774,10 @@ class CartPanel extends StatelessWidget {
             }
 
             if (dialogContext.mounted) {
-              Navigator.of(dialogContext).pop(true); // ✅ return true
+              Navigator.of(dialogContext, rootNavigator: true).pop(true);
             }
 
-            // Show printer warning before popping the cart sheet, so [context] stays valid.
+            // Show printer warning after closing payment dialog so the route stays valid.
             if (printFailed.isNotEmpty && context.mounted) {
               showPrintFailedDialog(context, printFailed);
             }
@@ -922,7 +874,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   bool _loadingCustomers = true;
   bool _isSubmitting = false;
   bool _showOtherPaymentField = false;
-  bool _printInvoice = true;
+  bool _printInvoice = false;
 
   /// Off by default: KOT is usually sent earlier via the KOT button; enable when settling should re-print kitchen.
   bool _printKot = false;
@@ -2038,6 +1990,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
                             printInvoice: _printInvoice,
                             printKot: _printKot,
                           );
+                        } catch (e) {
+                          if (mounted) {
+                            showErrorDialog(context, e);
+                          }
                         } finally {
                           if (mounted) {
                             setState(() => _isSubmitting = false);
@@ -2086,7 +2042,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 width: 32,
                 child: Checkbox(
                   value: _printInvoice,
-                  onChanged: (v) => setState(() => _printInvoice = v ?? true),
+                  onChanged: (v) => setState(() => _printInvoice = v ?? false),
                 ),
               ),
               Text('Invoice print', style: labelStyle),

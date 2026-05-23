@@ -1,11 +1,13 @@
 import 'dart:math' as math;
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/print/cash_drawer_on_payment.dart';
+import 'package:pos/core/utils/credit_payment_metadata.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -120,6 +122,13 @@ class _PayCreditBillDialogState extends State<_PayCreditBillDialog> {
         cardAmount: card,
         onlineAmount: online,
         creditAmount: newCredit,
+        hubMetadata: Value(
+          hubMetadataWithCreditPayment(
+            existingHubMetadata: fresh.hubMetadata,
+            amount: pay,
+            type: type,
+          ),
+        ),
       );
       await repo.updateOrder(updated);
       if (type == 'cash') {

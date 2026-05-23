@@ -39,6 +39,17 @@ class PaymentMethodOption {
   int get hashCode => id.hashCode;
 }
 
+/// Prior expense vendor — used for company-name autocomplete when creating expenses.
+class ExpenseCompanySuggestion {
+  const ExpenseCompanySuggestion({
+    required this.name,
+    this.trn,
+  });
+
+  final String name;
+  final String? trn;
+}
+
 class NewFinancialRecordInput {
   const NewFinancialRecordInput({
     required this.type,
@@ -83,6 +94,9 @@ abstract class FinancialRecordRepository {
   Future<List<ExpenseCategoryOption>> getExpenseCategories(int branchId);
 
   Future<List<PaymentMethodOption>> getPaymentMethods(int branchId);
+
+  /// Distinct company names from past expenses (with TRN when saved), newest first.
+  Future<List<ExpenseCompanySuggestion>> getExpenseCompanySuggestions(int branchId);
 
   Future<List<FinancialRecord>> listRecords({
     required int branchId,

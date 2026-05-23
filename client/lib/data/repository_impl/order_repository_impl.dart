@@ -9,6 +9,7 @@ import 'package:pos/core/constants/order_log_list_limits.dart';
 import 'package:pos/core/sync/cloud_order_push_queue.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/outbound_push_coordinator.dart';
+import 'package:pos/core/utils/credit_payment_metadata.dart';
 import 'package:pos/core/utils/invoice_number_utils.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
@@ -93,11 +94,14 @@ class OrderRepositoryImpl implements OrderRepository {
     final snapshot = await _orderSnapshotMap(order, cartItems);
     final anchor = DineInRefParser.dineInAnchorFromHubMetadata(order.hubMetadata) ??
         _dineInRoutingRefFromOrderRow(order);
+    final creditPayments = creditPaymentsFromHubMetadata(order.hubMetadata);
     final hubMeta = jsonEncode(<String, dynamic>{
       'orderId': HubOrderLanPublisher.hubOrderCorrelationId(order, order.id),
       'snapshot': snapshot,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
       if (anchor != null && anchor.isNotEmpty) DineInRefParser.hubMetadataAnchorKey: anchor,
+      if (creditPayments != null && creditPayments.isNotEmpty)
+        'creditPayments': creditPayments,
     });
     await (db.update(db.orders)..where((o) => o.id.equals(order.id))).write(
       OrdersCompanion(hubMetadata: Value(hubMeta)),

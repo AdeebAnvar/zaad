@@ -8,9 +8,11 @@ import 'package:pos/core/pricing/vat_inclusive_breakdown.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/financial_record_repository.dart';
+import 'package:pos/data/repository_impl/financial_record_repository_impl.dart';
 import 'package:pos/domain/models/financial_record_type.dart';
 import 'package:pos/presentation/financial/financial_form_theme.dart';
 import 'package:pos/presentation/financial/financial_records_state.dart';
+import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
 
@@ -86,11 +88,28 @@ class _FinancialCreateDialogState extends State<_FinancialCreateDialog> {
   bool _saving = false;
   String _branchVatMode = 'no_vat';
   dynamic _branchVatPercent;
+  List<ExpenseCompanySuggestion> _companySuggestions = const [];
 
   @override
   void initState() {
     super.initState();
     _loadBranchVat();
+    if (widget.config.type == FinancialRecordType.expense) {
+      _loadCompanySuggestions();
+    }
+  }
+
+  Future<void> _loadCompanySuggestions() async {
+    try {
+      final db = locator<AppDatabase>();
+      final session = await db.sessionDao.getActiveSession();
+      final branchId = session?.branchId ?? 1;
+      final suggestions = await FinancialRecordRepositoryImpl(db).getExpenseCompanySuggestions(branchId);
+      if (!mounted) return;
+      setState(() => _companySuggestions = suggestions);
+    } catch (_) {
+      // Autocomplete is optional — plain text entry still works.
+    }
   }
 
   Future<void> _loadBranchVat() async {
@@ -329,8 +348,9 @@ class _FinancialCreateDialogState extends State<_FinancialCreateDialog> {
                           ),
                           const SizedBox(height: 12),
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(child: _field(_companyName, label: 'Company Name')),
+                              Expanded(child: _companyNameField()),
                               const SizedBox(width: 12),
                               Expanded(child: _field(_companyTrn, label: 'Company TRN')),
                             ],
@@ -495,6 +515,28 @@ class _FinancialCreateDialogState extends State<_FinancialCreateDialog> {
         FinancialRecordType.salary => Icons.payments_outlined,
         FinancialRecordType.otherIncome => Icons.trending_up_outlined,
       };
+
+  Widget _companyNameField() {
+    return AutoCompleteTextField<ExpenseCompanySuggestion>(
+      items: _companySuggestions,
+      displayStringFunction: (s) {
+        final trn = s.trn?.trim();
+        if (trn != null && trn.isNotEmpty) return '${s.name} · $trn';
+        return s.name;
+      },
+      searchFunction: (s) => [s.name, if (s.trn != null && s.trn!.isNotEmpty) s.trn!],
+      defaultText: '',
+      labelText: 'Company Name',
+      controller: _companyName,
+      filterType: FilterType.contains,
+      onSelected: (s) {
+        _companyName.text = s.name;
+        if (s.trn != null && s.trn!.isNotEmpty) {
+          _companyTrn.text = s.trn!;
+        }
+      },
+    );
+  }
 
   Widget _field(
     TextEditingController controller, {

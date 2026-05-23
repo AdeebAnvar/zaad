@@ -81,6 +81,12 @@ class FinancialRecordRepositoryImpl implements FinancialRecordRepository {
   }
 
   @override
+  Future<List<ExpenseCompanySuggestion>> getExpenseCompanySuggestions(int branchId) async {
+    final rows = await _db.financialRecordsDao.listExpenseCompanySuggestions(branchId: branchId);
+    return rows.map((r) => ExpenseCompanySuggestion(name: r.name, trn: r.trn)).toList();
+  }
+
+  @override
   Future<List<FinancialRecord>> listRecords({
     required int branchId,
     required FinancialRecordType type,

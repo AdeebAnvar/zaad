@@ -14,12 +14,13 @@ Future<String?> moveOrderToTakeAway({
   required CartRepository cartRepo,
   required Order order,
   required String referenceNumber,
+  bool requireReference = true,
 }) async {
   if (!orderCanMoveBetweenLogs(order)) {
     return 'Cannot move completed, delivered, or cancelled orders';
   }
   final ref = referenceNumber.trim();
-  if (ref.isEmpty) return 'Enter a reference number';
+  if (requireReference && ref.isEmpty) return 'Enter a reference number';
 
   await cartRepo.updateCartOrderInfo(
     order.cartId,
@@ -30,7 +31,7 @@ Future<String?> moveOrderToTakeAway({
   await orderRepo.updateOrder(
     order.copyWith(
       orderType: const Value('take_away'),
-      referenceNumber: Value(ref),
+      referenceNumber: ref.isEmpty ? const Value<String?>(null) : Value(ref),
       deliveryPartner: const Value(null),
       driverId: const Value(null),
       driverName: const Value(null),

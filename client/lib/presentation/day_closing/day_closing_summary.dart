@@ -1,4 +1,5 @@
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/utils/credit_payment_metadata.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/financial_record_type.dart';
@@ -384,10 +385,10 @@ Future<DayClosingSummary> computeDayClosingSummary(
     scopedCashierUserId,
   );
   final cutoff = await db.dayClosingCheckpointDao.lastSettledAtForBranch(branchId);
-  /// Sales/cancel rows after last successful close (reset “today” without re-counting settled history).
+  /// Sales after last close, plus older orders that received credit payments after close.
   final ordersInWindow = cutoff == null
       ? rawOrders
-      : rawOrders.where((o) => o.createdAt.isAfter(cutoff)).toList();
+      : rawOrders.where((o) => orderInDayCloseWindow(o, cutoff)).toList();
   final branch = await db.branchesDao.getBranchById(branchId);
   final users = await db.usersDao.getAllUsers();
   final visibleItems = await db.itemDao.getVisibleForBranch(branchId);
@@ -396,7 +397,11 @@ Future<DayClosingSummary> computeDayClosingSummary(
     for (final c in branchCategories) c.id: (c.name).trim(),
   };
 
-  final settled = ordersInWindow.where(_isSettledForDayClose).toList();
+  final settledAll = ordersInWindow.where(_isSettledForDayClose).toList();
+  /// New sales in this period (exclude post-close credit collections from revenue breakdown).
+  final settled = settledAll.where((o) => orderCreatedInDayCloseWindow(o, cutoff)).toList();
+  final settledRecovery =
+      settledAll.where((o) => !orderCreatedInDayCloseWindow(o, cutoff)).toList();
   /// Ignore checkpoint — show all cancelled rows still stored locally (same branch).
   final cancelled =
       rawOrders.where((o) => o.status.toLowerCase() == 'cancelled').toList()
@@ -451,11 +456,24 @@ Future<DayClosingSummary> computeDayClosingSummary(
   final totalVatAmount = (vatMode.isNotEmpty && vatMode != 'no_vat' && vatPct > 0)
       ? (netTotal - (netTotal / (1 + vatPct / 100.0)))
       : 0.0;
-  final cashSale = _sumOrders(settled, (o) => o.cashAmount);
-  final cashSaleAfterDiscount = _cashSaleAfterDiscount(settled, effectiveOrderDiscount);
-  final cardSale = _sumOrders(settled, (o) => o.cardAmount);
+  var recoveryCash = 0.0;
+  var recoveryCard = 0.0;
+  var recoveryOnline = 0.0;
+  if (cutoff != null) {
+    for (final o in settledRecovery) {
+      final r = creditRecoveryAfterCheckpoint(o, cutoff);
+      recoveryCash += r.cash;
+      recoveryCard += r.card;
+      recoveryOnline += r.online;
+    }
+  }
+  final cashSale = _sumOrders(settled, (o) => o.cashAmount) + recoveryCash;
+  final cashSaleAfterDiscount =
+      _cashSaleAfterDiscount(settled, effectiveOrderDiscount) + recoveryCash;
+  final cardSale = _sumOrders(settled, (o) => o.cardAmount) + recoveryCard;
   final creditSale = _sumOrders(settled, (o) => o.creditAmount);
-  final onlineSale = _sumOrders(settled, (o) => o.onlineAmount);
+  final onlineSale = _sumOrders(settled, (o) => o.onlineAmount) + recoveryOnline;
+  final creditRecovery = recoveryCash + recoveryCard + recoveryOnline;
 
   final dineInSales = _sumOrders(
     settled.where((o) => (o.orderType ?? '').toLowerCase() == 'dine_in'),
@@ -480,7 +498,6 @@ Future<DayClosingSummary> computeDayClosingSummary(
   final openingBalance = (branch?.effectiveOpeningBalance() ?? 0).toDouble();
   final openingCash = openingBalance;
   final defaultOpeningCash = openingBalance;
-  const creditRecovery = 0.0;
   const deliveryRecovery = 0.0;
   final purchase = await db.financialRecordsDao.sumFinalAmount(
     branchId: branchId,

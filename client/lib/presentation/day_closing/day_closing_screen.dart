@@ -14,6 +14,7 @@ import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/repository/push_records_repository.dart';
 import 'package:pos/data/repository_impl/settle_sale_push_mapper.dart';
 import 'package:pos/features/day_closing/data/day_closing_live_sync.dart';
 import 'package:pos/presentation/day_closing/day_closing_reconciliation_dialog.dart';
@@ -143,6 +144,17 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
     return session?.userId;
   }
 
+  /// Human-readable summary after [PushRecordsRepository.pushSalesAndCreditSalesFromLocal].
+  String _formatPushOutcomeMessage(PushRecordsOutcome out) {
+    if (!out.ok) return out.message.isNotEmpty ? out.message : 'Push failed';
+    final parts = <String>[];
+    if (out.ordersPosted > 0) parts.add('${out.ordersPosted} sale(s)');
+    if (out.creditRowsPosted > 0) parts.add('${out.creditRowsPosted} credit');
+    if (out.settleRowsPosted > 0) parts.add('day closing');
+    if (parts.isEmpty) return 'nothing pending';
+    return parts.join(', ');
+  }
+
   Future<void> _onSubmit() async {
     if (_submitting) return;
     final db = locator<AppDatabase>();
@@ -208,6 +220,13 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       await BackupService.instance.maintainDatabase(db, vacuum: true);
       await SalesCsvBackup.refreshNow(db);
       await BackupService.instance.backupNow(db, force: true);
+
+      PushRecordsOutcome? pushOut;
+      final canPushToCloud = hub == null || !hub.blocksTenantCloudRest;
+      if (canPushToCloud && locator.isRegistered<PushRecordsRepository>()) {
+        pushOut = await locator<PushRecordsRepository>().pushSalesAndCreditSalesFromLocal();
+      }
+
       if (!mounted) return;
       setState(() => _lastCloseCashReconciliation = recon);
 
@@ -217,11 +236,22 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         closeReconciliation: recon,
       );
       if (!mounted) return;
-      if (printFailed.isEmpty) {
-        CustomSnackBar.showSuccess(message: 'Day closed and receipt sent to printer.');
-      } else {
+      if (pushOut != null && !pushOut.ok) {
+        CustomSnackBar.showWarning(
+          message:
+              'Day closed locally. Could not sync to server: ${_formatPushOutcomeMessage(pushOut)}',
+        );
+        if (printFailed.isNotEmpty) showPrintFailedDialog(context, printFailed);
+      } else if (printFailed.isNotEmpty) {
         CustomSnackBar.showWarning(message: 'Day closed but print failed for some printers.');
         showPrintFailedDialog(context, printFailed);
+      } else if (pushOut != null) {
+        CustomSnackBar.showSuccess(
+          message:
+              'Day closed successfully. Synced ${_formatPushOutcomeMessage(pushOut)}. Receipt sent to printer.',
+        );
+      } else {
+        CustomSnackBar.showSuccess(message: 'Day closed and receipt sent to printer.');
       }
       await _load();
     } catch (e) {
