@@ -11,7 +11,7 @@ import 'package:sqlite3/sqlite3.dart' as sqlite;
 /// - …/ZaadPOS/local   -> sqlite (`pos.sqlite`)
 /// - …/ZaadPOS/media   -> images + `sales_backup.xlsx`
 /// - …/ZaadPOS/backup  -> SQLite copies (`BackupService`)
-/// - …/ZaadPOS/exports -> XLSX exports (`ExportService`)
+/// - …/ZaadPOS/exports -> reserved for future XLSX exports
 ///
 /// **Windows**: same as before — path_provider’s application documents (your `Documents` folder).
 /// **Android**: system **Documents** (`/storage/emulated/0/Documents/ZaadPOS`) when storage access

@@ -5,9 +5,9 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
 import 'package:pos/presentation/sale/desktop/desktop_sale_layout.dart';
-import 'package:pos/presentation/sale/item_cubit.dart/items_cubit.dart';
+import 'package:pos/presentation/sale/items_cubit/items_cubit.dart';
 import 'package:pos/presentation/sale/mobile/mobile_sale_layout.dart';
-import 'package:pos/presentation/sale/topping_dialogue.dart';
+import 'package:pos/presentation/sale/topping_dialog.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 
 const double kTabletWidth = 800;

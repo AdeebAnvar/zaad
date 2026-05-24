@@ -8,7 +8,7 @@ import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
-import 'package:pos/presentation/sale/item_cubit.dart/items_cubit.dart';
+import 'package:pos/presentation/sale/items_cubit/items_cubit.dart';
 
 /// [cartLineEdit] = compact table layout (navy header, CLOSE/SAVE) — use only from cart line.
 enum ToppingsDialogStyle { standard, cartLineEdit }

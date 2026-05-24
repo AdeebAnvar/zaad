@@ -20,7 +20,7 @@ class Customers extends Table {
 
 @DriftAccessor(tables: [Customers])
 class CustomersDao extends DatabaseAccessor<AppDatabase> with _$CustomersDaoMixin {
-  CustomersDao(AppDatabase db) : super(db);
+  CustomersDao(super.db);
 
   /* ───────── CUSTOMERS ───────── */
 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pos/core/constants/colors.dart';
 
 class CustomLoading extends StatefulWidget {
-  const CustomLoading({Key? key}) : super(key: key);
+  const CustomLoading({super.key});
 
   @override
   State<CustomLoading> createState() => _CustomLoadingState();

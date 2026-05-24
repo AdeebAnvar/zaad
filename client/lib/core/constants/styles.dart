@@ -74,15 +74,15 @@ class AppStyles {
       textStyle: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.textColor),
       side: BorderSide(color: AppColors.textColor));
 
-  static Color getButtonColor(Set<MaterialState> states) {
-    if (states.contains(MaterialState.hovered)) {
+  static Color getButtonColor(Set<WidgetState> states) {
+    if (states.contains(WidgetState.hovered)) {
       return Colors.transparent;
     }
     return AppColors.primaryColor;
   }
 
-  static Color getTextColor(Set<MaterialState> states) {
-    if (states.contains(MaterialState.hovered)) {
+  static Color getTextColor(Set<WidgetState> states) {
+    if (states.contains(WidgetState.hovered)) {
       return AppColors.primaryColor;
     }
     return Colors.transparent;

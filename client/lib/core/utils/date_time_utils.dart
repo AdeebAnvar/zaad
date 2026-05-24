@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:pos/core/utils/extenstions.dart';
+import 'package:pos/core/utils/extensions.dart';
 
 String defaultDateFormat = "yyyy-MM-dd";
 String defaultDateViewFormat = 'MMM d, yyyy';

@@ -75,7 +75,6 @@ class OrderRepositoryImpl implements OrderRepository {
       'invoice_number': order.invoiceNumber,
       'created_at': order.createdAt.toIso8601String(),
       'status': order.status,
-      'order_type': orderType,
       'delivery_partner': order.deliveryPartner,
       ...flutter,
       'order_type': orderType,

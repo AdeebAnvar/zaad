@@ -3,16 +3,19 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:pos/core/auth/login_credentials_prefs.dart';
+import 'package:pos/core/utils/app_update_cache_clear.dart';
+import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/network/pos_server_settings.dart';
 import 'package:pos/domain/models/api/auth/auth_repository.dart';
 import 'package:pos/presentation/login/login_screen_cubit.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
-import 'package:pos/presentation/widgets/custom_dialogue.dart';
+import 'package:pos/presentation/widgets/custom_dialog.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 import 'package:pos/presentation/widgets/loader_overlay.dart';
@@ -37,12 +40,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   late final LoginCubit cubit;
   bool _saveCredentials = false;
+  String? _appVersionLabel;
+  String? _dbSchemaLabel;
 
   @override
   void initState() {
     super.initState();
     cubit = locator<LoginCubit>();
     unawaited(_refreshSavedBaseUrl());
+    unawaited(_loadVersionLabels());
 
     final prefs = locator<SharedPreferences>();
     if (LoginCredentialsPrefs.hasSaved(prefs)) {
@@ -57,6 +63,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _refreshSavedBaseUrl() async {
     await locator<AuthRepository>().getSavedBaseUrl();
+  }
+
+  Future<void> _loadVersionLabels() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final schemaVersion = locator.isRegistered<AppDatabase>() ? locator<AppDatabase>().schemaVersion : null;
+      if (!mounted) return;
+      setState(() {
+        _appVersionLabel = AppUpdateCacheClear.packageVersionLabel(info);
+        _dbSchemaLabel = schemaVersion != null ? 'db_v$schemaVersion' : null;
+      });
+    } catch (_) {}
   }
 
   Future<void> _showConnectedToServerSnack() async {
@@ -222,6 +240,26 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: 24),
           _loginForm(),
+          if (_appVersionLabel != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'v$_appVersionLabel',
+              style: AppStyles.getRegularTextStyle(
+                fontSize: 12,
+                color: AppColors.hintFontColor,
+              ),
+            ),
+          ],
+          if (_dbSchemaLabel != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              _dbSchemaLabel!,
+              style: AppStyles.getRegularTextStyle(
+                fontSize: 11,
+                color: AppColors.hintFontColor,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -301,10 +339,15 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _loginLogo() {
-    return Image.asset(
-      'assets/images/png/appicon2.webp',
-      height: 100,
-      width: 100,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Image.asset(
+          'assets/images/png/appicon2.webp',
+          height: 100,
+          width: 100,
+        ),
+      ],
     );
   }
 

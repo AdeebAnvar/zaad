@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pos/core/constants/colors.dart';
-import 'package:pos/core/utils/extenstions.dart';
+import 'package:pos/core/utils/extensions.dart';
 import 'package:pos/presentation/widgets/custom_loading.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 

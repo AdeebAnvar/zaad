@@ -120,7 +120,7 @@ class SyncPaginationStates extends Table {
   ],
 )
 class PullDataDao extends DatabaseAccessor<AppDatabase> with _$PullDataDaoMixin {
-  PullDataDao(AppDatabase db) : super(db);
+  PullDataDao(super.db);
   static const String _syncMetaTable = 'sync_meta_state';
   static const String _pullLastSyncedAtKey = 'pull_last_synced_at';
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:pos/presentation/sale/item_cubit.dart/items_cubit.dart';
+import 'package:pos/presentation/sale/items_cubit/items_cubit.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 
 /// Search / scan field for the item catalog; clears when [ItemsCubit.clearSearch] runs.

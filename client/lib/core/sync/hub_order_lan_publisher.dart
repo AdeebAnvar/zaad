@@ -45,7 +45,6 @@ class HubOrderLanPublisher {
       'invoice_number': order.invoiceNumber,
       'created_at': order.createdAt.toIso8601String(),
       'status': OrderPushStatus.toRemote(orderType: orderType, localStatus: order.status),
-      'order_type': orderType,
       'delivery_partner': order.deliveryPartner,
       ...flutter,
       'order_type': orderType,

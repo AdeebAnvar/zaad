@@ -260,133 +260,133 @@ Future<void> showCartStylePaymentDialogForOrder(
       onSave: (customerDetails, discount, payments, {required printInvoice, required printKot}) async {
         final logContext = context;
         try {
-        final repo = locator<OrderRepository>();
-        final freshOrder = await repo.getOrderById(order.id);
-        if (freshOrder == null) {
+          final repo = locator<OrderRepository>();
+          final freshOrder = await repo.getOrderById(order.id);
+          if (freshOrder == null) {
+            if (dialogContext.mounted) {
+              showErrorDialog(dialogContext, 'Order not found. It may have been deleted.');
+            }
+            return;
+          }
+
+          final discountAmount = (discount['value'] as num?)?.toDouble() ?? 0.0;
+          final discountType = (discount['type'] as String?) ?? 'amount';
+          final manualDiscountAmount = discountType == 'percentage'
+              ? (freshOrder.totalAmount * (discountAmount / 100)).clamp(0.0, freshOrder.totalAmount).toDouble()
+              : discountAmount.clamp(0.0, freshOrder.totalAmount).toDouble();
+          final rawOffer = discount['offer'];
+          final offer = rawOffer is Map ? Map<String, dynamic>.from(rawOffer) : null;
+          final offerDiscountAmount = (offer?['discountAmount'] as num?)?.toDouble() ?? (double.tryParse(offer?['discountAmount']?.toString() ?? '') ?? 0.0);
+          final totalDiscount = (manualDiscountAmount + offerDiscountAmount).clamp(0.0, freshOrder.totalAmount).toDouble();
+          final finalAmount = (freshOrder.totalAmount - totalDiscount).clamp(0.0, double.infinity);
+          final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
+          final updatedRef = freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : freshOrder.referenceNumber;
+          String? hubMetadataWithOffer = freshOrder.hubMetadata;
+          if (offer != null) {
+            final cleanedOffer = <String, dynamic>{
+              'name': offer['name']?.toString() ?? '',
+              'uuid': offer['uuid']?.toString() ?? '',
+              'type': offer['type']?.toString() ?? '',
+              'value': (offer['value'] as num?)?.toDouble() ?? (double.tryParse(offer['value']?.toString() ?? '') ?? 0.0),
+              'discountAmount': offerDiscountAmount,
+              'toDate': offer['toDate']?.toString() ?? '',
+              if (offer['autoDayDiscount'] != null)
+                'autoDayDiscount': (offer['autoDayDiscount'] as num?)?.toDouble() ?? (double.tryParse(offer['autoDayDiscount']?.toString() ?? '') ?? 0.0),
+              if (offer['autoDayOfferNames'] is List) 'autoDayOfferNames': offer['autoDayOfferNames'],
+            };
+            try {
+              final existing = (hubMetadataWithOffer != null && hubMetadataWithOffer.trim().isNotEmpty) ? jsonDecode(hubMetadataWithOffer) : <String, dynamic>{};
+              final map = existing is Map ? Map<String, dynamic>.from(existing) : <String, dynamic>{};
+              map['applied_offer'] = cleanedOffer;
+              hubMetadataWithOffer = jsonEncode(map);
+            } catch (_) {
+              hubMetadataWithOffer = jsonEncode({'applied_offer': cleanedOffer});
+            }
+          }
+
+          final deliveryStatus = freshOrder.orderType == 'delivery' ? freshOrder.status : 'completed';
+
+          final updatedOrder = freshOrder.copyWith(
+            referenceNumber: Value(updatedRef),
+            discountAmount: totalDiscount,
+            discountType: Value(totalDiscount > 0 ? 'amount' : discountType),
+            finalAmount: finalAmount,
+            customerName: Value(customerDetails['name'] as String?),
+            customerEmail: Value(customerDetails['email'] as String?),
+            customerPhone: Value(customerDetails['phone'] as String?),
+            customerGender: Value(customerDetails['gender'] as String?),
+            cashAmount: payments['cash'] ?? 0.0,
+            creditAmount: payments['credit'] ?? 0.0,
+            cardAmount: payments['card'] ?? 0.0,
+            onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
+            status: deliveryStatus,
+            hubMetadata: Value(hubMetadataWithOffer),
+          );
+
+          await repo.updateOrder(updatedOrder);
+          // #region agent log
+          agentDebugLog(
+            hypothesisId: 'H1',
+            location: 'desktop_cart_panel.dart:pay',
+            message: 'counter_pay_saved',
+            data: <String, Object?>{
+              'orderId': updatedOrder.id,
+              'orderType': updatedOrder.orderType,
+              'status': updatedOrder.status,
+              'invoice': updatedOrder.invoiceNumber,
+              'paid': updatedOrder.cashAmount + updatedOrder.cardAmount + updatedOrder.creditAmount + updatedOrder.onlineAmount,
+            },
+          );
+          // #endregion
+
           if (dialogContext.mounted) {
-            showErrorDialog(dialogContext, 'Order not found. It may have been deleted.');
+            Navigator.of(dialogContext, rootNavigator: true).pop(true);
           }
-          return;
-        }
+          onPaymentRecorded?.call();
 
-        final discountAmount = (discount['value'] as num?)?.toDouble() ?? 0.0;
-        final discountType = (discount['type'] as String?) ?? 'amount';
-        final manualDiscountAmount = discountType == 'percentage'
-            ? (freshOrder.totalAmount * (discountAmount / 100)).clamp(0.0, freshOrder.totalAmount).toDouble()
-            : discountAmount.clamp(0.0, freshOrder.totalAmount).toDouble();
-        final rawOffer = discount['offer'];
-        final offer = rawOffer is Map ? Map<String, dynamic>.from(rawOffer) : null;
-        final offerDiscountAmount = (offer?['discountAmount'] as num?)?.toDouble() ?? (double.tryParse(offer?['discountAmount']?.toString() ?? '') ?? 0.0);
-        final totalDiscount = (manualDiscountAmount + offerDiscountAmount).clamp(0.0, freshOrder.totalAmount).toDouble();
-        final finalAmount = (freshOrder.totalAmount - totalDiscount).clamp(0.0, double.infinity);
-        final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
-        final updatedRef = freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : freshOrder.referenceNumber;
-        String? hubMetadataWithOffer = freshOrder.hubMetadata;
-        if (offer != null) {
-          final cleanedOffer = <String, dynamic>{
-            'name': offer['name']?.toString() ?? '',
-            'uuid': offer['uuid']?.toString() ?? '',
-            'type': offer['type']?.toString() ?? '',
-            'value': (offer['value'] as num?)?.toDouble() ?? (double.tryParse(offer['value']?.toString() ?? '') ?? 0.0),
-            'discountAmount': offerDiscountAmount,
-            'toDate': offer['toDate']?.toString() ?? '',
-            if (offer['autoDayDiscount'] != null)
-              'autoDayDiscount': (offer['autoDayDiscount'] as num?)?.toDouble() ?? (double.tryParse(offer['autoDayDiscount']?.toString() ?? '') ?? 0.0),
-            if (offer['autoDayOfferNames'] is List) 'autoDayOfferNames': offer['autoDayOfferNames'],
-          };
+          final printFailed = <String>[];
           try {
-            final existing = (hubMetadataWithOffer != null && hubMetadataWithOffer.trim().isNotEmpty) ? jsonDecode(hubMetadataWithOffer) : <String, dynamic>{};
-            final map = existing is Map ? Map<String, dynamic>.from(existing) : <String, dynamic>{};
-            map['applied_offer'] = cleanedOffer;
-            hubMetadataWithOffer = jsonEncode(map);
-          } catch (_) {
-            hubMetadataWithOffer = jsonEncode({'applied_offer': cleanedOffer});
-          }
-        }
-
-        final deliveryStatus = freshOrder.orderType == 'delivery' ? freshOrder.status : 'completed';
-
-        final updatedOrder = freshOrder.copyWith(
-          referenceNumber: Value(updatedRef),
-          discountAmount: totalDiscount,
-          discountType: Value(totalDiscount > 0 ? 'amount' : discountType),
-          finalAmount: finalAmount,
-          customerName: Value(customerDetails['name'] as String?),
-          customerEmail: Value(customerDetails['email'] as String?),
-          customerPhone: Value(customerDetails['phone'] as String?),
-          customerGender: Value(customerDetails['gender'] as String?),
-          cashAmount: payments['cash'] ?? 0.0,
-          creditAmount: payments['credit'] ?? 0.0,
-          cardAmount: payments['card'] ?? 0.0,
-          onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
-          status: deliveryStatus,
-          hubMetadata: Value(hubMetadataWithOffer),
-        );
-
-        await repo.updateOrder(updatedOrder);
-        // #region agent log
-        agentDebugLog(
-          hypothesisId: 'H1',
-          location: 'desktop_cart_panel.dart:pay',
-          message: 'counter_pay_saved',
-          data: <String, Object?>{
-            'orderId': updatedOrder.id,
-            'orderType': updatedOrder.orderType,
-            'status': updatedOrder.status,
-            'invoice': updatedOrder.invoiceNumber,
-            'paid': updatedOrder.cashAmount + updatedOrder.cardAmount + updatedOrder.creditAmount + updatedOrder.onlineAmount,
-          },
-        );
-        // #endregion
-
-        if (dialogContext.mounted) {
-          Navigator.of(dialogContext, rootNavigator: true).pop(true);
-        }
-        onPaymentRecorded?.call();
-
-        final printFailed = <String>[];
-        try {
-          final db = locator<AppDatabase>();
-          final printSvc = locator<PrintService>();
-          final cartItems = await OrderLogCartFallback.resolve(
-            order: updatedOrder,
-            db: db,
-            cartRepo: cartRepo,
-          );
-          final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
-          // Cash drawer: any cash tender — independent of Invoice/KOT print toggles.
-          printFailed.addAll(
-            await openCashDrawerForCashPayment(
-              resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
-            ),
-          );
-          if (printKot && cartItems.isNotEmpty) {
+            final db = locator<AppDatabase>();
+            final printSvc = locator<PrintService>();
+            final cartItems = await OrderLogCartFallback.resolve(
+              order: updatedOrder,
+              db: db,
+              cartRepo: cartRepo,
+            );
+            final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
+            // Cash drawer: any cash tender — independent of Invoice/KOT print toggles.
             printFailed.addAll(
-              await printSvc.printKOTPerKitchen(
-                cartItems: cartItems,
-                order: updatedOrder,
-                referenceNumber: ref,
-                invoiceNumber: updatedOrder.invoiceNumber,
-                branchId: updatedOrder.branchId,
-                orderedAt: updatedOrder.createdAt,
+              await openCashDrawerForCashPayment(
+                resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
               ),
             );
+            if (printKot && cartItems.isNotEmpty) {
+              printFailed.addAll(
+                await printSvc.printKOTPerKitchen(
+                  cartItems: cartItems,
+                  order: updatedOrder,
+                  referenceNumber: ref,
+                  invoiceNumber: updatedOrder.invoiceNumber,
+                  branchId: updatedOrder.branchId,
+                  orderedAt: updatedOrder.createdAt,
+                ),
+              );
+            }
+            if (printInvoice) {
+              printFailed.addAll(
+                await printSvc.printFinalBill(
+                  order: updatedOrder,
+                  cartItems: cartItems,
+                  asTaxInvoice: printInvoice,
+                ),
+              );
+            }
+          } catch (e) {
+            printFailed.add('Print failed: $e');
           }
-          if (printInvoice) {
-            printFailed.addAll(
-              await printSvc.printFinalBill(
-                order: updatedOrder,
-                cartItems: cartItems,
-                asTaxInvoice: printInvoice,
-              ),
-            );
+          if (printFailed.isNotEmpty && logContext.mounted) {
+            showPrintFailedDialog(logContext, printFailed);
           }
-        } catch (e) {
-          printFailed.add('Print failed: $e');
-        }
-        if (printFailed.isNotEmpty && logContext.mounted) {
-          showPrintFailedDialog(logContext, printFailed);
-        }
         } catch (e) {
           if (dialogContext.mounted) {
             showErrorDialog(dialogContext, e);
@@ -1707,7 +1707,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
         const SizedBox(height: 8),
         // Choose Gender dropdown (like image)
         DropdownButtonFormField<String>(
-          value: genderOptions.contains(_genderController.text) ? _genderController.text : null,
+          initialValue: genderOptions.contains(_genderController.text) ? _genderController.text : null,
           decoration: InputDecoration(
             labelStyle: TextStyle(
               color: AppColors.hintFontColor,

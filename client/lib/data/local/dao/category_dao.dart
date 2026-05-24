@@ -16,7 +16,7 @@ class Categories extends Table {
 
 @DriftAccessor(tables: [Categories])
 class CategoryDao extends DatabaseAccessor<AppDatabase> with _$CategoryDaoMixin {
-  CategoryDao(AppDatabase db) : super(db);
+  CategoryDao(super.db);
 
   Future<void> insertOrUpdateCategory(CategoriesCompanion data) async {
     await into(categories).insertOnConflictUpdate(data);

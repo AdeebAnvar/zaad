@@ -97,7 +97,7 @@ class _LogPaymentTypeDropdownState extends State<LogPaymentTypeDropdown> {
           key: ValueKey<String>('log_pay_${widget.order.id}_$_revision'),
           isExpanded: true,
           isDense: true,
-          value: valid,
+          initialValue: valid,
           style: AppStyles.getRegularTextStyle(fontSize: 13).copyWith(fontWeight: FontWeight.w500),
           iconEnabledColor: AppColors.textColor,
           dropdownColor: Colors.white,

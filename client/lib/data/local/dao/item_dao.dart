@@ -103,7 +103,7 @@ class ToppingGroups extends Table {
   ToppingGroups,
 ])
 class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
-  ItemDao(AppDatabase db) : super(db);
+  ItemDao(super.db);
 
   /// ───────────── KITCHENS ─────────────
 

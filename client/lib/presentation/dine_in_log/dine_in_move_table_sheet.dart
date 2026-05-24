@@ -230,7 +230,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
           Text('Floor', style: AppStyles.getSemiBoldTextStyle(fontSize: 13)),
           const SizedBox(height: 6),
           DropdownButtonFormField<int>(
-            value: _floorId,
+            initialValue: _floorId,
             decoration: InputDecoration(
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -255,7 +255,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
             )
           else
             DropdownButtonFormField<int>(
-              value: _tableId,
+              initialValue: _tableId,
               decoration: InputDecoration(
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

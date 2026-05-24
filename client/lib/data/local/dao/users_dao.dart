@@ -24,7 +24,7 @@ class Users extends Table {
 /// =========================
 @DriftAccessor(tables: [Users])
 class UsersDao extends DatabaseAccessor<AppDatabase> with _$UsersDaoMixin {
-  UsersDao(AppDatabase db) : super(db);
+  UsersDao(super.db);
 
   /// =========================
   /// INSERT / UPSERT USERS
