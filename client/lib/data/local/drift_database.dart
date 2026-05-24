@@ -97,8 +97,27 @@ class AppDatabase extends _$AppDatabase {
   @override
   int get schemaVersion => 55;
 
+  /// Recovered / partially migrated DBs can have [schemaVersion] bumped without new columns.
+  /// Runs on every open so login sync does not crash on missing [Branches.defaultOpeningCash].
+  Future<void> ensureBranchesDefaultOpeningCashColumn() async {
+    final rows = await customSelect('PRAGMA table_info(branches)').get();
+    final hasColumn = rows.any((r) => r.read<String>('name') == 'default_opening_cash');
+    if (hasColumn) return;
+    await customStatement(
+      'ALTER TABLE branches ADD COLUMN default_opening_cash INTEGER NOT NULL DEFAULT 0',
+    );
+    try {
+      await customStatement(
+        'UPDATE branches SET default_opening_cash = COALESCE(opening_cash, 0)',
+      );
+    } on SqliteException catch (_) {
+      /* opening_cash may be absent on very old rows */
+    }
+  }
+
   /// Fixes legacy [branches] rows where NOT NULL columns are NULL (Drift map crashes on read).
   Future<void> repairLegacyBranchRows() async {
+    await ensureBranchesDefaultOpeningCashColumn();
     try {
       await customStatement(
         'UPDATE branches SET default_opening_cash = COALESCE(default_opening_cash, opening_cash, 0) '
@@ -337,6 +356,7 @@ class AppDatabase extends _$AppDatabase {
           final m = e.message.toLowerCase();
           if (!m.contains('no such column')) rethrow;
         }
+        await ensureBranchesDefaultOpeningCashColumn();
         await repairLegacyBranchRows();
       },
     );

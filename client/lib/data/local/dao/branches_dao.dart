@@ -127,6 +127,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
     } else {
       localImage = b.localImage;
     }
+    await attachedDatabase.ensureBranchesDefaultOpeningCashColumn();
     final existingRow = await customSelect(
       '''
       SELECT COALESCE(default_opening_cash, 0) AS default_opening_cash,
