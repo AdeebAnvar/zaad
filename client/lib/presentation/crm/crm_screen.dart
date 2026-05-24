@@ -336,7 +336,7 @@ class _DesktopTable extends StatelessWidget {
                 width: constraints.maxWidth > 0 ? constraints.maxWidth : double.infinity,
                 child: DataTable(
                   showCheckboxColumn: false,
-                  headingRowColor: MaterialStateProperty.all(
+                  headingRowColor: WidgetStateProperty.all(
                     AppColors.primaryColor.withOpacity(0.1),
                   ),
                   headingRowHeight: 56,

@@ -9,7 +9,7 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
 import 'package:pos/presentation/sale/qty_button.dart';
-import 'package:pos/presentation/sale/topping_dialogue.dart';
+import 'package:pos/presentation/sale/topping_dialog.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';

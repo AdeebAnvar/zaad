@@ -324,7 +324,7 @@ class _NormalDriverAssignBarState extends State<_NormalDriverAssignBar> {
           SizedBox(
             width: 220,
             child: DropdownButtonFormField<int>(
-              value: _driverId,
+              initialValue: _driverId,
               decoration: CustomFormFieldDecoration.dropdownDecoration(context),
               hint: Text('Choose driver', style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor)),
               items: widget.drivers.map((d) => DropdownMenuItem<int>(value: d.id, child: Text(d.name))).toList(),
@@ -765,7 +765,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
         DropdownButtonFormField<String>(
           key: ValueKey<String>('status_${widget.order.id}_$_statusDropdownRevision'),
           isExpanded: true,
-          value: validDisplay,
+          initialValue: validDisplay,
           style: AppStyles.getRegularTextStyle(fontSize: 14).copyWith(fontWeight: FontWeight.w500),
           iconEnabledColor: AppColors.textColor,
           dropdownColor: Colors.white,

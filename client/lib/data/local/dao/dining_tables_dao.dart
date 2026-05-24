@@ -35,7 +35,7 @@ class DiningTables extends Table {
 
 @DriftAccessor(tables: [DiningFloors, DiningTables])
 class DiningTablesDao extends DatabaseAccessor<AppDatabase> with _$DiningTablesDaoMixin {
-  DiningTablesDao(AppDatabase db) : super(db);
+  DiningTablesDao(super.db);
 
   Future<void> upsertFloor(DiningFloorsCompanion data) => into(diningFloors).insertOnConflictUpdate(data);
 

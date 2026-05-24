@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/painting.dart';
 import 'package:pos/app/app_startup.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/enums.dart';
@@ -43,7 +42,7 @@ void main() async {
 
   final startup = AppStartup(db);
 
-  // Auto-clear incompatible local DB after schema bumps; ephemeral caches after app version bumps.
+  // Schema bumps: Drift migrates in place (no DB wipe). Ephemeral caches cleared on app version bumps.
   await startup.ensureCompatibleLocalData();
   await AppUpdateCacheClear.runOnColdStartIfNeeded();
   await RuntimeAppSettings.refreshFromLocalSettings();

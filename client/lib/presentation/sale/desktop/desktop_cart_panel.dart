@@ -1507,7 +1507,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: genderOptions.contains(_genderController.text) ? _genderController.text : null,
+          initialValue: genderOptions.contains(_genderController.text) ? _genderController.text : null,
           decoration: InputDecoration(
             labelStyle: TextStyle(
               color: AppColors.hintFontColor,

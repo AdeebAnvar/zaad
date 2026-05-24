@@ -4,7 +4,7 @@ class QtyButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
 
-  const QtyButton({required this.icon, required this.onTap});
+  const QtyButton({super.key, required this.icon, required this.onTap});
 
   @override
   Widget build(BuildContext context) {

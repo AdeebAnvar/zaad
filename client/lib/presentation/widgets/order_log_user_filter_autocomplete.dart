@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/data/local/drift_database.dart';
-import 'package:pos/domain/models/user_model.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 
 /// Dropdown-style filter listing synced staff from the local DB (not placeholders).

@@ -10,7 +10,7 @@ class Drivers extends Table {
 
 @DriftAccessor(tables: [Drivers])
 class DriversDao extends DatabaseAccessor<AppDatabase> with _$DriversDaoMixin {
-  DriversDao(AppDatabase db) : super(db);
+  DriversDao(super.db);
 
   Future<void> upsertDriver(Insertable<Driver> data) async {
     await into(drivers).insertOnConflictUpdate(data);

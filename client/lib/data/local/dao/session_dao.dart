@@ -13,7 +13,7 @@ class Sessions extends Table {
 
 @DriftAccessor(tables: [Sessions])
 class SessionDao extends DatabaseAccessor<AppDatabase> with _$SessionDaoMixin {
-  SessionDao(AppDatabase db) : super(db);
+  SessionDao(super.db);
 
   Future<void> saveSession(int userId, String role, int branchId) async {
     await delete(sessions).go(); // only ONE active session

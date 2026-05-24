@@ -1314,9 +1314,7 @@ class CartCubit extends Cubit<CartState> {
 
       validToppings.forEach((topping, toppingQty) {
         toppingsTotal += topping.price * toppingQty;
-        if (firstTopping == null) {
-          firstTopping = topping;
-        }
+        firstTopping ??= topping;
       });
     } else {
       // If no valid toppings, don't store JSON
@@ -1397,9 +1395,7 @@ class CartCubit extends Cubit<CartState> {
 
       validToppings.forEach((topping, toppingQty) {
         toppingsTotal += topping.price * toppingQty;
-        if (firstTopping == null) {
-          firstTopping = topping;
-        }
+        firstTopping ??= topping;
       });
     } else {
       toppingsJson = (previousLine != null && previousLine.isNotEmpty) ? previousLine : null;

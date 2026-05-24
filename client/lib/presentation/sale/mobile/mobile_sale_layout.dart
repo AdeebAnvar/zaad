@@ -8,7 +8,7 @@ import 'package:pos/presentation/sale/mobile/mobile_item_list.dart';
 import 'package:pos/presentation/sale/sale_screen.dart';
 
 class MobileSaleLayout extends StatelessWidget {
-  const MobileSaleLayout();
+  const MobileSaleLayout({super.key});
 
   @override
   Widget build(BuildContext context) {

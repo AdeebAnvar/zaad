@@ -10,7 +10,7 @@ class DeliveryPartners extends Table {
 
 @DriftAccessor(tables: [DeliveryPartners])
 class DeliveryPartnersDao extends DatabaseAccessor<AppDatabase> with _$DeliveryPartnersDaoMixin {
-  DeliveryPartnersDao(AppDatabase db) : super(db);
+  DeliveryPartnersDao(super.db);
 
   Future<void> upsertDeliveryPartner(Insertable<DeliveryPartner> data) async {
     await into(deliveryPartners).insertOnConflictUpdate(data);

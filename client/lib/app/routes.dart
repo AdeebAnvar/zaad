@@ -16,7 +16,7 @@ import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 import 'package:pos/presentation/orders/orders_cubit.dart';
 import 'package:pos/presentation/orders/orders_screen.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
-import 'package:pos/presentation/sale/item_cubit.dart/items_cubit.dart';
+import 'package:pos/presentation/sale/items_cubit/items_cubit.dart';
 import 'package:pos/presentation/sale/sale_screen.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_ui.dart';
 import 'package:pos/presentation/crm/crm_screen.dart';

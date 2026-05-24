@@ -14,6 +14,7 @@ import 'package:pos/core/sync/local_hub_primary_inbound_coordinator.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
 import 'package:pos/core/sync/outbound_push_coordinator.dart';
 import 'package:pos/core/utils/app_directories.dart';
+import 'package:pos/core/utils/sqlite_file_backup.dart';
 import 'package:pos/core/utils/network_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 
@@ -416,7 +417,11 @@ class UpdaterManager {
     if (!await dbPath.exists()) return null;
     final stamped = DateTime.now().toIso8601String().replaceAll(':', '-');
     final backupFile = File(p.join(kWindowsUpdatesDirectory, 'pre_update_$stamped.db'));
-    await dbPath.copy(backupFile.path);
+    await SqliteFileBackup.copyWithWalCheckpoint(
+      db: _db,
+      sourceDbFile: dbPath,
+      targetFile: backupFile,
+    );
     _log('pre-update SQLite copy → ${backupFile.path}');
     return backupFile.path;
   }

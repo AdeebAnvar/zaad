@@ -1,4 +1,3 @@
-import 'dart:convert';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
@@ -166,7 +165,7 @@ void main() {
             ),
           );
 
-      final id = await repo.createOrder(await draftOrder('INV-2-020', cartId, 'Shawarma'));
+      final id = await repo.createOrder(draftOrder('INV-2-020', cartId, 'Shawarma'));
       final saved = (await db.ordersDao.getOrderById(id))!;
 
       await (db.delete(db.cartItems)..where((c) => c.cartId.equals(cartId))).go();
@@ -197,7 +196,7 @@ void main() {
             ),
           );
 
-      final id = await repo.createOrder(await draftOrder('INV-2-021', cartId, 'Tea'));
+      final id = await repo.createOrder(draftOrder('INV-2-021', cartId, 'Tea'));
 
       await (db.delete(db.cartItems)..where((c) => c.cartId.equals(cartId))).go();
       await db.into(db.cartItems).insert(
