@@ -8,6 +8,7 @@ void main() {
       const access = CounterAccess.admin();
       expect(access.canPayment, isTrue);
       expect(access.canKotPrint, isTrue);
+      expect(access.canInvoicePrint, isTrue);
       expect(access.canRecentSales, isTrue);
     });
 
@@ -60,7 +61,9 @@ void main() {
       expect(access.canDeliveryLog, isTrue);
       expect(access.canDeliveryLogDelete, isTrue);
       expect(access.canPrinterSettings, isTrue);
+      expect(access.canCashPay, isTrue);
       expect(access.canCardPay, isFalse);
+      expect(access.canCreditPay, isFalse);
     });
 
     test('denies when permission omitted', () {
@@ -74,8 +77,43 @@ void main() {
       ));
 
       expect(access.canTakeAway, isTrue);
+      expect(access.canCashPay, isTrue);
+      expect(access.canCardPay, isTrue);
+      expect(access.canCreditPay, isTrue);
       expect(access.canPayment, isFalse);
       expect(access.canRecentSales, isFalse);
+    });
+
+    test('take-away counter gets payment popup customer and discount sections', () {
+      final access = CounterAccess.fromUser(UserModel(
+        id: 1,
+        branchId: 1,
+        name: 'c',
+        usertype: 'counter',
+        mobilePassword: '',
+        permissions: const ['take_away'],
+      ));
+
+      expect(access.showCustomerSection, isTrue);
+      expect(access.showDiscountSection, isTrue);
+      expect(access.canKotPrint, isFalse);
+      expect(access.canInvoicePrint, isFalse);
+      expect(access.canPrintReceiptOnPayment, isTrue);
+    });
+
+    test('payment permission can print invoice at pay without invoice_pr', () {
+      final access = CounterAccess.fromUser(UserModel(
+        id: 1,
+        branchId: 1,
+        name: 'c',
+        usertype: 'counter',
+        mobilePassword: '',
+        permissions: const ['payment_p'],
+      ));
+
+      expect(access.canPayment, isTrue);
+      expect(access.canInvoicePrint, isFalse);
+      expect(access.canPrintReceiptOnPayment, isTrue);
     });
   });
 }

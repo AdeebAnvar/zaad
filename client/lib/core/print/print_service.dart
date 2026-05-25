@@ -1003,10 +1003,11 @@ class PrintService {
       }
 
       final (address, vendorId, productId, connType) = _decodeAddress(billPrinter!.printerIp);
+      final billPort = billPrinter.printerPort > 0 ? billPrinter.printerPort : _defaultPort;
       await _sendToPrinter(
         jobKind: 'RECEIPT',
         address: address,
-        port: billPrinter.printerPort,
+        port: billPort,
         bytes: bytes,
         printerLabel: printerLabel,
         connectionType: connType,

@@ -97,6 +97,25 @@ class AppDatabase extends _$AppDatabase {
   @override
   int get schemaVersion => 53;
 
+  /// Removes carts/orders seeded with TEXT [created_at] (Drift expects INTEGER ms).
+  Future<void> repairTextTimestampRows() async {
+    try {
+      await customStatement('PRAGMA foreign_keys = ON');
+      await customStatement(
+        "DELETE FROM cart_items WHERE cart_id IN (SELECT id FROM carts WHERE typeof(created_at)='text')",
+      );
+      await customStatement(
+        "DELETE FROM orders WHERE cart_id IN (SELECT id FROM carts WHERE typeof(created_at)='text')",
+      );
+      await customStatement("DELETE FROM carts WHERE typeof(created_at)='text'");
+      await customStatement("DELETE FROM orders WHERE typeof(created_at)='text'");
+    } on SqliteException catch (e) {
+      final m = e.message.toLowerCase();
+      if (m.contains('no such table')) return;
+      rethrow;
+    }
+  }
+
   /// Fixes legacy [branches] rows where NOT NULL columns are NULL (Drift map crashes on read).
   Future<void> repairLegacyBranchRows() async {
     try {
@@ -329,6 +348,7 @@ class AppDatabase extends _$AppDatabase {
           if (!m.contains('no such column')) rethrow;
         }
         await repairLegacyBranchRows();
+        await repairTextTimestampRows();
       },
     );
   }

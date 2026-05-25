@@ -360,12 +360,6 @@ Future<void> showCartStylePaymentDialogForOrder(
               cartRepo: cartRepo,
             );
             final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
-            // Cash drawer: any cash tender — independent of Invoice/KOT print toggles.
-            printFailed.addAll(
-              await openCashDrawerForCashPayment(
-                resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
-              ),
-            );
             if (printKot && cartItems.isNotEmpty) {
               printFailed.addAll(
                 await printSvc.printKOTPerKitchen(
@@ -387,6 +381,12 @@ Future<void> showCartStylePaymentDialogForOrder(
                 ),
               );
             }
+            // Receipt before drawer pulse — same USB printer often fails if drawer runs first.
+            printFailed.addAll(
+              await openCashDrawerForCashPayment(
+                resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
+              ),
+            );
           } catch (e) {
             printFailed.add('Print failed: $e');
           }
@@ -569,26 +569,24 @@ class CartPanel extends StatelessWidget {
                           // Delivery: only Save button (no KOT, no Pay) — Save opens payment dialog
                           if (isDelivery || isEditingPaidOrder) {
                             final saleAccess = locator<CurrentCounterSession>().access;
-                            final saveButton = saleAccess.canPayment
-                                ? CustomButton(
-                                    width: 80,
-                                    onPressed: state.items.isEmpty
-                                        ? () {}
-                                        : () async {
-                                            await _showPaymentDialog(
-                                              context,
-                                              totalAmount,
-                                              isEditing: shouldSaveAsEdit,
-                                              isDelivery: isDelivery,
-                                              deliveryPartner: cartCubit.deliveryPartner,
-                                            );
-                                            if (!isModalBottomSheet) {
-                                              onCloseCart?.call(true);
-                                            }
-                                          },
-                                    text: "Save",
-                                  )
-                                : null;
+                            final saveButton = CustomButton(
+                              width: 80,
+                              onPressed: state.items.isEmpty
+                                  ? () {}
+                                  : () async {
+                                      await _showPaymentDialog(
+                                        context,
+                                        totalAmount,
+                                        isEditing: shouldSaveAsEdit,
+                                        isDelivery: isDelivery,
+                                        deliveryPartner: cartCubit.deliveryPartner,
+                                      );
+                                      if (!isModalBottomSheet) {
+                                        onCloseCart?.call(true);
+                                      }
+                                    },
+                              text: "Save",
+                            );
                             final eye = saleAccess.canDetailing
                                 ? IconButton(
                                     tooltip: 'View cart',
@@ -613,8 +611,8 @@ class CartPanel extends StatelessWidget {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 if (eye != null) eye,
-                                if (eye != null && saveButton != null) const SizedBox(width: 4),
-                                if (saveButton != null) saveButton,
+                                if (eye != null) const SizedBox(width: 4),
+                                saveButton,
                               ],
                             );
                           }
@@ -633,12 +631,11 @@ class CartPanel extends StatelessWidget {
                                   onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
                                 ),
                               if (saleAccess.canDetailing) const SizedBox(width: 4),
-                              if (saleAccess.canKotPrint)
-                                _KitchenOrderIconButton(
-                                  width: 110,
-                                  onPressed: state.items.isEmpty
-                                      ? null
-                                      : () async {
+                              _KitchenOrderIconButton(
+                                width: 110,
+                                onPressed: state.items.isEmpty
+                                    ? null
+                                    : () async {
                                         final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
                                         final skipKotReferenceDialog = hasRef && isOpenedForEdit;
                                         if (skipKotReferenceDialog) {
@@ -663,21 +660,20 @@ class CartPanel extends StatelessWidget {
                                           showKOTDialog(context);
                                         }
                                       },
-                                ),
-                              if (saleAccess.canKotPrint) const SizedBox(width: 12),
-                              if (saleAccess.canPayment)
-                                CustomButton(
-                                  width: 80,
-                                  onPressed: state.items.isEmpty
-                                      ? () {}
-                                      : () async {
-                                          await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
-                                          if (!isModalBottomSheet) {
-                                            onCloseCart?.call(true);
-                                          }
-                                        },
-                                  text: "Pay",
-                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              CustomButton(
+                                width: 80,
+                                onPressed: state.items.isEmpty
+                                    ? () {}
+                                    : () async {
+                                        await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
+                                        if (!isModalBottomSheet) {
+                                          onCloseCart?.call(true);
+                                        }
+                                      },
+                                text: "Pay",
+                              ),
                             ],
                           );
                           // }
@@ -1024,6 +1020,9 @@ class PaymentDialog extends StatefulWidget {
 class _PaymentDialogState extends State<PaymentDialog> {
   CounterAccess get _access => locator<CurrentCounterSession>().access;
 
+  /// Receipt on Pay matches Recent Sales (see [CounterAccess.canPrintReceiptOnPayment]).
+  bool get _canOfferInvoicePrint => _access.canPrintReceiptOnPayment;
+
   final _formKey = GlobalKey<FormState>();
 
   /// Third-party apps (NOON, etc.). Own fleet uses delivery partner name `NORMAL`.
@@ -1075,7 +1074,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   void initState() {
     super.initState();
     final prefill = widget.prefill;
-    _printInvoice = _access.canInvoicePrint;
+    _printInvoice = _canOfferInvoicePrint;
     _printKot = false;
 
     final safeSubtotal = _nonNegativeOrderSubtotal(widget.totalAmount);
@@ -1394,7 +1393,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     if (_access.canCustomerName) {
       _nameController.text = (prefill['name'] as String?)?.trim() ?? '';
     }
-    if (_access.canCustomerNumber) {
+    if (_access.canCustomerNumber || _access.showCustomerSection) {
       _phoneController.text = (prefill['phone'] as String?)?.trim() ?? '';
     }
     if (_access.canCustomerEmail) {
@@ -1624,28 +1623,28 @@ class _PaymentDialogState extends State<PaymentDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_access.showCustomerSection) ...[
-            Row(
-              children: [
-                Icon(Icons.person_outline, size: 18, color: AppColors.primaryColor),
-                const SizedBox(width: 8),
-                Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 14)),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: _customerFields(),
-            ),
-            const SizedBox(height: 4),
-          ],
-          if (_access.showDiscountSection) ...[
-            _discountSectionTitle(),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: _discountFields(),
-            ),
-            const SizedBox(height: 4),
-          ],
+          // if (_access.showCustomerSection) ...[
+          Row(
+            children: [
+              Icon(Icons.person_outline, size: 18, color: AppColors.primaryColor),
+              const SizedBox(width: 8),
+              Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 14)),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: _customerFields(),
+          ),
+          const SizedBox(height: 4),
+          // ],
+          // if (_access.showDiscountSection) ...[
+          _discountSectionTitle(),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: _discountFields(),
+          ),
+          const SizedBox(height: 4),
+          // ],
           Row(
             children: [
               Icon(Icons.payment, size: 18, color: AppColors.primaryColor),
@@ -1685,28 +1684,23 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Widget _customerFields() {
-    if (!_access.showCustomerSection) {
-      return const SizedBox.shrink();
-    }
+    // // if (!_access.showCustomerSection) {
+    //   return const SizedBox.shrink();
+    // }
 
-    if (_access.canCustomer && _loadingCustomers) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    // if (_access.canCustomer && _loadingCustomers) {
+    //   return const Center(child: CircularProgressIndicator());
+    // }
 
     final useAutocomplete = _access.canCustomer;
-    final phoneSuggestions = useAutocomplete
-        ? _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList()
-        : <String>[];
+    final phoneSuggestions = useAutocomplete ? _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList() : <String>[];
     final nameSuggestions = useAutocomplete ? _allCustomers.map((c) => c.name).toSet().toList() : <String>[];
-    final emailSuggestions = useAutocomplete
-        ? _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList()
-        : <String>[];
+    final emailSuggestions = useAutocomplete ? _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList() : <String>[];
     final genderOptions = ['Male', 'Female', 'Other'];
-    final customersByName =
-        useAutocomplete ? _allCustomers.where((c) => c.name.toLowerCase().contains(_nameController.text.toLowerCase())).toList() : <PosCustomer>[];
+    final customersByName = useAutocomplete ? _allCustomers.where((c) => c.name.toLowerCase().contains(_nameController.text.toLowerCase())).toList() : <PosCustomer>[];
 
     final rowChildren = <Widget>[];
-    if (_access.canCustomerNumber) {
+    // if (_access.canCustomerNumber) {
       rowChildren.add(
         Expanded(
           child: useAutocomplete
@@ -1731,8 +1725,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 ),
         ),
       );
-    }
-    if (_access.canCustomerName) {
+    // }
+    //     if (_access.canCustomerName || _access.showCustomerSection) {
       if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
       rowChildren.add(
         Expanded(
@@ -1762,9 +1756,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 ),
         ),
       );
-    }
-    if (_access.canCustomerEmail) {
-      if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
+    if (_access.canCustomerEmail || _access.showCustomerSection) {
+      // if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
       rowChildren.add(
         Expanded(
           child: useAutocomplete
@@ -1795,66 +1788,66 @@ class _PaymentDialogState extends State<PaymentDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (rowChildren.isNotEmpty) Row(children: rowChildren),
-        if (_access.canCustomerGender) ...[
+        if (_access.canCustomerGender || _access.showCustomerSection) ...[
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-          initialValue: genderOptions.contains(_genderController.text) ? _genderController.text : null,
-          decoration: InputDecoration(
-            labelStyle: TextStyle(
-              color: AppColors.hintFontColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-            ),
-            filled: false,
-            hintText: 'Choose Gender',
-            fillColor: Colors.white,
-            hintStyle: TextStyle(
-              color: AppColors.hintFontColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-            ),
-            isDense: true,
-            isCollapsed: true,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 11,
-            ),
-            errorStyle: const TextStyle(
-              fontSize: 10,
-              height: 1,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: Theme.of(context).dividerColor.withOpacity(0.5),
+            initialValue: genderOptions.contains(_genderController.text) ? _genderController.text : null,
+            decoration: InputDecoration(
+              labelStyle: TextStyle(
+                color: AppColors.hintFontColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+              ),
+              filled: false,
+              hintText: 'Choose Gender',
+              fillColor: Colors.white,
+              hintStyle: TextStyle(
+                color: AppColors.hintFontColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+              ),
+              isDense: true,
+              isCollapsed: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 11,
+              ),
+              errorStyle: const TextStyle(
+                fontSize: 10,
+                height: 1,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Theme.of(context).dividerColor.withOpacity(0.5),
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Theme.of(context).dividerColor.withOpacity(0.5),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: Theme.of(context).dividerColor.withOpacity(0.5),
+                ),
               ),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: Theme.of(context).dividerColor.withOpacity(0.5),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: Theme.of(context).dividerColor.withOpacity(0.5),
-              ),
-            ),
+            items: genderOptions.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+            onChanged: (v) {
+              setState(() => _genderController.text = v ?? '');
+            },
           ),
-          items: genderOptions.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-          onChanged: (v) {
-            setState(() => _genderController.text = v ?? '');
-          },
-        ),
         ],
       ],
     );
   }
 
   Widget _discountFields() {
-    final showManual = _access.canDiscountItem;
-    final showOffers = _access.canDiscountInvoice;
+    final showManual = _access.canDiscountItem || _access.showDiscountSection;
+    final showOffers = _access.canDiscountInvoice || _access.showDiscountSection;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2188,9 +2181,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                     ? null
                     : () async {
                         final isNormalDelivery = widget.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
-                        if (isNormalDelivery &&
-                            _access.canCustomerNumber &&
-                            _phoneController.text.trim().isEmpty) {
+                        if (isNormalDelivery && _access.canCustomerNumber && _phoneController.text.trim().isEmpty) {
                           if (mounted) {
                             CustomSnackBar.showError(
                               message: 'Customer number (Contact Number) is required for Normal delivery',
@@ -2293,7 +2284,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                               'online': double.tryParse(_onlineController.text) ?? 0,
                               'other': double.tryParse(_otherController.text) ?? 0,
                             },
-                            printInvoice: _access.canInvoicePrint && _printInvoice,
+                            printInvoice: _canOfferInvoicePrint && _printInvoice,
                             printKot: _access.canKotPrint && _printKot,
                           );
                         } catch (e) {
@@ -2318,7 +2309,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Widget _footerPrintOptions() {
-    if (!_access.canInvoicePrint && !_access.canKotPrint) {
+    final showInvoiceOption = _canOfferInvoicePrint;
+    final showKotOption = _access.canKotPrint;
+    if (!showInvoiceOption && !showKotOption) {
       return const SizedBox.shrink();
     }
 
@@ -2344,7 +2337,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          if (_access.canInvoicePrint) ...[
+          if (showInvoiceOption) ...[
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -2360,8 +2353,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
               ],
             ),
           ],
-          if (_access.canInvoicePrint && _access.canKotPrint) const SizedBox(width: 20),
-          if (_access.canKotPrint) ...[
+          if (showInvoiceOption && showKotOption) const SizedBox(width: 20),
+          if (showKotOption) ...[
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [

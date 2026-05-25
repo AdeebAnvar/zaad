@@ -26,9 +26,10 @@ class CounterPermissions {
 /// `delivery_sale`, `delivery_log`, `delivery_log_*`, `dine_in`, `dine_in_ta`, `dine_in_log`,
 /// `dine_in_log_*`, `dine_in_pay`, `recent_sales`, `recent_sale_delete`, `recent_sale_edit`, …
 ///
-/// **Sale / payment popup:** `cash_only`, `detailing`, `credit_pay`, `kot_print`,
-/// `invoice_print`, `discount_item`, `discount_invoice`, `name`, `number`, `email`, `gender`,
-/// `address`, `customer_*`, `payment_p`, `printer_settings`, …
+/// **Sale / payment popup:** `cash_only`, `detailing`, `credit_pay`, `kot_print` (KOT print checkbox),
+/// `invoice_print` (invoice print checkbox), `discount_item`, `discount_invoice`, `name`, `number`,
+/// `email`, `gender`, `address`, `customer_*`, `payment_p` (payment methods in dialog), `printer_settings`, …
+/// Cart KOT/Pay buttons are not gated by `kot_print` / `invoice_print`.
 ///
 /// **Drawer / finance:** `expense`, `credit_sale`, `opening_balance`, `crm`, `pay_back`,
 /// `open_drawer`, `settle_sale`, `day_closing`, …
@@ -133,6 +134,7 @@ class CounterAccess {
   bool get canDayClosing => _hasAny(const ['day closing', 'day_closing', 'settle sale', 'settle_sale']);
 
   /// --- Sale screen / payment popup ---
+  /// Payment methods / other toggle in payment dialog (not cart KOT/Pay buttons).
   bool get canPayment => _hasAny(const ['payment', 'payment p', 'payment_p', 'payment pay', 'payment_pay']);
 
   bool get canCashOnly => _hasAny(const ['cash only', 'cash_only']);
@@ -140,9 +142,22 @@ class CounterAccess {
   /// View cart / line-item detail (cart preview).
   bool get canDetailing => _hasAny(const ['detailing', 'detail', 'detailing view']);
 
+  /// Payment popup footer: "KOT print" checkbox only (not cart KOT button).
   bool get canKotPrint => _hasAny(const ['kot print', 'kot_print']);
 
+  /// Payment popup footer: "Invoice print" checkbox (also shown when [canPayment] — see PaymentDialog).
   bool get canInvoicePrint => _hasAny(const ['invoice print', 'invoice_print', 'invoice pr', 'invoice_pr']);
+
+  /// Receipt on Pay — aligned with Recent Sales reprint (not gated on [canInvoicePrint] alone).
+  ///
+  /// Counter staff with only `take_away` / `dine_in` / `delivery_sale` (no `payment_p` or `invoice_print`)
+  /// still get a receipt when settling; [canInvoicePrint] only controls showing the opt-out checkbox.
+  bool get canPrintReceiptOnPayment =>
+      canInvoicePrint ||
+      canPayment ||
+      canTakeAwayPay ||
+      canDineInPay ||
+      _canAnyCounterSaleModule;
 
   bool get canDiscountItem => _hasAny(const ['discount item', 'discount_item', 'discount i', 'discount_i']);
 
@@ -167,19 +182,35 @@ class CounterAccess {
     'customer_crm',
   ]);
 
-  bool get canCreditPay => _hasAny(const ['credit pay', 'credit_pay', 'credit payment', 'credit_payment']);
+  /// Default: CASH + CARD + CREDIT unless [canCashOnly].
+  bool get canCashPay => true;
 
-  bool get canCardPay => !canCashOnly && _hasAny(const ['card pay', 'card_pay', 'card', 'payment']);
+  bool get canCardPay => !canCashOnly;
+
+  bool get canCreditPay => !canCashOnly;
 
   bool get canOnlinePay => !canCashOnly && _hasAny(const ['online pay', 'online_pay', 'online', 'payment']);
 
-  bool get canCashPay => canCashOnly || _hasAny(const ['cash pay', 'cash_pay', 'cash', 'payment']);
+  /// Any active counter-sale module (take-away, delivery, dine-in, legacy counter sale).
+  bool get _canAnyCounterSaleModule =>
+      canTakeAwayCounter || canDeliverySale || canDineIn || canCounterSale;
 
-  /// Payment popup / move-order customer block — only the four profile fields (+ address when used).
+  /// Payment popup / move-order customer block.
+  ///
+  /// Shown when profile-field permissions exist, customer CRM is enabled, or the user
+  /// can run any counter sale (standard popup for take-away / delivery / dine-in staff).
   bool get showCustomerSection =>
-      canCustomerName || canCustomerNumber || canCustomerEmail || canCustomerGender || canCustomerAddress;
+      canCustomerName ||
+      canCustomerNumber ||
+      canCustomerEmail ||
+      canCustomerGender ||
+      canCustomerAddress ||
+      canCustomer ||
+      _canAnyCounterSaleModule;
 
-  bool get showDiscountSection => canDiscountItem || canDiscountInvoice;
+  /// Payment popup discount block (manual discount, offers, amount payable).
+  bool get showDiscountSection =>
+      canDiscountItem || canDiscountInvoice || _canAnyCounterSaleModule;
 }
 
 /// Last resolved login user profile (for contexts without BuildContext — e.g. [CartCubit]).

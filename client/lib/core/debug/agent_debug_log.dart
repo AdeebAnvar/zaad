@@ -15,7 +15,7 @@ void agentDebugLog({
   Map<String, Object?>? data,
 }) {
   final payload = <String, Object?>{
-    'sessionId': 'bc52c2',
+    'sessionId': 'a1dec1',
     'timestamp': DateTime.now().millisecondsSinceEpoch,
     'hypothesisId': hypothesisId,
     'location': location,
@@ -28,7 +28,7 @@ void agentDebugLog({
   var wrote = false;
   for (var i = 0; i < 8 && !wrote; i++) {
     try {
-      File(p.join(dir.path, 'debug-bc52c2.log')).writeAsStringSync('$line\n', mode: FileMode.append, flush: true);
+      File(p.join(dir.path, 'debug-a1dec1.log')).writeAsStringSync('$line\n', mode: FileMode.append, flush: true);
       wrote = true;
     } catch (_) {}
     if (!dir.parent.path.endsWith(dir.path)) {
@@ -38,7 +38,7 @@ void agentDebugLog({
     }
   }
   if (!wrote) {
-    for (final rel in <String>['debug-bc52c2.log', '../debug-bc52c2.log', '../../debug-bc52c2.log']) {
+    for (final rel in <String>['debug-a1dec1.log', '../debug-a1dec1.log', '../../debug-a1dec1.log']) {
       try {
         File(rel).writeAsStringSync('$line\n', mode: FileMode.append, flush: true);
         break;
@@ -53,7 +53,7 @@ void agentDebugLog({
           Uri.parse('http://$host:7778/ingest/b57793d3-e555-4b7c-82b0-d86317abb97e'),
           headers: const <String, String>{
             'Content-Type': 'application/json',
-            'X-Debug-Session-Id': 'bc52c2',
+            'X-Debug-Session-Id': 'a1dec1',
           },
           body: line,
         )

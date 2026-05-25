@@ -72,6 +72,7 @@ class ZaadDI {
 
     if (!locator.isRegistered<AppDatabase>()) {
       final db = AppDatabase();
+      await db.repairTextTimestampRows();
       locator.registerSingleton<AppDatabase>(db);
       BackupService.instance.startAutoBackup(db);
     }

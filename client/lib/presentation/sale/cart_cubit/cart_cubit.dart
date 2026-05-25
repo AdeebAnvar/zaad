@@ -134,35 +134,60 @@ class CartCubit extends Cubit<CartState> {
     ItemVariant? selectedVariant,
     int quantity = 1,
   }) async {
-    // 1️⃣ Ensure cart exists
-    await _ensureCart();
+    try {
+      await _ensureCart();
 
-    // 2️⃣ Calculate unit price and total
-    final unitPrice = selectedVariant?.price ?? item.price;
-    final total = (unitPrice * quantity);
+      final unitPrice = selectedVariant?.price ?? item.price;
+      final total = (unitPrice * quantity);
 
-    // 3️⃣ Create cart item (order line)
-    final cartItem = CartItem(
-      id: 0,
-      total: total,
-      cartId: _activeCartId ?? 0, // auto increment in DB
-      itemId: item.id,
-      itemName: item.name,
-      itemVariantId: selectedVariant?.id,
-      itemToppingId: null,
-      quantity: quantity,
-      discount: 0,
-    );
+      final cartItem = CartItem(
+        id: 0,
+        total: total,
+        cartId: _activeCartId ?? 0,
+        itemId: item.id,
+        itemName: item.name,
+        itemVariantId: selectedVariant?.id,
+        itemToppingId: null,
+        quantity: quantity,
+        discount: 0,
+      );
 
-    // 4️⃣ Save to DB
-    final newId = await cartRepo.addItemToCart(_activeCartId!, cartItem);
-    _newlyAddedCartItemIds.add(newId);
+      final newId = await cartRepo.addItemToCart(_activeCartId!, cartItem);
+      _newlyAddedCartItemIds.add(newId);
 
-    // 5️⃣ Reload cart items
-    await _loadCartItems();
+      await _loadCartItems();
+      await _updateKOTIfExists();
+    } catch (e, st) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H-add-fail',
+        location: 'cart_cubit.dart:addItemToCart',
+        message: 'add_item_failed',
+        data: <String, Object?>{
+          'error': e.toString(),
+          'stack': st.toString().split('\n').take(4).join(' | '),
+          'activeCartId': _activeCartId,
+        },
+      );
+      // #endregion
+      throw _userFacingCartError(e);
+    }
+  }
 
-    // 6️⃣ Update KOT if exists
-    await _updateKOTIfExists();
+  /// Maps low-level DB parse failures to actionable UI text.
+  Exception _userFacingCartError(Object e) {
+    final raw = e.toString();
+    if (e is FormatException ||
+        raw.contains('Invalid radix-10') ||
+        raw.contains("typeof(created_at)='text'")) {
+      return Exception(
+        'Outdated cart data was cleared. Try adding the item again — restart the app if this persists.',
+      );
+    }
+    if (raw.contains('No active branch session')) {
+      return Exception('Session expired — log in again before adding items.');
+    }
+    return e is Exception ? e : Exception(raw.replaceFirst(RegExp(r'^Exception:\s*'), ''));
   }
 
   /// Drift and UI already hold the same lines; re-emitting identical data was causing full list/fab flicker.
@@ -300,12 +325,27 @@ class CartCubit extends Cubit<CartState> {
   Future<void> _ensureCart() async {
     if (_activeCartId != null) return;
 
-    final r = await orderRepo.createCartWithReservedInvoice(
-      orderType: orderType.value,
-      deliveryPartner: deliveryPartner,
-    );
-    _activeCartId = r.cartId;
-    _invoiceNumber = r.invoice;
+    try {
+      final r = await orderRepo.createCartWithReservedInvoice(
+        orderType: orderType.value,
+        deliveryPartner: deliveryPartner,
+      );
+      _activeCartId = r.cartId;
+      _invoiceNumber = r.invoice;
+    } catch (e, st) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H-ensure-fail',
+        location: 'cart_cubit.dart:_ensureCart',
+        message: 'cart_create_failed',
+        data: <String, Object?>{
+          'error': e.toString(),
+          'stack': st.toString().split('\n').take(4).join(' | '),
+        },
+      );
+      // #endregion
+      throw _userFacingCartError(e);
+    }
   }
 
   /// Single invoice sequence per cart: `_ensureCart` reserves a number on the cart row;
@@ -877,17 +917,20 @@ class CartCubit extends Cubit<CartState> {
       final newId = await orderRepo.createOrder(order);
       final saved = await orderRepo.getOrderById(newId) ?? order;
 
-      final printFailed = <String>[];
-      printFailed.addAll(
-        await openCashDrawerForCashPayment(
-          resolveCashTenderForDrawer(payments, orderCashAmount: saved.cashAmount),
-        ),
+      final sessionItems = List<CartItem>.from(state.items);
+      var cartItems = await OrderLogCartFallback.resolve(
+        order: saved,
+        db: locator<AppDatabase>(),
+        cartRepo: cartRepo,
       );
+      if (cartItems.isEmpty) cartItems = sessionItems;
+
+      final printFailed = <String>[];
       final ref = saved.referenceNumber?.trim().isNotEmpty == true ? saved.referenceNumber! : saved.invoiceNumber;
-      if (printKot && state.items.isNotEmpty) {
+      if (printKot && cartItems.isNotEmpty) {
         printFailed.addAll(
           await printService.printKOTPerKitchen(
-            cartItems: state.items,
+            cartItems: cartItems,
             order: saved,
             referenceNumber: ref,
             invoiceNumber: saved.invoiceNumber,
@@ -900,11 +943,16 @@ class CartCubit extends Cubit<CartState> {
         printFailed.addAll(
           await printService.printFinalBill(
             order: saved,
-            cartItems: state.items,
+            cartItems: cartItems,
             asTaxInvoice: printInvoice,
           ),
         );
       }
+      printFailed.addAll(
+        await openCashDrawerForCashPayment(
+          resolveCashTenderForDrawer(payments, orderCashAmount: saved.cashAmount),
+        ),
+      );
 
       await _clearCartStateOnly();
       return printFailed;
@@ -1048,15 +1096,18 @@ class CartCubit extends Cubit<CartState> {
     // Update order in database
     await orderRepo.updateOrder(updatedOrder);
 
-    final printFailed = <String>[];
-    printFailed.addAll(
-      await openCashDrawerForCashPayment(
-        resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
-      ),
+    final sessionItems = List<CartItem>.from(state.items);
+    var cartItems = await OrderLogCartFallback.resolve(
+      order: updatedOrder,
+      db: locator<AppDatabase>(),
+      cartRepo: cartRepo,
     );
+    if (cartItems.isEmpty) cartItems = sessionItems;
+
+    final printFailed = <String>[];
     final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
-    if (printKot && state.items.isNotEmpty) {
-      final snap = List<CartItem>.from(state.items);
+    if (printKot && cartItems.isNotEmpty) {
+      final snap = List<CartItem>.from(sessionItems.isNotEmpty ? sessionItems : cartItems);
       if (_kotKitchenBaselineForDiff != null) {
         final rows = KotKitchenUpdateDiff.compute(_kotKitchenBaselineForDiff!, snap);
         if (rows.isNotEmpty) {
@@ -1089,11 +1140,16 @@ class CartCubit extends Cubit<CartState> {
       printFailed.addAll(
         await printService.printFinalBill(
           order: updatedOrder,
-          cartItems: state.items,
+          cartItems: cartItems,
           asTaxInvoice: printInvoice,
         ),
       );
     }
+    printFailed.addAll(
+      await openCashDrawerForCashPayment(
+        resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
+      ),
+    );
 
     // Clear state only - keep cart + items in DB for order history (Recent Sales View)
     _editingOrderId = null;

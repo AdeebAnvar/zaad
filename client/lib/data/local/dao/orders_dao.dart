@@ -648,17 +648,19 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   /// - Current format: `PREFIX-branchId-###` (e.g. `INV-1-002`)
   /// - Legacy format: `PREFIX##` (e.g. `INV02`)
   Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) async {
-    final rows = await (select(orders)
-          ..where((o) => o.invoiceNumber.like('$prefix%'))
-          ..where((o) => o.branchId.equals(branchId)))
+    // Invoice number only — avoids deserializing created_at on legacy/bad rows.
+    final rows = await (selectOnly(orders)
+          ..addColumns([orders.invoiceNumber])
+          ..where(orders.invoiceNumber.like('$prefix%'))
+          ..where(orders.branchId.equals(branchId)))
         .get();
     var max = 0;
     final escapedPrefix = RegExp.escape(prefix);
     final currentFormat = RegExp('^$escapedPrefix-$branchId-(\\d+)\$');
     final legacyFormat = RegExp('^$escapedPrefix(\\d+)\$');
 
-    for (final o in rows) {
-      final inv = o.invoiceNumber;
+    for (final row in rows) {
+      final inv = row.read(orders.invoiceNumber)!;
       int? v;
       final currentMatch = currentFormat.firstMatch(inv);
       if (currentMatch != null) {
