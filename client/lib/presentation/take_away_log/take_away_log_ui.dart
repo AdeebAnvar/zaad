@@ -7,6 +7,7 @@ import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
+import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/core/utils/order_owner_display_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -289,9 +290,13 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
     final access = locator<CurrentCounterSession>().access;
     final canDelete = access.canTakeAwayLogDelete;
     final canPay = access.canTakeAwayPay;
+    final due = orderBalanceDue(order);
+    final amountLabel = due > 0.009
+        ? '${RuntimeAppSettings.money(due)} due'
+        : RuntimeAppSettings.money(orderPayableAmount(order));
     return CommonLogCard(
       tag: 'TA',
-      amount: RuntimeAppSettings.money(order.totalAmount),
+      amount: amountLabel,
       invoiceNumber: order.invoiceNumber,
       referenceNumber: order.referenceNumber ?? '',
       createdAt: order.createdAt,

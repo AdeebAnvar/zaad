@@ -235,6 +235,11 @@ Future<void> showCartStylePaymentDialogForOrder(
     'discountAmount': order.discountAmount,
     'discountType': order.discountType,
     if (appliedOffer != null) 'appliedOffer': appliedOffer,
+    // Log Pay: keep amounts already recorded so user only adds the remainder.
+    'cash': order.cashAmount,
+    'credit': order.creditAmount,
+    'card': order.cardAmount,
+    'online': order.onlineAmount,
   };
 
   final db = locator<AppDatabase>();

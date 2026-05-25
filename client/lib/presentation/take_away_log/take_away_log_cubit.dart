@@ -10,9 +10,19 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/print/cash_drawer_on_payment.dart';
+import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
 
 part 'take_away_log_state.dart';
+
+/// Open takeaway bills only — hide fully paid KOT / pending rows (day close uses the same balance rules).
+bool _takeAwayLogListVisible(Order o) {
+  final s = o.status.toLowerCase();
+  if (s == 'cancelled' || s == 'completed') return false;
+  if (s != 'kot' && s != 'placed' && s != 'pending') return false;
+  if (orderPayableAmount(o) <= 0.009) return true;
+  return orderHasOutstandingBalance(o);
+}
 
 class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
   TakeAwayLogCubit(
@@ -106,7 +116,7 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
         ),
       );
       if (status == null || status.isEmpty || status == 'All') {
-        orders = orders.where((o) => o.status == 'kot').toList();
+        orders = orders.where(_takeAwayLogListVisible).toList();
       } else if (status != 'completed') {
         orders = orders.where((o) => o.status != 'completed').toList();
       } else {
@@ -163,15 +173,15 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
       final card = paymentType == 'CARD' ? finalAmount : 0.0;
       final credit = paymentType == 'CREDIT' ? finalAmount : 0.0;
       final online = paymentType == 'ONLINE' ? finalAmount : 0.0;
-      final paid = cash + card + credit + online;
-      final payable = order.finalAmount > 0.009 ? order.finalAmount : order.totalAmount;
-      final fullyPaid = payable <= 0.009 || paid + 0.02 >= payable;
+      final fullyPaid = !orderHasOutstandingBalance(order);
+      final s = order.status.toLowerCase();
+      final closeWhenPaid = fullyPaid && (s == 'kot' || s == 'placed' || s == 'pending');
       final updated = order.copyWith(
         cashAmount: cash,
         cardAmount: card,
         creditAmount: credit,
         onlineAmount: online,
-        status: fullyPaid && order.status.toLowerCase() == 'kot' ? 'completed' : order.status,
+        status: closeWhenPaid ? 'completed' : order.status,
       );
       await orderRepo.updateOrder(updated);
       if (paymentType == 'CASH') {

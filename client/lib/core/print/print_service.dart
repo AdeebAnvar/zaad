@@ -1228,15 +1228,19 @@ class PrintService {
 
     if (summary.openBills.isNotEmpty) {
       secTitle('3b. OPEN BILLS (SETTLE THESE FIRST)');
-      out.add('${'INVOICE'.padRight(12)}${'STATUS'.padRight(10)}${'TYPE'.padRight(10)}${'AMOUNT'.padLeft(8)}');
+      out.add('${'INVOICE'.padRight(12)}${'STATUS'.padRight(10)}${'TYPE'.padRight(10)}${'DUE'.padLeft(8)}');
       hr();
       for (final ob in summary.openBills) {
         out.add(
           '${_sanitize(ob.invoiceNumber).padRight(12)}'
           '${_sanitize(ob.status).padRight(10)}'
           '${_sanitize(_orderTypeLabel(ob.orderType)).padRight(10)}'
-          '${('$_currency${_fmtMoney(ob.finalAmount)}').padLeft(8)}',
+          '${('$_currency${_fmtMoney(ob.balanceDue)}').padLeft(8)}',
         );
+        final cust = (ob.customerName ?? '').trim();
+        if (cust.isNotEmpty) {
+          out.add('  ${_sanitize(cust)}');
+        }
       }
       final footerLbl = gap <= 0.009 ? 'UNPAID TOTAL' : 'UNPAID TOTAL (YOUR LOGS)';
       pair(footerLbl, summary.unsettledFromAccessibleLogs);
@@ -2438,7 +2442,7 @@ class PrintService {
     if (summary.openBills.isNotEmpty) {
       _dayClosingEmitSectionTitle(generator, bytes, '3b. OPEN BILLS (SETTLE THESE FIRST)');
       bytes += generator.text(
-        '${'INVOICE'.padRight(12)}${'STATUS'.padRight(10)}${'TYPE'.padRight(10)}${'AMOUNT'.padLeft(8)}',
+        '${'INVOICE'.padRight(12)}${'STATUS'.padRight(10)}${'TYPE'.padRight(10)}${'DUE'.padLeft(8)}',
         styles: leftBold,
       );
       bytes += generator.hr(ch: '-');
@@ -2447,9 +2451,13 @@ class PrintService {
           '${_sanitize(ob.invoiceNumber).padRight(12)}'
           '${_sanitize(ob.status).padRight(10)}'
           '${_sanitize(_orderTypeLabel(ob.orderType)).padRight(10)}'
-          '${('$_currency${_fmtMoney(ob.finalAmount)}').padLeft(8)}',
+          '${('$_currency${_fmtMoney(ob.balanceDue)}').padLeft(8)}',
           styles: const PosStyles(align: PosAlign.left),
         );
+        final cust = (ob.customerName ?? '').trim();
+        if (cust.isNotEmpty) {
+          bytes += generator.text('  ${_sanitize(cust)}', styles: const PosStyles(align: PosAlign.left));
+        }
       }
       final footerLbl = gap <= 0.009 ? 'UNPAID TOTAL' : 'UNPAID TOTAL (YOUR LOGS)';
       _dayClosingEmitMoneyPair(generator, bytes, footerLbl, summary.unsettledFromAccessibleLogs);

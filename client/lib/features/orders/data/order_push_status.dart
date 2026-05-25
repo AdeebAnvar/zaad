@@ -1,7 +1,7 @@
 /// Maps local `[Orders.status]` / `order_type` to REST / tenant push contract:
 /// `pending` | `out_of_delivery` | `delivered` | `reject`.
 ///
-/// Take-away & dine-in always push **`pending`** (delivery lifecycle does not apply).
+/// Take-away & dine-in reuse hub lifecycle words: open bills → `pending`, settled → `delivered`.
 class OrderPushStatus {
   OrderPushStatus._();
 
@@ -18,6 +18,9 @@ class OrderPushStatus {
     required String? localStatus,
   }) {
     if (normalizedOrderType(orderType) != 'delivery') {
+      final s = (localStatus ?? '').trim().toLowerCase();
+      if (s == 'completed' || s == 'delivered') return 'delivered';
+      if (s == 'cancelled' || s == 'canceled' || s == 'reject') return 'reject';
       return 'pending';
     }
     final s = (localStatus ?? '').trim().toLowerCase();

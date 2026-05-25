@@ -158,8 +158,12 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       counterAccess: _counterAccess,
     );
     if (branchGate.unpaidAmount > 0.009) {
+      final hint = branchGate.openBills.isEmpty
+          ? ' Check Driver Log for delivered orders still owing money.'
+          : ' See "Open bills" on this screen.';
       CustomSnackBar.showWarning(
-        message: 'Cannot settle day closing. Unpaid amount: ${RuntimeAppSettings.money(branchGate.unpaidAmount)}',
+        message:
+            'Cannot settle day closing. Unpaid amount: ${RuntimeAppSettings.money(branchGate.unpaidAmount)}.$hint',
       );
       return;
     }
@@ -322,14 +326,15 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                         const SizedBox(height: 14),
                         _sectionCard(
                           title: '3b. Open bills (settle these first)',
-                          headers: const ['INVOICE', 'STATUS', 'TYPE', 'AMOUNT'],
+                          headers: const ['INVOICE', 'CUSTOMER', 'STATUS', 'TYPE', 'DUE'],
                           rows: _summary.openBills
                               .map(
                                 (r) => [
                                   r.invoiceNumber,
+                                  (r.customerName ?? '').trim().isEmpty ? '—' : r.customerName!.trim(),
                                   r.status,
                                   _displayOrderTypeForClosing(r.orderType),
-                                  RuntimeAppSettings.money(r.finalAmount),
+                                  RuntimeAppSettings.money(r.balanceDue),
                                 ],
                               )
                               .toList(),
