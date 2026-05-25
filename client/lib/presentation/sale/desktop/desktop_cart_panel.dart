@@ -861,6 +861,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _emailController = TextEditingController();
   final _genderController = TextEditingController();
   final _addressController = TextEditingController();
 
@@ -935,7 +936,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     }
 
     if (_access.showCustomerSection) {
-      _loadCustomers();
+      unawaited(_loadCustomers());
     } else {
       _loadingCustomers = false;
     }
@@ -1208,14 +1209,17 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Future<void> _loadCustomers() async {
+    if (!mounted) return;
     setState(() => _loadingCustomers = true);
     try {
       final customers = await _customerRepo.getAllLocalCustomers();
+      if (!mounted) return;
       setState(() {
         _allCustomers = customers;
         _loadingCustomers = false;
       });
-    } catch (e) {
+    } catch (_) {
+      if (!mounted) return;
       setState(() => _loadingCustomers = false);
     }
   }
@@ -1451,20 +1455,20 @@ class _PaymentDialogState extends State<PaymentDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // if (_access.showCustomerSection) ...[
-          Row(
-            children: [
-              Icon(Icons.person_outline, size: 18, color: AppColors.primaryColor),
-              const SizedBox(width: 8),
-              Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 14)),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: _customerFields(),
-          ),
-          const SizedBox(height: 4),
-          // ],
+          if (_access.showCustomerSection) ...[
+            Row(
+              children: [
+                Icon(Icons.person_outline, size: 18, color: AppColors.primaryColor),
+                const SizedBox(width: 8),
+                Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 14)),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: _customerFields(),
+            ),
+            const SizedBox(height: 4),
+          ],
           // if (_access.showDiscountSection) ...[
           _discountSectionTitle(),
           Padding(
@@ -1512,94 +1516,90 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Widget _customerFields() {
-    // // if (!_access.showCustomerSection) {
-    //   return const SizedBox.shrink();
-    // }
+    if (!_access.showCustomerSection) {
+      return const SizedBox.shrink();
+    }
 
-    final useAutocomplete = _access.canCustomer;
-    final phoneSuggestions = useAutocomplete ? _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList() : <String>[];
-    final nameSuggestions = useAutocomplete ? _allCustomers.map((c) => c.name).toSet().toList() : <String>[];
-    final emailSuggestions = useAutocomplete ? _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList() : <String>[];
+    if (_loadingCustomers) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final phoneSuggestions = _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList();
+    final nameSuggestions = _allCustomers.map((c) => c.name).toSet().toList();
+    final emailSuggestions = _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList();
     final genderOptions = ['Male', 'Female', 'Other'];
-    final customersByName = useAutocomplete ? _allCustomers.where((c) => c.name.toLowerCase().contains(_nameController.text.toLowerCase())).toList() : <PosCustomer>[];
+    final customersByName = _allCustomers.where((c) => c.name.toLowerCase().contains(_nameController.text.toLowerCase())).toList();
 
     final rowChildren = <Widget>[];
-    rowChildren.add(
-      Expanded(
-        child: useAutocomplete
-            ? AutoCompleteTextField<String>(
-                items: phoneSuggestions,
-                displayStringFunction: (item) => item,
-                defaultText: '',
-                labelText: 'Contact Number',
-                controller: _phoneController,
-                filterType: FilterType.contains,
-                onSelected: (selectedPhone) {
-                  final customer = _allCustomers.firstWhere(
-                    (c) => c.phone == selectedPhone,
-                    orElse: () => PosCustomer.placeholder(phone: selectedPhone),
-                  );
-                  if (customer.id > 0) _prefillCustomer(customer);
-                },
-              )
-            : CustomTextField(
-                controller: _phoneController,
-                labelText: 'Contact Number',
-              ),
-      ),
-    );
-    if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
-    rowChildren.add(
-      Expanded(
-        child: useAutocomplete
-            ? AutoCompleteTextField<String>(
-                items: nameSuggestions,
-                displayStringFunction: (item) => item,
-                defaultText: '',
-                labelText: 'Name',
-                controller: _nameController,
-                filterType: FilterType.contains,
-                onSelected: (selectedName) {
-                  final customer = _allCustomers.firstWhere(
-                    (c) => c.name == selectedName,
-                    orElse: () => PosCustomer.placeholder(name: selectedName),
-                  );
-                  if (customer.id > 0) _prefillCustomer(customer);
-                },
-                onChanged: (value) {
-                  final matching = customersByName.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
-                  if (matching.isNotEmpty) _prefillCustomer(matching.first);
-                },
-              )
-            : CustomTextField(
-                controller: _nameController,
-                labelText: 'Name',
-              ),
-      ),
-    );
-    if (_access.canCustomerEmail || _access.showCustomerSection) {
+    if (_access.canCustomerNumber || _access.showCustomerSection) {
       rowChildren.add(
         Expanded(
-          child: useAutocomplete
-              ? AutoCompleteTextField<String>(
-                  items: emailSuggestions,
-                  displayStringFunction: (item) => item,
-                  defaultText: '',
-                  labelText: 'Email',
-                  controller: _emailController,
-                  filterType: FilterType.contains,
-                  onSelected: (selectedEmail) {
-                    final customer = _allCustomers.firstWhere(
-                      (c) => c.email == selectedEmail,
-                      orElse: () => PosCustomer.placeholder(email: selectedEmail),
-                    );
-                    if (customer.id > 0) _prefillCustomer(customer);
-                  },
-                )
-              : CustomTextField(
-                  controller: _emailController,
-                  labelText: 'Email',
-                ),
+          child: AutoCompleteTextField<String>(
+            items: phoneSuggestions,
+            displayStringFunction: (item) => item,
+            defaultText: '',
+            labelText: 'Contact Number',
+            controller: _phoneController,
+            filterType: FilterType.contains,
+            onSelected: (selectedPhone) {
+              final customer = _allCustomers.firstWhere(
+                (c) => c.phone == selectedPhone,
+                orElse: () => PosCustomer.placeholder(phone: selectedPhone),
+              );
+              if (customer.id > 0) _prefillCustomer(customer);
+            },
+          ),
+        ),
+      );
+    }
+    if (_access.canCustomerName || _access.showCustomerSection) {
+      if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
+      rowChildren.add(
+        Expanded(
+          child: AutoCompleteTextField<String>(
+            items: nameSuggestions,
+            displayStringFunction: (item) => item,
+            defaultText: '',
+            labelText: 'Name',
+            controller: _nameController,
+            filterType: FilterType.contains,
+            onSelected: (selectedName) {
+              final customer = _allCustomers.firstWhere(
+                (c) => c.name == selectedName,
+                orElse: () => PosCustomer.placeholder(name: selectedName),
+              );
+              if (customer.id > 0) _prefillCustomer(customer);
+            },
+            onChanged: (value) {
+              final matching = customersByName.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
+              if (matching.isNotEmpty) _prefillCustomer(matching.first);
+            },
+          ),
+        ),
+      );
+    }
+    if (_access.canCustomerEmail) {
+      if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
+      rowChildren.add(
+        Expanded(
+          child: AutoCompleteTextField<String>(
+            items: emailSuggestions,
+            displayStringFunction: (item) => item,
+            defaultText: '',
+            labelText: 'Email',
+            controller: _emailController,
+            filterType: FilterType.contains,
+            onSelected: (selectedEmail) {
+              final customer = _allCustomers.firstWhere(
+                (c) => c.email == selectedEmail,
+                orElse: () => PosCustomer.placeholder(email: selectedEmail),
+              );
+              if (customer.id > 0) _prefillCustomer(customer);
+            },
+          ),
         ),
       );
     }
@@ -2218,6 +2218,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _otherFocusNode.dispose();
     _nameController.dispose();
     _phoneController.dispose();
+    _emailController.dispose();
     _genderController.dispose();
     _addressController.dispose();
     _cashController.dispose();
