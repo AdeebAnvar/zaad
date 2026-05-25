@@ -15,7 +15,7 @@
 
 [Setup]
 AppName=Zaad POS
-AppVersion=1.58
+AppVersion=1.0.0+61
 AppId=ZaadPOS
 DefaultDirName=C:\POS
 DefaultGroupName=Zaad POS

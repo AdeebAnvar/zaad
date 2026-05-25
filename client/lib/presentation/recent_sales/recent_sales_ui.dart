@@ -626,10 +626,7 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
           children: [
             _infoBlock('Receipt No', order.invoiceNumber),
             const SizedBox(width: 24),
-            if (key == 'delivery')
-              _infoBlock('Partner', order.deliveryPartner ?? '—')
-            else
-              _infoBlock('Payment Type', orderPaymentTypesLabel(order)),
+            if (key == 'delivery') _infoBlock('Partner', order.deliveryPartner ?? '—') else _infoBlock('Payment Type', orderPaymentTypesLabel(order)),
           ],
         ),
         if (order.driverName != null && order.driverName!.isNotEmpty) ...[

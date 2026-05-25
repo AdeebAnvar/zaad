@@ -67,9 +67,7 @@ class OrderRepositoryImpl implements OrderRepository {
       final n = u?.name.trim() ?? '';
       if (n.isNotEmpty) cashierName = n;
     }
-    final orderType = (order.orderType?.trim().isNotEmpty == true)
-        ? order.orderType!.trim()
-        : (flutter['order_type']?.toString() ?? 'take_away');
+    final orderType = (order.orderType?.trim().isNotEmpty == true) ? order.orderType!.trim() : (flutter['order_type']?.toString() ?? 'take_away');
     return <String, dynamic>{
       'order_id': order.id,
       'cart_id': order.cartId,
@@ -86,22 +84,19 @@ class OrderRepositoryImpl implements OrderRepository {
     };
   }
 
-  Future<String> _orderSnapshotJson(Order order, List<CartItem> cartItems) async =>
-      jsonEncode(await _orderSnapshotMap(order, cartItems));
+  Future<String> _orderSnapshotJson(Order order, List<CartItem> cartItems) async => jsonEncode(await _orderSnapshotMap(order, cartItems));
 
   /// Freeze line items on the order row so Recent Sales / day close never read another sale's cart lines.
   Future<void> _persistFrozenLineSnapshotOnOrder(Order order, List<CartItem> cartItems) async {
     final snapshot = await _orderSnapshotMap(order, cartItems);
-    final anchor = DineInRefParser.dineInAnchorFromHubMetadata(order.hubMetadata) ??
-        _dineInRoutingRefFromOrderRow(order);
+    final anchor = DineInRefParser.dineInAnchorFromHubMetadata(order.hubMetadata) ?? _dineInRoutingRefFromOrderRow(order);
     final creditPayments = creditPaymentsFromHubMetadata(order.hubMetadata);
     final hubMeta = jsonEncode(<String, dynamic>{
       'orderId': HubOrderLanPublisher.hubOrderCorrelationId(order, order.id),
       'snapshot': snapshot,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
       if (anchor != null && anchor.isNotEmpty) DineInRefParser.hubMetadataAnchorKey: anchor,
-      if (creditPayments != null && creditPayments.isNotEmpty)
-        'creditPayments': creditPayments,
+      if (creditPayments != null && creditPayments.isNotEmpty) 'creditPayments': creditPayments,
     });
     await (db.update(db.orders)..where((o) => o.id.equals(order.id))).write(
       OrdersCompanion(hubMetadata: Value(hubMeta)),
@@ -366,8 +361,7 @@ class OrderRepositoryImpl implements OrderRepository {
     final bid = branchIdOverride ?? await db.sessionDao.requireActiveBranchId();
     final branch = await db.branchesDao.getBranchById(bid);
     final branchPrefix = branch?.prefixInv.trim();
-    final prefix =
-        (branchPrefix != null && branchPrefix.isNotEmpty) ? branchPrefix : invoicePrefixForOrderType(orderType);
+    final prefix = (branchPrefix != null && branchPrefix.isNotEmpty) ? branchPrefix : invoicePrefixForOrderType(orderType);
     final oMax = await db.ordersDao.maxInvoiceNumericSuffixForPrefix(prefix, branchId: bid);
     final cMax = await db.cartsDao.maxInvoiceNumericSuffixForPrefix(prefix, branchId: bid);
     final next = (oMax > cMax ? oMax : cMax) + 1;

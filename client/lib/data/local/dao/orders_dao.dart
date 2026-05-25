@@ -9,20 +9,20 @@ class Orders extends Table {
   RealColumn get discountAmount => real().withDefault(const Constant(0))();
   TextColumn get discountType => text().nullable()();
   RealColumn get finalAmount => real()();
-  
+
   // Customer Details
   TextColumn get customerName => text().nullable()();
   TextColumn get customerEmail => text().nullable()();
   TextColumn get customerPhone => text().nullable()();
   TextColumn get customerGender => text().nullable()();
   TextColumn get customerAddress => text().nullable()();
-  
+
   // Payment Details
   RealColumn get cashAmount => real().withDefault(const Constant(0))();
   RealColumn get creditAmount => real().withDefault(const Constant(0))();
   RealColumn get cardAmount => real().withDefault(const Constant(0))();
   RealColumn get onlineAmount => real().withDefault(const Constant(0))();
-  
+
   DateTimeColumn get createdAt => dateTime()();
   TextColumn get status => text().withDefault(const Constant('placed'))(); // placed, completed, cancelled, kot
   /// 'take_away' | 'delivery' | 'dine_in'
@@ -30,6 +30,7 @@ class Orders extends Table {
   TextColumn get deliveryPartner => text().nullable()();
   IntColumn get driverId => integer().nullable().references(Drivers, #id)();
   TextColumn get driverName => text().nullable()();
+
   /// Cashier / staff who created the order (from session at save time).
   IntColumn get userId => integer().nullable().references(Users, #id)();
 
@@ -43,8 +44,7 @@ class Orders extends Table {
   TextColumn get hubMetadata => text().nullable()();
 
   /// LOCAL offline: row exists locally but POST /orders not confirmed yet.
-  BoolColumn get hubSyncPending =>
-      boolean().withDefault(const Constant(false))();
+  BoolColumn get hubSyncPending => boolean().withDefault(const Constant(false))();
 
   /// Daily pickup / queue number; resets after [DayClosingCheckpoint.lastSettledAt] for the branch.
   IntColumn get pickupToken => integer().nullable()();
@@ -124,8 +124,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   }
 
   Future<void> updateOrderStatus(int orderId, String status) {
-    return (update(orders)..where((o) => o.id.equals(orderId)))
-        .write(OrdersCompanion(status: Value(status)));
+    return (update(orders)..where((o) => o.id.equals(orderId))).write(OrdersCompanion(status: Value(status)));
   }
 
   Future<void> deleteOrder(int orderId) {
@@ -221,33 +220,33 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   }
 
   List<GeneratedColumn<Object>> get _listOrderColumns => [
-    orders.id,
-    orders.cartId,
-    orders.invoiceNumber,
-    orders.referenceNumber,
-    orders.totalAmount,
-    orders.discountAmount,
-    orders.discountType,
-    orders.finalAmount,
-    orders.customerName,
-    orders.customerEmail,
-    orders.customerPhone,
-    orders.customerGender,
-    orders.cashAmount,
-    orders.creditAmount,
-    orders.cardAmount,
-    orders.onlineAmount,
-    orders.createdAt,
-    orders.status,
-    orders.orderType,
-    orders.deliveryPartner,
-    orders.driverId,
-    orders.driverName,
-    orders.userId,
-    orders.branchId,
-    orders.serverOrderId,
-    orders.hubSyncPending,
-  ];
+        orders.id,
+        orders.cartId,
+        orders.invoiceNumber,
+        orders.referenceNumber,
+        orders.totalAmount,
+        orders.discountAmount,
+        orders.discountType,
+        orders.finalAmount,
+        orders.customerName,
+        orders.customerEmail,
+        orders.customerPhone,
+        orders.customerGender,
+        orders.cashAmount,
+        orders.creditAmount,
+        orders.cardAmount,
+        orders.onlineAmount,
+        orders.createdAt,
+        orders.status,
+        orders.orderType,
+        orders.deliveryPartner,
+        orders.driverId,
+        orders.driverName,
+        orders.userId,
+        orders.branchId,
+        orders.serverOrderId,
+        orders.hubSyncPending,
+      ];
 
   Order _orderFromListRow(TypedResult row) {
     return Order(
@@ -282,8 +281,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   }
 
   Future<void> updateOrder(OrdersCompanion order) {
-    return (update(orders)..where((o) => o.id.equals(order.id.value)))
-        .write(order);
+    return (update(orders)..where((o) => o.id.equals(order.id.value))).write(order);
   }
 
   /// Max [Orders.pickupToken] for [branchId] with `created_at` strictly after [createdAfterExclusive]
@@ -372,8 +370,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   }
 
   Future<OrderLog?> findLatestOrderLogByLocalOrderId(int localOrderId) async {
-    final logs =
-        await (select(orderLogs)..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).get();
+    final logs = await (select(orderLogs)..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).get();
     for (final log in logs) {
       try {
         final decoded = jsonDecode(log.orderJson);
