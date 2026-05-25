@@ -1,6 +1,9 @@
 /// Default cap for order log screens when not narrowed by search filters.
 const int kOrderLogDefaultListLimit = 400;
 
+/// Recent Sales list page size (DB pagination).
+const int kRecentSalesPageSize = 20;
+
 /// True when the user narrowed the list (no default row cap).
 bool orderLogListIsNarrowed({
   String? invoiceNumber,

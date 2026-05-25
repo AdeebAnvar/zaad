@@ -38,6 +38,22 @@ abstract class OrderRepository {
     int? driverId,
     int? userId,
     int? limit,
+    int offset = 0,
+  });
+
+  /// Row count for the same filters as [filterOrdersForList] (pagination UI).
+  Future<int> countOrdersForList({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? status,
+    List<String>? statusAnyOf,
+    String? orderType,
+    String? deliveryPartner,
+    String? customerPhone,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? driverId,
+    int? userId,
   });
 
   Future<List<Order>> getDeliveryOrdersWithDriver();
