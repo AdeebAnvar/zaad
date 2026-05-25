@@ -290,6 +290,7 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
     final access = locator<CurrentCounterSession>().access;
     final canDelete = access.canTakeAwayLogDelete;
     final canPay = access.canTakeAwayPay;
+    final canEdit = access.canTakeAwayLogEdit;
     final due = orderBalanceDue(order);
     final amountLabel = due > 0.009
         ? '${RuntimeAppSettings.money(due)} due'
@@ -313,11 +314,12 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
           tooltip: 'Print',
           onTap: () => _handlePrint(context, order),
         ),
-        LogCardAction(
-          icon: Icons.edit_outlined,
-          tooltip: 'Edit',
-          onTap: () => _handleEdit(context, order),
-        ),
+        if (canEdit)
+          LogCardAction(
+            icon: Icons.edit_outlined,
+            tooltip: 'Edit',
+            onTap: () => _handleEdit(context, order),
+          ),
         if (canPay)
           LogCardAction(
             icon: Icons.payments_outlined,

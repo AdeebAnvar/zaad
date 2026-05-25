@@ -379,7 +379,9 @@ class _RecentSalesDesktopTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canDelete = locator<CurrentCounterSession>().access.canRecentSaleDelete;
+    final access = locator<CurrentCounterSession>().access;
+    final canDelete = access.canRecentSaleDelete;
+    final canEdit = access.canRecentSaleEdit;
     return LayoutBuilder(
       builder: (context, constraints) {
         return Container(
@@ -496,16 +498,17 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                                 tooltip: 'Print',
                                 onPressed: () => printRecentSaleBill(context, order),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.edit_outlined, size: 20),
-                                color: AppColors.primaryColor,
-                                tooltip: 'Edit',
-                                onPressed: () => openRecentSaleForEdit(
-                                  context,
-                                  order,
-                                  onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+                              if (canEdit)
+                                IconButton(
+                                  icon: const Icon(Icons.edit_outlined, size: 20),
+                                  color: AppColors.primaryColor,
+                                  tooltip: 'Edit',
+                                  onPressed: () => openRecentSaleForEdit(
+                                    context,
+                                    order,
+                                    onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+                                  ),
                                 ),
-                              ),
                               if (canDelete)
                                 IconButton(
                                   icon: const Icon(Icons.delete_outline, size: 20),
@@ -758,7 +761,9 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
   }
 
   Widget _actions(BuildContext context, Order order) {
-    final canDelete = locator<CurrentCounterSession>().access.canRecentSaleDelete;
+    final access = locator<CurrentCounterSession>().access;
+    final canDelete = access.canRecentSaleDelete;
+    final canEdit = access.canRecentSaleEdit;
     return Row(
       children: [
         _icon(
@@ -771,15 +776,16 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
           tooltip: 'Print',
           onTap: () => printRecentSaleBill(context, order),
         ),
-        _icon(
-          Icons.edit_outlined,
-          tooltip: 'Edit',
-          onTap: () => openRecentSaleForEdit(
-            context,
-            order,
-            onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+        if (canEdit)
+          _icon(
+            Icons.edit_outlined,
+            tooltip: 'Edit',
+            onTap: () => openRecentSaleForEdit(
+              context,
+              order,
+              onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+            ),
           ),
-        ),
         if (canDelete)
           _icon(
             Icons.delete_outline,

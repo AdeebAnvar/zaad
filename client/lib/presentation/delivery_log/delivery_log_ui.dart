@@ -608,6 +608,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     final order = widget.order;
     final partnerLabel = order.deliveryPartner ?? 'Normal';
     final isNormal = widget.order.deliveryPartner?.toUpperCase() == 'NORMAL';
+    final access = locator<CurrentCounterSession>().access;
 
     return CommonLogCard(
       tag: 'DL',
@@ -622,7 +623,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
               onChanged: (_) => context.read<DeliveryLogCubit>().toggleNormalSelection(widget.order.id),
             )
           : null,
-      onDelete: () => _handleDelete(context, order),
+      onDelete: access.canDeliveryLogDelete ? () => _handleDelete(context, order) : null,
       extraContent: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -650,27 +651,29 @@ class _DeliveryCardState extends State<_DeliveryCard> {
           tooltip: 'Print',
           onTap: () => _handlePrint(context, order),
         ),
-        LogCardAction(
-          icon: Icons.edit_outlined,
-          tooltip: 'Edit',
-          onTap: () => _handleEdit(context, order),
-        ),
-        if (!isDeliverySaleLogPendingStatus(order.status))
+        if (access.canDeliveryLogEdit)
+          LogCardAction(
+            icon: Icons.edit_outlined,
+            tooltip: 'Edit',
+            onTap: () => _handleEdit(context, order),
+          ),
+        if (!isDeliverySaleLogPendingStatus(order.status) && access.canPayment)
           LogCardAction(
             icon: Icons.payments_outlined,
             tooltip: 'Pay',
             onTap: () => _handlePay(context, order),
           ),
-        LogCardAction(
-          icon: Icons.drive_file_move_outline,
-          tooltip: 'Move',
-          onTap: () => showMoveOrderDialog(
-            context,
-            order: order,
-            sourceOrderType: 'delivery',
-            onSuccess: () => context.read<DeliveryLogCubit>().refreshOrders(),
+        if (access.canDeliveryLogMove)
+          LogCardAction(
+            icon: Icons.drive_file_move_outline,
+            tooltip: 'Move',
+            onTap: () => showMoveOrderDialog(
+              context,
+              order: order,
+              sourceOrderType: 'delivery',
+              onSuccess: () => context.read<DeliveryLogCubit>().refreshOrders(),
+            ),
           ),
-        ),
       ],
     );
   }

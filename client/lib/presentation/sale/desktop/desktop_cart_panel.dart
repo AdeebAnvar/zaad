@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/print/cash_drawer_on_payment.dart';
 import 'package:pos/core/constants/colors.dart';
@@ -567,32 +568,37 @@ class CartPanel extends StatelessWidget {
 
                           // Delivery: only Save button (no KOT, no Pay) — Save opens payment dialog
                           if (isDelivery || isEditingPaidOrder) {
-                            final saveButton = CustomButton(
-                              width: 80,
-                              onPressed: state.items.isEmpty
-                                  ? () {}
-                                  : () async {
-                                      await _showPaymentDialog(
-                                        context,
-                                        totalAmount,
-                                        isEditing: shouldSaveAsEdit,
-                                        isDelivery: isDelivery,
-                                        deliveryPartner: cartCubit.deliveryPartner,
-                                      );
-                                      if (!isModalBottomSheet) {
-                                        onCloseCart?.call(true);
-                                      }
-                                    },
-                              text: "Save",
-                            );
-                            final eye = IconButton(
-                              tooltip: 'View cart',
-                              icon: Icon(
-                                Icons.visibility_outlined,
-                                color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
-                              ),
-                              onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
-                            );
+                            final saleAccess = locator<CurrentCounterSession>().access;
+                            final saveButton = saleAccess.canPayment
+                                ? CustomButton(
+                                    width: 80,
+                                    onPressed: state.items.isEmpty
+                                        ? () {}
+                                        : () async {
+                                            await _showPaymentDialog(
+                                              context,
+                                              totalAmount,
+                                              isEditing: shouldSaveAsEdit,
+                                              isDelivery: isDelivery,
+                                              deliveryPartner: cartCubit.deliveryPartner,
+                                            );
+                                            if (!isModalBottomSheet) {
+                                              onCloseCart?.call(true);
+                                            }
+                                          },
+                                    text: "Save",
+                                  )
+                                : null;
+                            final eye = saleAccess.canDetailing
+                                ? IconButton(
+                                    tooltip: 'View cart',
+                                    icon: Icon(
+                                      Icons.visibility_outlined,
+                                      color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
+                                    ),
+                                    onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
+                                  )
+                                : null;
                             // if (!isNarrow) {
                             //   return Column(
                             //     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -606,31 +612,33 @@ class CartPanel extends StatelessWidget {
                             return Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                eye,
-                                const SizedBox(width: 4),
-                                saveButton,
+                                if (eye != null) eye,
+                                if (eye != null && saveButton != null) const SizedBox(width: 4),
+                                if (saveButton != null) saveButton,
                               ],
                             );
                           }
 
-                          // if (isNarrow) {
+                          final saleAccess = locator<CurrentCounterSession>().access;
                           return Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
-                              IconButton(
-                                tooltip: 'View cart',
-                                icon: Icon(
-                                  Icons.visibility_outlined,
-                                  color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
+                              if (saleAccess.canDetailing)
+                                IconButton(
+                                  tooltip: 'View cart',
+                                  icon: Icon(
+                                    Icons.visibility_outlined,
+                                    color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
+                                  ),
+                                  onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
                                 ),
-                                onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
-                              ),
-                              const SizedBox(width: 4),
-                              _KitchenOrderIconButton(
-                                width: 110,
-                                onPressed: state.items.isEmpty
-                                    ? null
-                                    : () async {
+                              if (saleAccess.canDetailing) const SizedBox(width: 4),
+                              if (saleAccess.canKotPrint)
+                                _KitchenOrderIconButton(
+                                  width: 110,
+                                  onPressed: state.items.isEmpty
+                                      ? null
+                                      : () async {
                                         final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
                                         final skipKotReferenceDialog = hasRef && isOpenedForEdit;
                                         if (skipKotReferenceDialog) {
@@ -655,20 +663,21 @@ class CartPanel extends StatelessWidget {
                                           showKOTDialog(context);
                                         }
                                       },
-                              ),
-                              const SizedBox(width: 12),
-                              CustomButton(
-                                width: 80,
-                                onPressed: state.items.isEmpty
-                                    ? () {}
-                                    : () async {
-                                        await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
-                                        if (!isModalBottomSheet) {
-                                          onCloseCart?.call(true);
-                                        }
-                                      },
-                                text: "Pay",
-                              ),
+                                ),
+                              if (saleAccess.canKotPrint) const SizedBox(width: 12),
+                              if (saleAccess.canPayment)
+                                CustomButton(
+                                  width: 80,
+                                  onPressed: state.items.isEmpty
+                                      ? () {}
+                                      : () async {
+                                          await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
+                                          if (!isModalBottomSheet) {
+                                            onCloseCart?.call(true);
+                                          }
+                                        },
+                                  text: "Pay",
+                                ),
                             ],
                           );
                           // }
@@ -1013,6 +1022,8 @@ class PaymentDialog extends StatefulWidget {
 }
 
 class _PaymentDialogState extends State<PaymentDialog> {
+  CounterAccess get _access => locator<CurrentCounterSession>().access;
+
   final _formKey = GlobalKey<FormState>();
 
   /// Third-party apps (NOON, etc.). Own fleet uses delivery partner name `NORMAL`.
@@ -1064,6 +1075,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
   void initState() {
     super.initState();
     final prefill = widget.prefill;
+    _printInvoice = _access.canInvoicePrint;
+    _printKot = false;
 
     final safeSubtotal = _nonNegativeOrderSubtotal(widget.totalAmount);
     _finalAmount = safeSubtotal;
@@ -1387,6 +1400,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   /// Save customer only if at least one customer field has data.
   Future<void> _saveNewCustomerIfNeeded() async {
+    if (!_access.canCustomer) return;
+
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
     final email = _emailController.text.trim();
@@ -1461,6 +1476,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
     final card = double.tryParse(_cardController.text) ?? 0;
     final online = double.tryParse(_onlineController.text) ?? 0;
     final other = double.tryParse(_otherController.text) ?? 0;
+    if (_access.canCashOnly) {
+      if (credit > 0.009 || card > 0.009 || online > 0.009 || other > 0.009) return false;
+    }
+    if (!_access.canCreditPay && credit > 0.009) return false;
     return ((cash + credit + card + online + other) - _finalAmount).abs() < 0.01;
   }
 
@@ -1579,24 +1598,28 @@ class _PaymentDialogState extends State<PaymentDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.person_outline, size: 18, color: AppColors.primaryColor),
-              const SizedBox(width: 8),
-              Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 14)),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: _customerFields(),
-          ),
-          const SizedBox(height: 4),
-          _discountSectionTitle(),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: _discountFields(),
-          ),
-          const SizedBox(height: 4),
+          if (_access.showCustomerSection) ...[
+            Row(
+              children: [
+                Icon(Icons.person_outline, size: 18, color: AppColors.primaryColor),
+                const SizedBox(width: 8),
+                Text('Customer Details', style: AppStyles.getSemiBoldTextStyle(fontSize: 14)),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: _customerFields(),
+            ),
+            const SizedBox(height: 4),
+          ],
+          if (_access.showDiscountSection) ...[
+            _discountSectionTitle(),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: _discountFields(),
+            ),
+            const SizedBox(height: 4),
+          ],
           Row(
             children: [
               Icon(Icons.payment, size: 18, color: AppColors.primaryColor),
@@ -1636,82 +1659,115 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Widget _customerFields() {
-    if (_loadingCustomers) {
+    if (_access.canCustomer && _loadingCustomers) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final phoneSuggestions = _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList();
-    final nameSuggestions = _allCustomers.map((c) => c.name).toSet().toList();
-    final emailSuggestions = _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList();
+    final useAutocomplete = _access.canCustomer;
+    final phoneSuggestions = useAutocomplete
+        ? _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList()
+        : <String>[];
+    final nameSuggestions = useAutocomplete ? _allCustomers.map((c) => c.name).toSet().toList() : <String>[];
+    final emailSuggestions = useAutocomplete
+        ? _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList()
+        : <String>[];
     final genderOptions = ['Male', 'Female', 'Other'];
-    final customersByName = _allCustomers.where((c) => c.name.toLowerCase().contains(_nameController.text.toLowerCase())).toList();
+    final customersByName =
+        useAutocomplete ? _allCustomers.where((c) => c.name.toLowerCase().contains(_nameController.text.toLowerCase())).toList() : <PosCustomer>[];
+
+    final rowChildren = <Widget>[];
+    if (_access.canCustomerNumber) {
+      rowChildren.add(
+        Expanded(
+          child: useAutocomplete
+              ? AutoCompleteTextField<String>(
+                  items: phoneSuggestions,
+                  displayStringFunction: (item) => item,
+                  defaultText: '',
+                  labelText: 'Contact Number',
+                  controller: _phoneController,
+                  filterType: FilterType.contains,
+                  onSelected: (selectedPhone) {
+                    final customer = _allCustomers.firstWhere(
+                      (c) => c.phone == selectedPhone,
+                      orElse: () => PosCustomer.placeholder(phone: selectedPhone),
+                    );
+                    if (customer.id > 0) _prefillCustomer(customer);
+                  },
+                )
+              : CustomTextField(
+                  controller: _phoneController,
+                  labelText: 'Contact Number',
+                ),
+        ),
+      );
+    }
+    if (_access.canCustomerName) {
+      if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
+      rowChildren.add(
+        Expanded(
+          child: useAutocomplete
+              ? AutoCompleteTextField<String>(
+                  items: nameSuggestions,
+                  displayStringFunction: (item) => item,
+                  defaultText: '',
+                  labelText: 'Name',
+                  controller: _nameController,
+                  filterType: FilterType.contains,
+                  onSelected: (selectedName) {
+                    final customer = _allCustomers.firstWhere(
+                      (c) => c.name == selectedName,
+                      orElse: () => PosCustomer.placeholder(name: selectedName),
+                    );
+                    if (customer.id > 0) _prefillCustomer(customer);
+                  },
+                  onChanged: (value) {
+                    final matching = customersByName.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
+                    if (matching.isNotEmpty) _prefillCustomer(matching.first);
+                  },
+                )
+              : CustomTextField(
+                  controller: _nameController,
+                  labelText: 'Name',
+                ),
+        ),
+      );
+    }
+    if (_access.canCustomerEmail) {
+      if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
+      rowChildren.add(
+        Expanded(
+          child: useAutocomplete
+              ? AutoCompleteTextField<String>(
+                  items: emailSuggestions,
+                  displayStringFunction: (item) => item,
+                  defaultText: '',
+                  labelText: 'Email',
+                  controller: _emailController,
+                  filterType: FilterType.contains,
+                  onSelected: (selectedEmail) {
+                    final customer = _allCustomers.firstWhere(
+                      (c) => c.email == selectedEmail,
+                      orElse: () => PosCustomer.placeholder(email: selectedEmail),
+                    );
+                    if (customer.id > 0) _prefillCustomer(customer);
+                  },
+                )
+              : CustomTextField(
+                  controller: _emailController,
+                  labelText: 'Email',
+                ),
+        ),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Row: Contact Number, Name, Email (like image)
-        Row(
-          children: [
-            Expanded(
-              child: AutoCompleteTextField<String>(
-                items: phoneSuggestions,
-                displayStringFunction: (item) => item,
-                defaultText: '',
-                labelText: 'Contact Number',
-                controller: _phoneController,
-                filterType: FilterType.contains,
-                onSelected: (selectedPhone) {
-                  final customer = _allCustomers.firstWhere(
-                    (c) => c.phone == selectedPhone,
-                    orElse: () => PosCustomer.placeholder(phone: selectedPhone),
-                  );
-                  if (customer.id > 0) _prefillCustomer(customer);
-                },
-              ),
-            ),
-            Expanded(
-              child: AutoCompleteTextField<String>(
-                items: nameSuggestions,
-                displayStringFunction: (item) => item,
-                defaultText: '',
-                labelText: 'Name',
-                controller: _nameController,
-                filterType: FilterType.contains,
-                onSelected: (selectedName) {
-                  final customer = _allCustomers.firstWhere(
-                    (c) => c.name == selectedName,
-                    orElse: () => PosCustomer.placeholder(name: selectedName),
-                  );
-                  if (customer.id > 0) _prefillCustomer(customer);
-                },
-                onChanged: (value) {
-                  final matching = customersByName.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
-                  if (matching.isNotEmpty) _prefillCustomer(matching.first);
-                },
-              ),
-            ),
-            Expanded(
-              child: AutoCompleteTextField<String>(
-                items: emailSuggestions,
-                displayStringFunction: (item) => item,
-                defaultText: '',
-                labelText: 'Email',
-                controller: _emailController,
-                filterType: FilterType.contains,
-                onSelected: (selectedEmail) {
-                  final customer = _allCustomers.firstWhere(
-                    (c) => c.email == selectedEmail,
-                    orElse: () => PosCustomer.placeholder(email: selectedEmail),
-                  );
-                  if (customer.id > 0) _prefillCustomer(customer);
-                },
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        // Choose Gender dropdown (like image)
-        DropdownButtonFormField<String>(
+        if (rowChildren.isNotEmpty) Row(children: rowChildren),
+        if (_access.canCustomerGender) ...[
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
           initialValue: genderOptions.contains(_genderController.text) ? _genderController.text : null,
           decoration: InputDecoration(
             labelStyle: TextStyle(
@@ -1761,57 +1817,63 @@ class _PaymentDialogState extends State<PaymentDialog> {
             setState(() => _genderController.text = v ?? '');
           },
         ),
+        ],
       ],
     );
   }
 
   Widget _discountFields() {
+    final showManual = _access.canDiscountItem;
+    final showOffers = _access.canDiscountInvoice;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Discount by Amount',
-                    style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.textColor),
-                  ),
-                  const SizedBox(height: 4),
-                  CustomTextField(
-                    controller: _discountByAmountController,
-                    labelText: '',
-                    keyBoardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
-                    onChanged: _onDiscountByAmountChanged,
-                  ),
-                ],
+            if (showManual) ...[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Discount by Amount',
+                      style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.textColor),
+                    ),
+                    const SizedBox(height: 4),
+                    CustomTextField(
+                      controller: _discountByAmountController,
+                      labelText: '',
+                      keyBoardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
+                      onChanged: _onDiscountByAmountChanged,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Discount by %',
-                    style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.textColor),
-                  ),
-                  const SizedBox(height: 4),
-                  CustomTextField(
-                    controller: _discountByPercentController,
-                    labelText: '',
-                    keyBoardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
-                    onChanged: _onDiscountByPercentChanged,
-                  ),
-                ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Discount by %',
+                      style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.textColor),
+                    ),
+                    const SizedBox(height: 4),
+                    CustomTextField(
+                      controller: _discountByPercentController,
+                      labelText: '',
+                      keyBoardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
+                      onChanged: _onDiscountByPercentChanged,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
+              const SizedBox(width: 12),
+            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1840,7 +1902,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
             ),
           ],
         ),
-        if (!_loadingOffers && _dropdownOffers.isNotEmpty) ...[
+        if (showOffers && !_loadingOffers && _dropdownOffers.isNotEmpty) ...[
           const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -1861,7 +1923,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
             },
           ),
         ],
-        if (!_loadingOffers && _autoDayOffers.isNotEmpty) ...[
+        if (showOffers && !_loadingOffers && _autoDayOffers.isNotEmpty) ...[
           if (_dropdownOffers.isNotEmpty) const SizedBox(height: 8) else const SizedBox(height: 8),
           Text(
             'Today\'s offer(s): ${_autoDayOffers.map((e) => '${e.name} (-$_currencyLabel ${e.discountAmount.toStringAsFixed(2)})').join('; ')}',
@@ -1956,45 +2018,62 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Widget _paymentFields() {
-    final fields = <Widget>[
-      Expanded(child: _paymentField('CASH', _cashController, _cashFocusNode)),
-      const SizedBox(width: 12),
-      Expanded(child: _paymentField('CARD', _cardController, _cardFocusNode)),
-      const SizedBox(width: 12),
-      Expanded(child: _paymentField('CREDIT', _creditController, _creditFocusNode)),
-      if (widget.isDelivery && _isPartnerDelivery) ...[
-        const SizedBox(width: 12),
-        Expanded(child: _paymentField('ONLINE', _onlineController, _onlineFocusNode)),
-      ],
-    ];
+    final fields = <Widget>[];
+    void addField(Widget w) {
+      if (fields.isNotEmpty) fields.add(const SizedBox(width: 12));
+      fields.add(Expanded(child: w));
+    }
+
+    if (_access.canCashPay) {
+      addField(_paymentField('CASH', _cashController, _cashFocusNode));
+    }
+    if (_access.canCardPay) {
+      addField(_paymentField('CARD', _cardController, _cardFocusNode));
+    }
+    if (_access.canCreditPay) {
+      addField(_paymentField('CREDIT', _creditController, _creditFocusNode));
+    }
+    if (_access.canOnlinePay && widget.isDelivery && _isPartnerDelivery) {
+      addField(_paymentField('ONLINE', _onlineController, _onlineFocusNode));
+    }
+
+    final showOtherToggle = !_access.canCashOnly && _access.canPayment;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: fields),
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            OutlinedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _showOtherPaymentField = !_showOtherPaymentField;
-                  if (!_showOtherPaymentField) {
-                    _otherController.clear();
-                  }
-                });
-              },
-              icon: Icon(_showOtherPaymentField ? Icons.remove : Icons.add, size: 16),
-              label: Text(_showOtherPaymentField ? 'Hide Other' : 'Other'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.primaryColor,
-                side: const BorderSide(color: AppColors.primaryColor),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        if (fields.isEmpty)
+          Text(
+            'No payment methods are enabled for your account.',
+            style: AppStyles.getRegularTextStyle(fontSize: 12, color: Colors.red.shade700),
+          )
+        else
+          Row(children: fields),
+        if (showOtherToggle) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _showOtherPaymentField = !_showOtherPaymentField;
+                    if (!_showOtherPaymentField) {
+                      _otherController.clear();
+                    }
+                  });
+                },
+                icon: Icon(_showOtherPaymentField ? Icons.remove : Icons.add, size: 16),
+                label: Text(_showOtherPaymentField ? 'Hide Other' : 'Other'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primaryColor,
+                  side: const BorderSide(color: AppColors.primaryColor),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
               ),
-            ),
-          ],
-        ),
-        if (_showOtherPaymentField) ...[
+            ],
+          ),
+        ],
+        if (showOtherToggle && _showOtherPaymentField) ...[
           const SizedBox(height: 6),
           SizedBox(
             width: 180,
@@ -2182,8 +2261,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
                               'online': double.tryParse(_onlineController.text) ?? 0,
                               'other': double.tryParse(_otherController.text) ?? 0,
                             },
-                            printInvoice: _printInvoice,
-                            printKot: _printKot,
+                            printInvoice: _access.canInvoicePrint && _printInvoice,
+                            printKot: _access.canKotPrint && _printKot,
                           );
                         } catch (e) {
                           if (mounted) {
@@ -2207,6 +2286,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Widget _footerPrintOptions() {
+    if (!_access.canInvoicePrint && !_access.canKotPrint) {
+      return const SizedBox.shrink();
+    }
+
     final scheme = Theme.of(context).colorScheme;
     final labelStyle = AppStyles.getRegularTextStyle(fontSize: 13, color: scheme.onSurface);
     return Theme(
@@ -2229,35 +2312,39 @@ class _PaymentDialogState extends State<PaymentDialog> {
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 32,
-                width: 32,
-                child: Checkbox(
-                  value: _printInvoice,
-                  onChanged: (v) => setState(() => _printInvoice = v ?? true),
+          if (_access.canInvoicePrint) ...[
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  height: 32,
+                  width: 32,
+                  child: Checkbox(
+                    value: _printInvoice,
+                    onChanged: (v) => setState(() => _printInvoice = v ?? false),
+                  ),
                 ),
-              ),
-              Text('Invoice print', style: labelStyle),
-            ],
-          ),
-          const SizedBox(width: 20),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 32,
-                width: 32,
-                child: Checkbox(
-                  value: _printKot,
-                  onChanged: (v) => setState(() => _printKot = v ?? true),
+                Text('Invoice print', style: labelStyle),
+              ],
+            ),
+          ],
+          if (_access.canInvoicePrint && _access.canKotPrint) const SizedBox(width: 20),
+          if (_access.canKotPrint) ...[
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  height: 32,
+                  width: 32,
+                  child: Checkbox(
+                    value: _printKot,
+                    onChanged: (v) => setState(() => _printKot = v ?? false),
+                  ),
                 ),
-              ),
-              Text('KOT print', style: labelStyle),
-            ],
-          ),
+                Text('KOT print', style: labelStyle),
+              ],
+            ),
+          ],
         ],
       ),
     );
