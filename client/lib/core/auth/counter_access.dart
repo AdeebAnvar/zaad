@@ -1,4 +1,5 @@
 import 'package:pos/core/constants/enums.dart';
+import 'package:pos/domain/models/branch_model.dart';
 import 'package:pos/domain/models/user_model.dart';
 
 /// Normalizes permission strings from the server / admin UI for comparison.
@@ -142,6 +143,9 @@ class CounterAccess {
   /// View cart / line-item detail (cart preview).
   bool get canDetailing => _hasAny(const ['detailing', 'detail', 'detailing view']);
 
+  /// Cart preview (eye) on sale screen — explicit [canDetailing] or any counter-sale module.
+  bool get canViewCart => canDetailing || _canAnyCounterSaleModule;
+
   /// Payment popup footer: "KOT print" checkbox only (not cart KOT button).
   bool get canKotPrint => _hasAny(const ['kot print', 'kot_print']);
 
@@ -218,6 +222,7 @@ class CounterAccess {
 /// Cleared on logout.
 class CurrentCounterSession {
   UserModel? user;
+  BranchModel? branch;
 
   CounterAccess get access => CounterAccess.fromUser(user);
 
@@ -225,7 +230,17 @@ class CurrentCounterSession {
     user = u;
   }
 
+  void setBranch(BranchModel? b) {
+    branch = b;
+  }
+
+  void setProfile({UserModel? u, BranchModel? b}) {
+    user = u;
+    branch = b;
+  }
+
   void clear() {
     user = null;
+    branch = null;
   }
 }

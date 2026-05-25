@@ -28,10 +28,47 @@ class SessionDao extends DatabaseAccessor<AppDatabase> with _$SessionDaoMixin {
 
   Future<Session?> getActiveSession() => select(sessions).getSingleOrNull();
 
+  /// Repairs legacy/corrupt rows where [Sessions.branchId] is missing or `<= 0`.
+  Future<int?> _resolveBranchIdForSession(Session session) async {
+    if (session.branchId > 0) return session.branchId;
+
+    final user = await attachedDatabase.usersDao.findUserById(session.userId);
+    if (user != null && user.branchId > 0) return user.branchId;
+
+    final branchRows = await attachedDatabase.branchesDao.getAllBranches();
+    if (branchRows.length == 1) {
+      final only = branchRows.first.id;
+      if (only > 0) return only;
+    }
+    return null;
+  }
+
+  Future<void> _persistSessionBranchId(int sessionRowId, int branchId) async {
+    await (update(sessions)..where((s) => s.id.equals(sessionRowId))).write(
+      SessionsCompanion(branchId: Value(branchId)),
+    );
+  }
+
   /// Active selling branch from login. Never silently defaults to `1` (avoids `INV-1-*` mislabels).
+  ///
+  /// When the stored session has an invalid branch, we repair from the logged-in user's
+  /// [Users.branchId] (or a single local branch) before failing.
   Future<int> requireActiveBranchId() async {
-    final bid = (await getActiveSession())?.branchId;
-    if (bid == null || bid <= 0) {
+    final session = await getActiveSession();
+    if (session == null) {
+      throw StateError('No active branch session — log in again before creating sales.');
+    }
+
+    var bid = session.branchId;
+    if (bid <= 0) {
+      final repaired = await _resolveBranchIdForSession(session);
+      if (repaired != null && repaired > 0) {
+        await _persistSessionBranchId(session.id, repaired);
+        bid = repaired;
+      }
+    }
+
+    if (bid <= 0) {
       throw StateError('No active branch session — log in again before creating sales.');
     }
     return bid;

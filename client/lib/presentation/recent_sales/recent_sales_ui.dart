@@ -19,6 +19,7 @@ import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/relative_time_text.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
+import 'package:pos/presentation/widgets/numbered_pagination_bar.dart';
 import 'package:pos/presentation/widgets/qty_password_guard.dart';
 
 class RecentSalesScreen extends StatelessWidget {
@@ -103,9 +104,12 @@ class RecentSalesScreen extends StatelessWidget {
                             SliverPadding(
                               padding: EdgeInsets.fromLTRB(16, 8, 16, isMobile ? 96 : 24),
                               sliver: SliverToBoxAdapter(
-                                child: _RecentSalesPaginationBar(
-                                  state: state,
-                                  onPrevious: state.hasPreviousPage ? cubit.previousPage : null,
+                                child: NumberedPaginationBar(
+                                  currentPage: state.currentPage,
+                                  totalPages: state.totalPages,
+                                  onPageSelected: cubit.goToPage,
+                                  onPrevious:
+                                      state.hasPreviousPage ? cubit.previousPage : null,
                                   onNext: state.hasNextPage ? cubit.nextPage : null,
                                 ),
                               ),
@@ -150,54 +154,6 @@ class RecentSalesScreen extends StatelessWidget {
             return const SizedBox.shrink();
           },
         ),
-      ),
-    );
-  }
-}
-
-class _RecentSalesPaginationBar extends StatelessWidget {
-  const _RecentSalesPaginationBar({
-    required this.state,
-    required this.onPrevious,
-    required this.onNext,
-  });
-
-  final RecentSalesLoaded state;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onNext;
-
-  @override
-  Widget build(BuildContext context) {
-    final summary = state.totalCount == 0
-        ? 'No sales'
-        : 'Showing ${state.rangeStart}–${state.rangeEnd} of ${state.totalCount}';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: 'Previous page',
-            onPressed: onPrevious,
-            icon: const Icon(Icons.chevron_left),
-          ),
-          Expanded(
-            child: Text(
-              '$summary · Page ${state.currentPage} of ${state.totalPages}',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Next page',
-            onPressed: onNext,
-            icon: const Icon(Icons.chevron_right),
-          ),
-        ],
       ),
     );
   }

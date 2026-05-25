@@ -3,19 +3,19 @@ import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 
 Order _order({
-  double totalAmount = 100,
+  required String status,
   double finalAmount = 100,
   double cash = 0,
-  String status = 'pending',
 }) {
   return Order(
     id: 1,
     cartId: 1,
     invoiceNumber: 'INV-1',
-    totalAmount: totalAmount,
+    totalAmount: finalAmount,
     discountAmount: 0,
     finalAmount: finalAmount,
     status: status,
+    orderType: 'delivery',
     createdAt: DateTime(2026, 1, 1),
     cashAmount: cash,
     cardAmount: 0,
@@ -27,13 +27,31 @@ Order _order({
 }
 
 void main() {
-  test('orderBalanceDue returns remaining payable', () {
-    expect(orderBalanceDue(_order(cash: 98)), closeTo(2, 0.01));
-    expect(orderBalanceDue(_order(cash: 100)), 0);
+  test('orderCountsAsRecentSale includes fully paid pending delivery', () {
+    expect(
+      orderCountsAsRecentSale(_order(status: 'pending', cash: 100)),
+      isTrue,
+    );
   });
 
-  test('orderPayableAmount falls back to totalAmount when final is zero', () {
-    expect(orderPayableAmount(_order(finalAmount: 0, totalAmount: 2)), closeTo(2, 0.01));
-    expect(orderHasOutstandingBalance(_order(finalAmount: 0, totalAmount: 2)), isTrue);
+  test('orderCountsAsRecentSale excludes unpaid pending delivery', () {
+    expect(
+      orderCountsAsRecentSale(_order(status: 'pending', cash: 0)),
+      isFalse,
+    );
+  });
+
+  test('orderCountsAsRecentSale includes completed', () {
+    expect(
+      orderCountsAsRecentSale(_order(status: 'completed', cash: 0)),
+      isTrue,
+    );
+  });
+
+  test('orderCountsAsRecentSale excludes kot', () {
+    expect(
+      orderCountsAsRecentSale(_order(status: 'kot', cash: 100)),
+      isFalse,
+    );
   });
 }

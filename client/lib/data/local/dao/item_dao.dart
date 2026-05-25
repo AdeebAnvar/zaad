@@ -216,6 +216,50 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
     await (delete(itemVariants)..where((v) => v.itemId.equals(itemId))).go();
   }
 
+  /// Removes variants not in [keepNames] unless an open-cart line still references them.
+  Future<void> pruneVariantsByItemKeepingNames(int itemId, Set<String> keepNames) async {
+    final existing = await getVariantsByItem(itemId);
+    for (final v in existing) {
+      if (keepNames.contains(v.name)) continue;
+      final inUse = await attachedDatabase.customSelect(
+        'SELECT 1 FROM cart_items WHERE item_variant_id = ? LIMIT 1',
+        variables: [Variable.withInt(v.id)],
+        readsFrom: {itemVariants, attachedDatabase.cartItems},
+      ).getSingleOrNull();
+      if (inUse != null) continue;
+      await (delete(itemVariants)..where((x) => x.id.equals(v.id))).go();
+    }
+  }
+
+  /// Clears cart variant picks for [itemId] so catalog variant rows can be replaced.
+  Future<void> detachCartVariantRefsForItem(int itemId) async {
+    await attachedDatabase.customStatement(
+      'UPDATE cart_items SET item_variant_id = NULL '
+      'WHERE item_variant_id IN (SELECT id FROM item_variants WHERE item_id = ?)',
+      [itemId],
+    );
+  }
+
+  /// Clears cart topping picks for [itemId] so catalog topping rows can be replaced.
+  Future<void> detachCartToppingRefsForItem(int itemId) async {
+    await attachedDatabase.customStatement(
+      'UPDATE cart_items SET item_topping_id = NULL '
+      'WHERE item_topping_id IN (SELECT id FROM item_toppings WHERE item_id = ?)',
+      [itemId],
+    );
+  }
+
+  /// Item ids still referenced by [cart_items] (open carts / in-progress sales).
+  Future<Set<int>> itemIdsReferencedByCart(Iterable<int> itemIds) async {
+    final ids = itemIds.toList();
+    if (ids.isEmpty) return {};
+    final rows = await (attachedDatabase.selectOnly(attachedDatabase.cartItems)
+          ..addColumns([attachedDatabase.cartItems.itemId])
+          ..where(attachedDatabase.cartItems.itemId.isIn(ids)))
+        .get();
+    return rows.map((r) => r.read(attachedDatabase.cartItems.itemId)!).toSet();
+  }
+
   Future<ItemVariant?> getVariantById(int variantId) {
     return (select(itemVariants)..where((v) => v.id.equals(variantId))).getSingleOrNull();
   }

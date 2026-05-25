@@ -32,6 +32,7 @@ import 'package:pos/presentation/widgets/common_log_card.dart';
 import 'package:pos/presentation/widgets/log_filter_shell.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/move_order_dialog.dart';
+import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
 import 'package:pos/presentation/widgets/qty_password_guard.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
@@ -657,7 +658,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
             tooltip: 'Edit',
             onTap: () => _handleEdit(context, order),
           ),
-        if (!isDeliverySaleLogPendingStatus(order.status) && access.canPayment)
+        if (deliveryLogShowPayAction(order) && access.canPayment)
           LogCardAction(
             icon: Icons.payments_outlined,
             tooltip: 'Pay',
@@ -880,10 +881,13 @@ class _DeliveryCardState extends State<_DeliveryCard> {
   }
 
   Future<void> _handleView(BuildContext context, Order order) async {
+    final orderRepo = locator<OrderRepository>();
     final cartRepo = locator<CartRepository>();
     final itemRepo = locator<ItemRepository>();
+    // List rows omit hubMetadata; reload full order so line snapshots resolve.
+    final fullOrder = await orderRepo.getOrderById(order.id) ?? order;
     final itemsWithDetails = await OrderLogCartFallback.buildItemsWithDetailsForOrderLog(
-      order: order,
+      order: fullOrder,
       db: locator<AppDatabase>(),
       cartRepo: cartRepo,
       itemRepo: itemRepo,
@@ -897,40 +901,11 @@ class _DeliveryCardState extends State<_DeliveryCard> {
       );
       return;
     }
-    if (context.mounted) {
-      await showAppMessageDialog(
-        context,
-        title: 'Order ${order.invoiceNumber}',
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (order.deliveryPartner != null)
-                Text(
-                  'Partner: ${order.deliveryPartner}',
-                  style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
-                ),
-              const SizedBox(height: 12),
-              ...itemsWithDetails.map((m) {
-                final item = m['item'] as Item?;
-                final cartItem = m['cartItem'] as CartItem;
-                final catalog = (item?.name ?? '').trim();
-                final snap = cartItem.itemName.trim();
-                final lineLabel = catalog.isNotEmpty ? catalog : (snap.isNotEmpty ? snap : 'Item');
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    '$lineLabel x${cartItem.quantity} - ${RuntimeAppSettings.money(cartItem.total)}',
-                    style: AppStyles.getRegularTextStyle(fontSize: 14),
-                  ),
-                );
-              }),
-            ],
-          ),
-        ),
-        okText: 'Close',
-      );
-    }
+    if (!context.mounted) return;
+    await showOrderLogDetailsDialog(
+      context,
+      order: fullOrder,
+      itemsWithDetails: itemsWithDetails,
+    );
   }
 }

@@ -167,6 +167,10 @@ class LoginCubit extends Cubit<LoginState> {
       user.branchId,
     );
 
+    if (locator.isRegistered<CurrentCounterSession>()) {
+      locator<CurrentCounterSession>().setProfile(u: user, b: branch);
+    }
+
     final prefs = locator<SharedPreferences>();
     if (saveCredentials) {
       await LoginCredentialsPrefs.save(prefs, username, password);

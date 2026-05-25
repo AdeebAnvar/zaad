@@ -30,12 +30,10 @@ Future<void> showRecentSaleOrderDetails(BuildContext context, Order order) async
   }
 
   if (!context.mounted) return;
-  showDialog<void>(
-    context: context,
-    builder: (ctx) => OrderLogDetailsDialog(
-      order: order,
-      itemsWithDetails: itemsWithDetails,
-    ),
+  await showOrderLogDetailsDialog(
+    context,
+    order: order,
+    itemsWithDetails: itemsWithDetails,
   );
 }
 

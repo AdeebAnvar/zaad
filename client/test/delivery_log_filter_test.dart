@@ -38,12 +38,12 @@ void main() {
     );
   });
 
-  test('deliveryLogOrderVisible hides fully paid pending delivery', () {
+  test('deliveryLogOrderVisible keeps fully paid pending delivery', () {
     expect(
       deliveryLogOrderVisible(
         _deliveryOrder(status: 'pending', cash: 100),
       ),
-      isFalse,
+      isTrue,
     );
   });
 

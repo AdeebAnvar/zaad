@@ -19,3 +19,13 @@ double orderBalanceDue(Order o) {
   final due = orderPayableAmount(o) - orderPaidAmount(o);
   return due > 0.009 ? due : 0.0;
 }
+
+/// Paid or formally closed — Recent Sales default list (aligned with day-close settled rows).
+bool orderCountsAsRecentSale(Order o) {
+  final s = o.status.toLowerCase();
+  if (s == 'cancelled' || s == 'kot') return false;
+  if (s == 'completed' || s == 'delivered') return true;
+  final payable = orderPayableAmount(o);
+  if (payable <= 0.009) return false;
+  return !orderHasOutstandingBalance(o);
+}

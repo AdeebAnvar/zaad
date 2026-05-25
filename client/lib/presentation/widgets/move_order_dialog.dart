@@ -206,10 +206,16 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
 
   void _prefillCustomer(PosCustomer customer) {
     setState(() {
-      if (_access.canCustomerName) _custName.text = customer.name;
-      if (_access.canCustomerNumber) _phone.text = customer.phone ?? '';
-      if (_access.canCustomerEmail) _email.text = customer.email ?? '';
-      if (_access.canCustomerGender) {
+      if (_access.canCustomerName || _access.showCustomerSection) {
+        _custName.text = customer.name;
+      }
+      if (_access.canCustomerNumber || _access.showCustomerSection) {
+        _phone.text = customer.phone ?? '';
+      }
+      if (_access.canCustomerEmail || _access.showCustomerSection) {
+        _email.text = customer.email ?? '';
+      }
+      if (_access.canCustomerGender || _access.showCustomerSection) {
         final g = customer.gender?.trim();
         _gender = (g != null && g.isNotEmpty && _genderOptions.contains(g)) ? g : null;
       }

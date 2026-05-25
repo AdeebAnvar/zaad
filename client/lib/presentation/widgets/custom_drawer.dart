@@ -149,56 +149,57 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
         child: Column(
           children: [
             _header(),
-            if (access.canOpeningBalance) _openingBalanceTile(),
-            if (access.canOpenDrawer) _openCashDrawerTile(),
             Expanded(
-              child: ListView.separated(
+              child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                itemCount: menus.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 6),
-                itemBuilder: (context, index) {
-                  final item = menus[index];
-                  return _menuItem(
-                    icon: item.icon,
-                    title: item.title,
-                    onTap: () => _navigate(item.route, arguments: item.arguments),
-                    color: item.color ?? AppColors.textColor,
-                  );
-                },
-              ),
-            ),
-            if (_appVersionLabel != null || _dbSchemaLabel != null) ...[
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
-                child: Column(
-                  children: [
-                    if (_appVersionLabel != null)
-                      Text(
-                        'v$_appVersionLabel',
-                        textAlign: TextAlign.center,
-                        style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
-                      ),
-                    if (_dbSchemaLabel != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        _dbSchemaLabel!,
-                        textAlign: TextAlign.center,
-                        style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
-                      ),
-                    ],
+                children: [
+                  if (access.canOpeningBalance) _openingBalanceTile(),
+                  if (access.canOpenDrawer) _openCashDrawerTile(),
+                  for (var i = 0; i < menus.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 6),
+                    _menuItem(
+                      icon: menus[i].icon,
+                      title: menus[i].title,
+                      onTap: () => _navigate(menus[i].route, arguments: menus[i].arguments),
+                      color: menus[i].color ?? AppColors.textColor,
+                    ),
                   ],
-                ),
+                  if (_appVersionLabel != null || _dbSchemaLabel != null) ...[
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                      child: Column(
+                        children: [
+                          if (_appVersionLabel != null)
+                            Text(
+                              'v$_appVersionLabel',
+                              textAlign: TextAlign.center,
+                              style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
+                            ),
+                          if (_dbSchemaLabel != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              _dbSchemaLabel!,
+                              textAlign: TextAlign.center,
+                              style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                  const Divider(),
+                  _menuItem(
+                    icon: Icons.logout,
+                    title: 'Logout',
+                    color: Colors.red,
+                    onTap: _logout,
+                  ),
+                  const SizedBox(height: 12),
+                ],
               ),
-            ],
-            const Divider(),
-            _menuItem(
-              icon: Icons.logout,
-              title: "Logout",
-              color: Colors.red,
-              onTap: _logout,
             ),
-            const SizedBox(height: 12),
           ],
         ),
       ),
