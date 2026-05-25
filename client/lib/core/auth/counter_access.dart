@@ -175,8 +175,9 @@ class CounterAccess {
 
   bool get canCashPay => canCashOnly || _hasAny(const ['cash pay', 'cash_pay', 'cash', 'payment']);
 
+  /// Payment popup / move-order customer block — only the four profile fields (+ address when used).
   bool get showCustomerSection =>
-      canCustomerName || canCustomerNumber || canCustomerEmail || canCustomerGender || canCustomerAddress || canCustomer;
+      canCustomerName || canCustomerNumber || canCustomerEmail || canCustomerGender || canCustomerAddress;
 
   bool get showDiscountSection => canDiscountItem || canDiscountInvoice;
 }

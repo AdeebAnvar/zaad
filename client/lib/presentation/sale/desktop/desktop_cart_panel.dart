@@ -1082,10 +1082,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _finalAmount = safeSubtotal;
 
     if (prefill != null) {
-      _nameController.text = (prefill['name'] as String?)?.trim() ?? '';
-      _phoneController.text = (prefill['phone'] as String?)?.trim() ?? '';
-      _emailController.text = (prefill['email'] as String?)?.trim() ?? '';
-      _genderController.text = (prefill['gender'] as String?)?.trim() ?? '';
+      _applyCustomerPrefill(prefill);
       _onlineOrderNumberController.text = (prefill['onlineOrderNumber'] as String?)?.trim() ?? '';
     }
 
@@ -1107,7 +1104,11 @@ class _PaymentDialogState extends State<PaymentDialog> {
       }
     }
 
-    _loadCustomers();
+    if (_access.showCustomerSection) {
+      _loadCustomers();
+    } else {
+      _loadingCustomers = false;
+    }
     _cashFocusNode.addListener(_onPaymentFocusCash);
     _cardFocusNode.addListener(_onPaymentFocusCard);
     _creditFocusNode.addListener(_onPaymentFocusCredit);
@@ -1389,13 +1390,38 @@ class _PaymentDialogState extends State<PaymentDialog> {
     }
   }
 
+  void _applyCustomerPrefill(Map<String, dynamic> prefill) {
+    if (_access.canCustomerName) {
+      _nameController.text = (prefill['name'] as String?)?.trim() ?? '';
+    }
+    if (_access.canCustomerNumber) {
+      _phoneController.text = (prefill['phone'] as String?)?.trim() ?? '';
+    }
+    if (_access.canCustomerEmail) {
+      _emailController.text = (prefill['email'] as String?)?.trim() ?? '';
+    }
+    if (_access.canCustomerGender) {
+      _genderController.text = (prefill['gender'] as String?)?.trim() ?? '';
+    }
+  }
+
   void _prefillCustomer(PosCustomer customer) {
     setState(() {
-      _nameController.text = customer.name;
-      _phoneController.text = customer.phone ?? '';
-      _emailController.text = customer.email ?? '';
-      _genderController.text = customer.gender ?? '';
+      if (_access.canCustomerName) _nameController.text = customer.name;
+      if (_access.canCustomerNumber) _phoneController.text = customer.phone ?? '';
+      if (_access.canCustomerEmail) _emailController.text = customer.email ?? '';
+      if (_access.canCustomerGender) _genderController.text = customer.gender ?? '';
     });
+  }
+
+  Map<String, dynamic> _customerDetailsPayload() {
+    return {
+      if (_access.canCustomerName) 'name': _nameController.text,
+      if (_access.canCustomerNumber) 'phone': _phoneController.text,
+      if (_access.canCustomerEmail) 'email': _emailController.text,
+      if (_access.canCustomerGender) 'gender': _genderController.text,
+      'onlineOrderNumber': _onlineOrderNumberController.text.trim().isEmpty ? null : _onlineOrderNumberController.text.trim(),
+    };
   }
 
   /// Save customer only if at least one customer field has data.
@@ -1659,6 +1685,10 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   Widget _customerFields() {
+    if (!_access.showCustomerSection) {
+      return const SizedBox.shrink();
+    }
+
     if (_access.canCustomer && _loadingCustomers) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -2158,7 +2188,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
                     ? null
                     : () async {
                         final isNormalDelivery = widget.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
-                        if (isNormalDelivery && _phoneController.text.trim().isEmpty) {
+                        if (isNormalDelivery &&
+                            _access.canCustomerNumber &&
+                            _phoneController.text.trim().isEmpty) {
                           if (mounted) {
                             CustomSnackBar.showError(
                               message: 'Customer number (Contact Number) is required for Normal delivery',
@@ -2167,13 +2199,19 @@ class _PaymentDialogState extends State<PaymentDialog> {
                           return;
                         }
                         final creditAmt = double.tryParse(_creditController.text) ?? 0;
-                        if (creditAmt > 0.005) {
-                          final nameOk = _nameController.text.trim().isNotEmpty;
-                          final phoneOk = _phoneController.text.trim().isNotEmpty;
-                          if (!nameOk || !phoneOk) {
+                        if (creditAmt > 0.005 && _access.canCreditPay) {
+                          if (_access.canCustomerName && _nameController.text.trim().isEmpty) {
                             if (mounted) {
                               CustomSnackBar.showError(
-                                message: 'Customer name and phone are required for credit sales.',
+                                message: 'Customer name is required for credit sales.',
+                              );
+                            }
+                            return;
+                          }
+                          if (_access.canCustomerNumber && _phoneController.text.trim().isEmpty) {
+                            if (mounted) {
+                              CustomSnackBar.showError(
+                                message: 'Customer phone is required for credit sales.',
                               );
                             }
                             return;
@@ -2242,13 +2280,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                                   if (_autoDayOffers.isNotEmpty) 'autoDayOfferNames': _autoDayOffers.map((e) => e.name).toList(),
                                 };
                           await widget.onSave(
-                            {
-                              'name': _nameController.text,
-                              'phone': _phoneController.text,
-                              'email': _emailController.text,
-                              'gender': _genderController.text,
-                              'onlineOrderNumber': _onlineOrderNumberController.text.trim().isEmpty ? null : _onlineOrderNumberController.text.trim(),
-                            },
+                            _customerDetailsPayload(),
                             {
                               'type': _manualDiscountMode,
                               'value': _manualRawValue,
