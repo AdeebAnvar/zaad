@@ -1,6 +1,7 @@
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/utils/credit_payment_metadata.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
+import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/financial_record_type.dart';
 
@@ -259,14 +260,16 @@ class DayClosingOpenBill {
   final String invoiceNumber;
   final String status;
   final String? orderType;
-  final double finalAmount;
+  final String? customerName;
+  final double balanceDue;
   final DateTime createdAt;
 
   const DayClosingOpenBill({
     required this.invoiceNumber,
     required this.status,
     required this.orderType,
-    required this.finalAmount,
+    required this.customerName,
+    required this.balanceDue,
     required this.createdAt,
   });
 }
@@ -490,9 +493,9 @@ Future<DayClosingSummary> computeDayClosingSummary(
     }),
     effectiveOrderNet,
   );
-  final unpaidAmount = _sumOrders(unpaidBranchList, (o) => o.finalAmount);
+  final unpaidAmount = _sumOrders(unpaidBranchList, orderBalanceDue);
   final unsettledFromAccessibleLogs =
-      _sumOrders(unpaidVisible, (o) => o.finalAmount);
+      _sumOrders(unpaidVisible, orderBalanceDue);
   final outstandingCredit = _sumOrders(unpaidBranchList, (o) => o.creditAmount);
 
   final openingBalance = (branch?.effectiveOpeningBalance() ?? 0).toDouble();
@@ -645,7 +648,8 @@ Future<DayClosingSummary> computeDayClosingSummary(
           invoiceNumber: o.invoiceNumber,
           status: o.status,
           orderType: o.orderType,
-          finalAmount: o.finalAmount,
+          customerName: o.customerName?.trim(),
+          balanceDue: orderBalanceDue(o),
           createdAt: o.createdAt,
         ),
       )

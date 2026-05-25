@@ -146,17 +146,19 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
   /// - Current format: `PREFIX-branchId-###` (e.g. `INV-1-002`)
   /// - Legacy format: `PREFIX##` (e.g. `INV02`)
   Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) async {
-    final rows = await (select(carts)
-          ..where((c) => c.invoiceNumber.like('$prefix%'))
-          ..where((c) => c.branchId.equals(branchId)))
+    // Invoice number only — avoids deserializing created_at (bad TEXT seeds crash Drift).
+    final rows = await (selectOnly(carts)
+          ..addColumns([carts.invoiceNumber])
+          ..where(carts.invoiceNumber.like('$prefix%'))
+          ..where(carts.branchId.equals(branchId)))
         .get();
     var max = 0;
     final escapedPrefix = RegExp.escape(prefix);
     final currentFormat = RegExp('^$escapedPrefix-$branchId-(\\d+)\$');
     final legacyFormat = RegExp('^$escapedPrefix(\\d+)\$');
 
-    for (final c in rows) {
-      final inv = c.invoiceNumber;
+    for (final row in rows) {
+      final inv = row.read(carts.invoiceNumber)!;
       int? v;
       final currentMatch = currentFormat.firstMatch(inv);
       if (currentMatch != null) {

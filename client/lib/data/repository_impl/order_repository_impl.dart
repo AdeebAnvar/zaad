@@ -320,6 +320,7 @@ class OrderRepositoryImpl implements OrderRepository {
     int? driverId,
     int? userId,
     int? limit,
+    int offset = 0,
   }) async {
     final bid = await _activeBranchId();
     return db.ordersDao.filterOrdersForList(
@@ -336,6 +337,38 @@ class OrderRepositoryImpl implements OrderRepository {
       userId: userId,
       branchId: bid,
       limit: limit,
+      offset: offset,
+    );
+  }
+
+  @override
+  Future<int> countOrdersForList({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? status,
+    List<String>? statusAnyOf,
+    String? orderType,
+    String? deliveryPartner,
+    String? customerPhone,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? driverId,
+    int? userId,
+  }) async {
+    final bid = await _activeBranchId();
+    return db.ordersDao.countOrdersForList(
+      invoiceNumber: invoiceNumber,
+      referenceNumber: referenceNumber,
+      status: status,
+      statusAnyOf: statusAnyOf,
+      orderType: orderType,
+      deliveryPartner: deliveryPartner,
+      customerPhone: customerPhone,
+      startDate: startDate,
+      endDate: endDate,
+      driverId: driverId,
+      userId: userId,
+      branchId: bid,
     );
   }
 

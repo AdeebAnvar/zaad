@@ -31,6 +31,16 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
   final HubOrdersLiveSync? _hubLive;
   void Function()? _detachHubLive;
 
+  int _page = 1;
+  String? _invoiceNumber;
+  String? _referenceNumber;
+  String? _status;
+  String? _orderType;
+  String? _paymentMethod;
+  DateTime? _startDate;
+  DateTime? _endDate;
+  int? _userId;
+
   void _attachHubLive() {
     final h = _hubLive;
     if (h == null) return;
@@ -50,6 +60,15 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
       );
 
   Future<void> loadOrders() async {
+    _page = 1;
+    _invoiceNumber = null;
+    _referenceNumber = null;
+    _status = null;
+    _orderType = null;
+    _paymentMethod = null;
+    _startDate = null;
+    _endDate = null;
+    _userId = null;
     emit(RecentSalesLoading());
     await _reloadOrders();
   }
@@ -57,6 +76,21 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
   Future<void> refreshOrders() async {
     await _reloadOrders();
   }
+
+  Future<void> goToPage(int page) async {
+    if (page < 1) return;
+    final loaded = state;
+    if (loaded is RecentSalesLoaded) {
+      final totalPages = loaded.totalPages;
+      if (totalPages > 0 && page > totalPages) return;
+    }
+    _page = page;
+    await _reloadOrders();
+  }
+
+  Future<void> nextPage() => goToPage(_page + 1);
+
+  Future<void> previousPage() => goToPage(_page - 1);
 
   Future<void> filterOrders({
     String? invoiceNumber,
@@ -68,63 +102,67 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
     DateTime? endDate,
     int? userId,
   }) async {
-    await _reloadOrders(
-      invoiceNumber: invoiceNumber,
-      referenceNumber: referenceNumber,
-      status: status,
-      orderType: orderType,
-      paymentMethod: paymentMethod,
-      startDate: startDate,
-      endDate: endDate,
-      userId: _scopedUserId(uiUserId: userId),
-    );
+    _page = 1;
+    _invoiceNumber = invoiceNumber;
+    _referenceNumber = referenceNumber;
+    _status = status;
+    _orderType = orderType;
+    _paymentMethod = paymentMethod;
+    _startDate = startDate;
+    _endDate = endDate;
+    _userId = _scopedUserId(uiUserId: userId);
+    await _reloadOrders();
   }
 
-  Future<void> _reloadOrders({
-    String? invoiceNumber,
-    String? referenceNumber,
-    String? status,
-    String? orderType,
-    String? paymentMethod,
-    DateTime? startDate,
-    DateTime? endDate,
-    int? userId,
-  }) async {
+  Future<void> _reloadOrders() async {
     final prior = state;
+    if (prior is RecentSalesLoaded) {
+      emit(prior.copyWith(isPageLoading: true));
+    }
+
     try {
-      final dbOrderType = orderTypeFilterToDb(orderType);
-      final narrowed = orderLogListIsNarrowed(
-        invoiceNumber: invoiceNumber,
-        referenceNumber: referenceNumber,
-        startDate: startDate,
-        endDate: endDate,
+      final dbOrderType = orderTypeFilterToDb(_orderType);
+      final dbStatus = _status == null || _status!.isEmpty || _status == 'All' ? 'completed' : _status;
+      final userId = _userId ?? _scopedUserId(uiUserId: null);
+
+      final totalCount = await orderRepo.countOrdersForList(
+        invoiceNumber: _invoiceNumber,
+        referenceNumber: _referenceNumber,
+        status: dbStatus,
+        orderType: dbOrderType,
+        startDate: _startDate,
+        endDate: _endDate,
+        userId: userId,
       );
+
+      final totalPages = totalCount == 0 ? 1 : (totalCount / kRecentSalesPageSize).ceil();
+      if (_page > totalPages) {
+        _page = totalPages;
+      }
+
+      final offset = (_page - 1) * kRecentSalesPageSize;
 
       var orders = await orderRepo.filterOrdersForList(
-        invoiceNumber: invoiceNumber,
-        referenceNumber: referenceNumber,
-        status: status == null || status == 'All' ? 'completed' : status,
+        invoiceNumber: _invoiceNumber,
+        referenceNumber: _referenceNumber,
+        status: dbStatus,
         orderType: dbOrderType,
-        startDate: startDate,
-        endDate: endDate,
-        userId: userId ?? _scopedUserId(uiUserId: null),
-        limit: orderLogDefaultQueryLimit(
-          invoiceNumber: invoiceNumber,
-          referenceNumber: referenceNumber,
-          startDate: startDate,
-          endDate: endDate,
-        ),
+        startDate: _startDate,
+        endDate: _endDate,
+        userId: userId,
+        limit: kRecentSalesPageSize,
+        offset: offset,
       );
 
-      if (status == null || status.isEmpty || status == 'All') {
+      if (_status == null || _status!.isEmpty || _status == 'All') {
         orders = orders.where((order) => order.status == 'completed').toList();
       } else {
         orders = orders.where((order) => order.status != 'kot').toList();
       }
 
-      if (paymentMethod != null && paymentMethod.isNotEmpty) {
+      if (_paymentMethod != null && _paymentMethod!.isNotEmpty) {
         orders = orders.where((order) {
-          switch (paymentMethod.toLowerCase()) {
+          switch (_paymentMethod!.toLowerCase()) {
             case 'cash':
               return order.cashAmount > 0;
             case 'card':
@@ -141,12 +179,14 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
 
       sortOrdersNewestFirst(orders);
       emit(RecentSalesLoaded(
-        orders,
-        cappedToLatest: !narrowed && orders.length >= kOrderLogDefaultListLimit,
+        orders: orders,
+        currentPage: _page,
+        totalCount: totalCount,
+        pageSize: kRecentSalesPageSize,
       ));
     } catch (e) {
       if (prior is RecentSalesLoaded) {
-        emit(prior);
+        emit(prior.copyWith(isPageLoading: false));
       } else {
         emit(RecentSalesError(e.toString()));
       }
@@ -156,7 +196,11 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
   Future<void> deleteOrder(int orderId) async {
     try {
       await orderRepo.deleteOrder(orderId);
-      await loadOrders();
+      final loaded = state;
+      if (loaded is RecentSalesLoaded && loaded.orders.length == 1 && _page > 1) {
+        _page -= 1;
+      }
+      await _reloadOrders();
     } catch (e) {
       emit(RecentSalesError(e.toString()));
     }

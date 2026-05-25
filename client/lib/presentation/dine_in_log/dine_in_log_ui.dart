@@ -319,7 +319,8 @@ class _DineInLogCardState extends State<DineInLogCard> {
   @override
   Widget build(BuildContext context) {
     final order = widget.order;
-    final canPay = locator<CurrentCounterSession>().access.canDineInPay;
+    final access = locator<CurrentCounterSession>().access;
+    final canPay = access.canDineInPay;
     return CommonLogCard(
       tag: 'DI',
       amount: RuntimeAppSettings.money(order.totalAmount),
@@ -328,7 +329,7 @@ class _DineInLogCardState extends State<DineInLogCard> {
       createdAt: order.createdAt,
       orderTakerName: _orderUserName,
       pickupToken: order.pickupToken,
-      onDelete: () => _handleDelete(context, order),
+      onDelete: access.canDineInLogDelete ? () => _handleDelete(context, order) : null,
       actions: [
         LogCardAction(
           icon: Icons.remove_red_eye_outlined,
@@ -346,38 +347,41 @@ class _DineInLogCardState extends State<DineInLogCard> {
           tooltip: 'Print',
           onTap: () => _handlePrint(context, order),
         ),
-        LogCardAction(
-          icon: Icons.edit_outlined,
-          tooltip: 'Edit',
-          onTap: () => _handleEdit(context, order),
-        ),
-        if (dineInBillIsSplittable(order) && widget.cartLineCount > 1)
+        if (access.canDineInLogEdit)
+          LogCardAction(
+            icon: Icons.edit_outlined,
+            tooltip: 'Edit',
+            onTap: () => _handleEdit(context, order),
+          ),
+        if (access.canDineInLogSplit && dineInBillIsSplittable(order) && widget.cartLineCount > 1)
           LogCardAction(
             icon: Icons.call_split,
             tooltip: 'Split',
             onTap: () => _handleSplit(context, order),
           ),
-        if (dineInBillIsSplittable(order))
+        if (access.canDineInLogSplit && dineInBillIsSplittable(order))
           LogCardAction(
             icon: Icons.merge_type,
             tooltip: 'Merge',
             onTap: () => _handleMerge(context, order),
           ),
-        LogCardAction(
-          icon: Icons.layers_outlined,
-          tooltip: 'Floor',
-          onTap: () => _handleMoveFloorTable(context, order),
-        ),
-        LogCardAction(
-          icon: Icons.drive_file_move_outline,
-          tooltip: 'Move',
-          onTap: () => showMoveOrderDialog(
-            context,
-            order: order,
-            sourceOrderType: 'dine_in',
-            onSuccess: () => context.read<DineInLogCubit>().refreshOrders(),
+        if (access.canDineInLogMove)
+          LogCardAction(
+            icon: Icons.layers_outlined,
+            tooltip: 'Floor',
+            onTap: () => _handleMoveFloorTable(context, order),
           ),
-        ),
+        if (access.canDineInLogMove)
+          LogCardAction(
+            icon: Icons.drive_file_move_outline,
+            tooltip: 'Move',
+            onTap: () => showMoveOrderDialog(
+              context,
+              order: order,
+              sourceOrderType: 'dine_in',
+              onSuccess: () => context.read<DineInLogCubit>().refreshOrders(),
+            ),
+          ),
       ],
     );
   }

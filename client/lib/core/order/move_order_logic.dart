@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 
 bool orderCanMoveBetweenLogs(Order order) {
@@ -28,6 +29,7 @@ Future<String?> moveOrderToTakeAway({
     deliveryPartner: null,
   );
 
+  final closeAsCompleted = !orderHasOutstandingBalance(order);
   await orderRepo.updateOrder(
     order.copyWith(
       orderType: const Value('take_away'),
@@ -35,6 +37,7 @@ Future<String?> moveOrderToTakeAway({
       deliveryPartner: const Value(null),
       driverId: const Value(null),
       driverName: const Value(null),
+      status: closeAsCompleted ? 'completed' : 'kot',
     ),
   );
   return null;

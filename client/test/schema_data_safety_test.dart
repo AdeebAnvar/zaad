@@ -75,6 +75,28 @@ void main() {
       await db2.close();
     });
 
+    test('repairTextTimestampRows deletes TEXT created_at carts and orders', () async {
+      final db = AppDatabase.file(dbFile);
+      await db.customStatement(
+        "INSERT INTO carts (invoice_number, created_at, order_type, branch_id) "
+        "VALUES ('INV-BAD-1', '2000-01-01 00:00:00', 'take_away', 2)",
+      );
+      await db.customStatement(
+        "INSERT INTO orders (cart_id, invoice_number, total_amount, final_amount, created_at, status, branch_id) "
+        "SELECT id, 'INV-BAD-ORD', 10, 10, '2000-01-01 00:00:00', 'completed', 2 "
+        "FROM carts WHERE invoice_number='INV-BAD-1'",
+      );
+
+      await db.repairTextTimestampRows();
+
+      expect(await db.cartsDao.getCartByInvoice('INV-BAD-1'), isNull);
+      final textOrderCount = await db.customSelect(
+        "SELECT COUNT(*) AS c FROM orders WHERE typeof(created_at)='text'",
+      ).getSingle();
+      expect(textOrderCount.read<int>('c'), 0);
+      await db.close();
+    });
+
     test('ensureCompatibleLocalData keeps orders when schema label changes', () async {
       final db1 = AppDatabase.file(dbFile);
       await _seedOneOrder(db1);

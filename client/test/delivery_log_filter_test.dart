@@ -38,12 +38,21 @@ void main() {
     );
   });
 
-  test('deliveryLogOrderVisible keeps fully paid pending delivery', () {
+  test('deliveryLogOrderVisible hides fully paid pending delivery', () {
     expect(
       deliveryLogOrderVisible(
         _deliveryOrder(status: 'pending', cash: 100),
       ),
-      isTrue,
+      isFalse,
+    );
+  });
+
+  test('deliveryLogOrderVisible hides delivered even if underpaid', () {
+    expect(
+      deliveryLogOrderVisible(
+        _deliveryOrder(status: 'delivered', cash: 0),
+      ),
+      isFalse,
     );
   });
 

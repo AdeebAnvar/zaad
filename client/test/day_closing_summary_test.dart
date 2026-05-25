@@ -388,6 +388,69 @@ void main() {
     expect((payload['cash_in'] as num).toDouble(), closeTo(98, 0.01));
     expect(double.parse(payload['cash_drawer'] as String), closeTo(98, 0.01));
   });
+
+  test('computeDayClosingSummary: partial payment uses balance due not full finalAmount', () async {
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+    await _seedMinimalCatalogAndSession(db);
+
+    final cartId = await db.cartsDao.createCart('INV-P1', branchId: 1);
+    await db.ordersDao.createOrder(
+      OrdersCompanion.insert(
+        cartId: cartId,
+        invoiceNumber: 'INV-P1',
+        totalAmount: 100,
+        finalAmount: 100,
+        discountAmount: const Value(0),
+        createdAt: DateTime(2026, 1, 15, 14),
+        status: const Value('kot'),
+        orderType: const Value('take_away'),
+        branchId: const Value(1),
+        cashAmount: const Value(98),
+        cardAmount: const Value(0),
+        creditAmount: const Value(0),
+        onlineAmount: const Value(0),
+        userId: const Value(1),
+      ),
+    );
+
+    final summary = await computeDayClosingSummary(db);
+    expect(summary.unpaidAmount, closeTo(2, 0.02));
+    expect(summary.openBills.single.balanceDue, closeTo(2, 0.02));
+  });
+
+  test('computeDayClosingSummary: delivered underpaid still blocks day close', () async {
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+    await _seedMinimalCatalogAndSession(db);
+
+    final cartId = await db.cartsDao.createCart('INV-DEL', branchId: 1);
+    await db.ordersDao.createOrder(
+      OrdersCompanion.insert(
+        cartId: cartId,
+        invoiceNumber: 'INV-DEL',
+        totalAmount: 50,
+        finalAmount: 50,
+        discountAmount: const Value(0),
+        createdAt: DateTime(2026, 1, 15, 14),
+        status: const Value('delivered'),
+        orderType: const Value('delivery'),
+        branchId: const Value(1),
+        customerName: const Value('Kappuchai'),
+        cashAmount: const Value(48),
+        cardAmount: const Value(0),
+        creditAmount: const Value(0),
+        onlineAmount: const Value(0),
+        userId: const Value(1),
+      ),
+    );
+
+    final summary = await computeDayClosingSummary(db);
+    expect(summary.unpaidAmount, closeTo(2, 0.02));
+    expect(summary.openBills, hasLength(1));
+    expect(summary.openBills.single.customerName, 'Kappuchai');
+    expect(summary.openBills.single.status, 'delivered');
+  });
 }
 
 Future<void> _seedMinimalCatalogAndSession(AppDatabase db) async {

@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/utils/app_update_cache_clear.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/settings_repository.dart';
@@ -42,6 +44,8 @@ class PosDrawer extends StatefulWidget {
 class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<Offset> _slideAnimation;
+  String? _appVersionLabel;
+  String? _dbSchemaLabel;
 
   List<DrawerMenuItem> _allMenuItems() => [
         DrawerMenuItem(
@@ -141,6 +145,19 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
     );
 
     _controller.forward();
+    unawaited(_loadVersionLabels());
+  }
+
+  Future<void> _loadVersionLabels() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final schemaVersion = locator.isRegistered<AppDatabase>() ? locator<AppDatabase>().schemaVersion : null;
+      if (!mounted) return;
+      setState(() {
+        _appVersionLabel = AppUpdateCacheClear.packageVersionLabel(info);
+        _dbSchemaLabel = schemaVersion != null ? 'db_v$schemaVersion' : null;
+      });
+    } catch (_) {}
   }
 
   @override
@@ -191,7 +208,31 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
                 ],
               ),
             ),
-            const Divider(height: 1),
+            if (_appVersionLabel != null || _dbSchemaLabel != null) ...[
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                child: Column(
+                  children: [
+                    if (_appVersionLabel != null)
+                      Text(
+                        'v$_appVersionLabel',
+                        textAlign: TextAlign.center,
+                        style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
+                      ),
+                    if (_dbSchemaLabel != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        _dbSchemaLabel!,
+                        textAlign: TextAlign.center,
+                        style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+            const Divider(),
             _menuItem(
               icon: Icons.logout,
               title: "Logout",

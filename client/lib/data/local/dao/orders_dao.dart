@@ -524,6 +524,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     int? userId,
     int? branchId,
     int? limit,
+    int offset = 0,
   }) {
     var query = selectOnly(orders)..addColumns(_listOrderColumns);
 
@@ -584,9 +585,83 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
         OrderingTerm.desc(orders.id),
       ]);
     if (limit != null && limit > 0) {
-      query = query..limit(limit);
+      query = query..limit(limit, offset: offset);
     }
     return query.map(_orderFromListRow).get();
+  }
+
+  /// Row count for [filterOrdersForList] with the same filters.
+  Future<int> countOrdersForList({
+    String? invoiceNumber,
+    String? referenceNumber,
+    String? status,
+    List<String>? statusAnyOf,
+    String? orderType,
+    String? deliveryPartner,
+    String? customerPhone,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? driverId,
+    int? userId,
+    int? branchId,
+  }) async {
+    final countExp = orders.id.count();
+    var query = selectOnly(orders)..addColumns([countExp]);
+
+    if (branchId != null) {
+      query = query..where(orders.branchId.equals(branchId));
+    }
+
+    if (invoiceNumber != null && invoiceNumber.isNotEmpty) {
+      query = query..where(orders.invoiceNumber.like('%$invoiceNumber%'));
+    }
+
+    if (referenceNumber != null && referenceNumber.isNotEmpty) {
+      query = query..where(orders.referenceNumber.like('%$referenceNumber%'));
+    }
+
+    if (statusAnyOf != null && statusAnyOf.isNotEmpty) {
+      query = query..where(orders.status.isIn(statusAnyOf));
+    } else if (status != null && status.isNotEmpty) {
+      query = query..where(orders.status.equals(status));
+    }
+
+    if (orderType != null && orderType.isNotEmpty) {
+      if (orderType == 'take_away') {
+        query = query..where(orders.orderType.isNull() | orders.orderType.equals('take_away'));
+      } else {
+        query = query..where(orders.orderType.equals(orderType));
+      }
+    }
+
+    if (deliveryPartner != null && deliveryPartner.isNotEmpty) {
+      query = query..where(orders.deliveryPartner.like('%$deliveryPartner%'));
+    }
+
+    if (customerPhone != null && customerPhone.isNotEmpty) {
+      query = query..where(orders.customerPhone.like('%$customerPhone%'));
+    }
+
+    if (startDate != null) {
+      query = query..where(orders.createdAt.isBiggerOrEqualValue(startDate));
+    }
+
+    if (endDate != null) {
+      final endDateTime = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
+      query = query..where(orders.createdAt.isSmallerOrEqualValue(endDateTime));
+    }
+
+    if (driverId != null) {
+      query = query..where(orders.driverId.equals(driverId));
+    }
+
+    if (userId != null) {
+      query = query..where(orders.userId.equals(userId));
+    }
+
+    final row = await query.getSingleOrNull();
+    if (row == null) return 0;
+    return row.read(countExp) ?? 0;
   }
 
   /// Credit sales list without loading [Orders.hubMetadata].
@@ -618,17 +693,19 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   /// - Current format: `PREFIX-branchId-###` (e.g. `INV-1-002`)
   /// - Legacy format: `PREFIX##` (e.g. `INV02`)
   Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) async {
-    final rows = await (select(orders)
-          ..where((o) => o.invoiceNumber.like('$prefix%'))
-          ..where((o) => o.branchId.equals(branchId)))
+    // Invoice number only — avoids deserializing created_at on legacy/bad rows.
+    final rows = await (selectOnly(orders)
+          ..addColumns([orders.invoiceNumber])
+          ..where(orders.invoiceNumber.like('$prefix%'))
+          ..where(orders.branchId.equals(branchId)))
         .get();
     var max = 0;
     final escapedPrefix = RegExp.escape(prefix);
     final currentFormat = RegExp('^$escapedPrefix-$branchId-(\\d+)\$');
     final legacyFormat = RegExp('^$escapedPrefix(\\d+)\$');
 
-    for (final o in rows) {
-      final inv = o.invoiceNumber;
+    for (final row in rows) {
+      final inv = row.read(orders.invoiceNumber)!;
       int? v;
       final currentMatch = currentFormat.firstMatch(inv);
       if (currentMatch != null) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pos/app/di.dart';
+import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/order/move_order_logic.dart';
@@ -81,6 +82,8 @@ class _MoveOrderBody extends StatefulWidget {
 }
 
 class _MoveOrderBodyState extends State<_MoveOrderBody> {
+  CounterAccess get _access => locator<CurrentCounterSession>().access;
+
   final _db = locator<AppDatabase>();
   final _orderRepo = locator<OrderRepository>();
   final _cartRepo = locator<CartRepository>();
@@ -126,11 +129,13 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
   void _prefill() {
     final o = widget.order;
     _refTakeAway.text = o.referenceNumber ?? '';
-    _phone.text = o.customerPhone ?? '';
-    _custName.text = o.customerName ?? '';
-    _email.text = o.customerEmail ?? '';
-    final g = o.customerGender?.trim();
-    _gender = (g != null && g.isNotEmpty && _genderOptions.contains(g)) ? g : null;
+    if (_access.canCustomerNumber) _phone.text = o.customerPhone ?? '';
+    if (_access.canCustomerName) _custName.text = o.customerName ?? '';
+    if (_access.canCustomerEmail) _email.text = o.customerEmail ?? '';
+    if (_access.canCustomerGender) {
+      final g = o.customerGender?.trim();
+      _gender = (g != null && g.isNotEmpty && _genderOptions.contains(g)) ? g : null;
+    }
     if (o.orderType == 'delivery') {
       _onlineOrderRef.text = o.referenceNumber ?? '';
     }
@@ -144,7 +149,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
     try {
       final floors = await _db.diningTablesDao.getFloors();
       final drivers = await _driverRepo.getAll();
-      final customers = await _customerRepo.getAllLocalCustomers();
+      final customers = _access.showCustomerSection ? await _customerRepo.getAllLocalCustomers() : <PosCustomer>[];
       final partnerRows = await _deliveryPartnerRepo.getAll();
       final names = partnerRows.map((e) => e.name).toList();
       if (!names.any((n) => n.trim().toUpperCase() == 'NORMAL')) {
@@ -195,11 +200,13 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
 
   void _prefillCustomer(PosCustomer customer) {
     setState(() {
-      _custName.text = customer.name;
-      _phone.text = customer.phone ?? '';
-      _email.text = customer.email ?? '';
-      final g = customer.gender?.trim();
-      _gender = (g != null && g.isNotEmpty && _genderOptions.contains(g)) ? g : null;
+      if (_access.canCustomerName) _custName.text = customer.name;
+      if (_access.canCustomerNumber) _phone.text = customer.phone ?? '';
+      if (_access.canCustomerEmail) _email.text = customer.email ?? '';
+      if (_access.canCustomerGender) {
+        final g = customer.gender?.trim();
+        _gender = (g != null && g.isNotEmpty && _genderOptions.contains(g)) ? g : null;
+      }
     });
   }
 
@@ -270,10 +277,14 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
             cartRepo: _cartRepo,
             order: widget.order,
             deliveryPartner: partner,
-            contactNumber: _phone.text,
-            customerName: _custName.text,
-            email: _email.text.isEmpty ? null : _email.text,
-            gender: (gender == null || gender.isEmpty) ? null : gender,
+            contactNumber: _access.canCustomerNumber ? _phone.text : (widget.order.customerPhone ?? ''),
+            customerName: _access.canCustomerName ? _custName.text : (widget.order.customerName ?? ''),
+            email: _access.canCustomerEmail
+                ? (_email.text.isEmpty ? null : _email.text)
+                : widget.order.customerEmail,
+            gender: _access.canCustomerGender
+                ? ((gender == null || gender.isEmpty) ? null : gender)
+                : widget.order.customerGender,
             driverId: partner.toUpperCase() == 'NORMAL' ? _driverId : null,
             driverName: partner.toUpperCase() == 'NORMAL' ? drv?.name : null,
             onlineOrderNumber: _onlineOrderRef.text.trim().isEmpty ? null : _onlineOrderRef.text.trim(),
@@ -429,24 +440,30 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
 
   /// Customer fields aligned with [PaymentDialog] / `desktop_cart_panel.dart` (local customers + autocomplete).
   Widget _paymentStyleCustomerSection(BuildContext context) {
-    if (_loadingCustomers) {
+    if (!_access.showCustomerSection) {
+      return const SizedBox.shrink();
+    }
+
+    if (_access.canCustomer && _loadingCustomers) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),
         child: Center(child: CircularProgressIndicator()),
       );
     }
 
-    final phoneSuggestions = _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList();
-    final nameSuggestions = _allCustomers.map((c) => c.name).toSet().toList();
-    final emailSuggestions = _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList();
+    final useAutocomplete = _access.canCustomer;
+    final phoneSuggestions = useAutocomplete
+        ? _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList()
+        : <String>[];
+    final nameSuggestions = useAutocomplete ? _allCustomers.map((c) => c.name).toSet().toList() : <String>[];
+    final emailSuggestions = useAutocomplete
+        ? _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList()
+        : <String>[];
     final narrow = MediaQuery.sizeOf(context).width < 560;
 
-    Widget row3() {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: AutoCompleteTextField<String>(
+    Widget phoneField() {
+      return useAutocomplete
+          ? AutoCompleteTextField<String>(
               items: phoneSuggestions,
               displayStringFunction: (item) => item,
               defaultText: '',
@@ -460,11 +477,13 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
                 );
                 if (customer.id > 0) _prefillCustomer(customer);
               },
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: AutoCompleteTextField<String>(
+            )
+          : CustomTextField(controller: _phone, labelText: 'Contact Number');
+    }
+
+    Widget nameField() {
+      return useAutocomplete
+          ? AutoCompleteTextField<String>(
               items: nameSuggestions,
               displayStringFunction: (item) => item,
               defaultText: '',
@@ -483,11 +502,13 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
                 final matching = _allCustomers.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
                 if (matching.isNotEmpty) _prefillCustomer(matching.first);
               },
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: AutoCompleteTextField<String>(
+            )
+          : CustomTextField(controller: _custName, labelText: 'Name');
+    }
+
+    Widget emailField() {
+      return useAutocomplete
+          ? AutoCompleteTextField<String>(
               items: emailSuggestions,
               displayStringFunction: (item) => item,
               defaultText: '',
@@ -501,83 +522,39 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
                 );
                 if (customer.id > 0) _prefillCustomer(customer);
               },
-            ),
-          ),
-        ],
-      );
+            )
+          : CustomTextField(controller: _email, labelText: 'Email');
     }
 
-    Widget col3() {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AutoCompleteTextField<String>(
-            items: phoneSuggestions,
-            displayStringFunction: (item) => item,
-            defaultText: '',
-            labelText: 'Contact Number',
-            controller: _phone,
-            filterType: FilterType.contains,
-            onSelected: (selectedPhone) {
-              final customer = _allCustomers.firstWhere(
-                (c) => c.phone == selectedPhone,
-                orElse: () => PosCustomer.placeholder(phone: selectedPhone),
-              );
-              if (customer.id > 0) _prefillCustomer(customer);
-            },
-          ),
-          const SizedBox(height: 10),
-          AutoCompleteTextField<String>(
-            items: nameSuggestions,
-            displayStringFunction: (item) => item,
-            defaultText: '',
-            labelText: 'Name',
-            controller: _custName,
-            filterType: FilterType.contains,
-            onSelected: (selectedName) {
-              final customer = _allCustomers.firstWhere(
-                (c) => c.name == selectedName,
-                orElse: () => PosCustomer.placeholder(name: selectedName),
-              );
-              if (customer.id > 0) _prefillCustomer(customer);
-            },
-            onChanged: (value) {
-              setState(() {});
-              final matching = _allCustomers.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
-              if (matching.isNotEmpty) _prefillCustomer(matching.first);
-            },
-          ),
-          const SizedBox(height: 10),
-          AutoCompleteTextField<String>(
-            items: emailSuggestions,
-            displayStringFunction: (item) => item,
-            defaultText: '',
-            labelText: 'Email',
-            controller: _email,
-            filterType: FilterType.contains,
-            onSelected: (selectedEmail) {
-              final customer = _allCustomers.firstWhere(
-                (c) => c.email == selectedEmail,
-                orElse: () => PosCustomer.placeholder(email: selectedEmail),
-              );
-              if (customer.id > 0) _prefillCustomer(customer);
-            },
-          ),
-        ],
-      );
+    final rowChildren = <Widget>[];
+    if (_access.canCustomerNumber) rowChildren.add(Expanded(child: phoneField()));
+    if (_access.canCustomerName) {
+      if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
+      rowChildren.add(Expanded(child: nameField()));
     }
+    if (_access.canCustomerEmail) {
+      if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
+      rowChildren.add(Expanded(child: emailField()));
+    }
+
+    final colChildren = <Widget>[];
+    if (_access.canCustomerNumber) colChildren.addAll([phoneField(), const SizedBox(height: 10)]);
+    if (_access.canCustomerName) colChildren.addAll([nameField(), const SizedBox(height: 10)]);
+    if (_access.canCustomerEmail) colChildren.add(emailField());
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        narrow ? col3() : row3(),
-        const SizedBox(height: 12),
-        AppDropdownField<String>(
-          labelText: 'Gender',
-          value: _genderOptions.contains(_gender) ? _gender : null,
-          items: _genderOptions.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-          onChanged: (v) => setState(() => _gender = v),
-        ),
+        if (rowChildren.isNotEmpty) narrow ? Column(children: colChildren) : Row(crossAxisAlignment: CrossAxisAlignment.start, children: rowChildren),
+        if (_access.canCustomerGender) ...[
+          const SizedBox(height: 12),
+          AppDropdownField<String>(
+            labelText: 'Gender',
+            value: _genderOptions.contains(_gender) ? _gender : null,
+            items: _genderOptions.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+            onChanged: (v) => setState(() => _gender = v),
+          ),
+        ],
       ],
     );
   }

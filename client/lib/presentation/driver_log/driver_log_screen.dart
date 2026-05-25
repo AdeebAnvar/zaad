@@ -18,6 +18,7 @@ import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/driver_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_cubit.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
 import 'package:pos/presentation/widgets/app_snackbar.dart';
@@ -76,7 +77,10 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
     final driverRepo = locator<DriverRepository>();
     final drivers = await driverRepo.getAll();
     var orders = await orderRepo.getDeliveryOrdersWithDriver();
-    orders = orders.where((o) => o.deliveryPartner?.toUpperCase() == 'NORMAL').where((o) => !_isArchivedStatus(o.status)).toList();
+    orders = orders
+        .where((o) => o.deliveryPartner?.toUpperCase() == 'NORMAL')
+        .where((o) => !_isArchivedStatus(o.status, order: o))
+        .toList();
     final logUid = HubLogOrderUserScope.effectiveFilterUserId(
       hub: locator<LocalHubSettings>(),
       sessionUser: locator<CurrentCounterSession>().user,
@@ -106,7 +110,7 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
           .where((o) => o.invoiceNumber.toLowerCase().contains(q) || (o.customerPhone ?? '').toLowerCase().contains(q) || (o.driverName ?? '').toLowerCase().contains(q))
           .toList();
     }
-    return list.where((o) => !_isArchivedStatus(o.status)).toList();
+    return list.where((o) => !_isArchivedStatus(o.status, order: o)).toList();
   }
 
   double get _totalAmount => _filteredOrders.fold<double>(0, (s, o) => s + o.finalAmount);
@@ -117,9 +121,12 @@ class _DriverLogScreenState extends State<DriverLogScreen> {
     return f.every((o) => _selectedOrderIds.contains(o.id));
   }
 
-  static bool _isArchivedStatus(String status) {
+  /// Hides closed rows unless [delivered] still has money owed (blocks day close).
+  static bool _isArchivedStatus(String status, {required Order order}) {
     final s = status.trim().toLowerCase();
-    return s == 'delivered' || s == 'completed' || s == 'cancelled';
+    if (s == 'cancelled' || s == 'completed') return true;
+    if (s == 'delivered') return !orderHasOutstandingBalance(order);
+    return false;
   }
 
   static String _displayStatus(String status) {

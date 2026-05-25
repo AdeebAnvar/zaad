@@ -7,6 +7,7 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
 import 'package:pos/presentation/sale/items_cubit/items_cubit.dart';
 import 'package:pos/presentation/widgets/catalog_item_image.dart';
+import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 
 class ItemVariantDialog extends StatefulWidget {
@@ -259,10 +260,17 @@ class _ItemVariantDialogState extends State<ItemVariantDialog> {
 
   bool get _canAddToCart => widget.variants.isEmpty ? qty > 0 : selectedVariant != null && qty > 0;
 
-  void _onAddToCart() {
+  Future<void> _onAddToCart() async {
     final cartCubit = widget.parentContext.read<CartCubit>();
-    cartCubit.addItemToCart(widget.item, selectedVariant: selectedVariant, quantity: qty);
-    widget.parentContext.read<ItemsCubit>().clearSearch();
-    Navigator.pop(context);
+    try {
+      await cartCubit.addItemToCart(widget.item, selectedVariant: selectedVariant, quantity: qty);
+      if (!widget.parentContext.mounted) return;
+      widget.parentContext.read<ItemsCubit>().clearSearch();
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (widget.parentContext.mounted) {
+        showErrorDialog(widget.parentContext, e);
+      }
+    }
   }
 }

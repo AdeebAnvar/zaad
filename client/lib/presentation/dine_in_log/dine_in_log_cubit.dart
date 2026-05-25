@@ -11,6 +11,7 @@ import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
+import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 
 part 'dine_in_log_state.dart';
@@ -24,10 +25,8 @@ bool dineInBillIsSplittable(Order order) {
 bool _dineInLogListVisible(Order o) {
   final s = o.status.toLowerCase();
   if (s == 'cancelled' || s == 'completed') return false;
-  final payable = o.finalAmount > 0.009 ? o.finalAmount : o.totalAmount;
-  if (payable <= 0.009) return true;
-  final paid = o.cashAmount + o.cardAmount + o.creditAmount + o.onlineAmount;
-  return paid + 0.02 < payable;
+  if (orderPayableAmount(o) <= 0.009) return true;
+  return orderHasOutstandingBalance(o);
 }
 
 class DineInLogCubit extends Cubit<DineInLogState> {

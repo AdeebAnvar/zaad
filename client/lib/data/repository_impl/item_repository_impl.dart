@@ -6,9 +6,10 @@ class ItemRepositoryImpl implements ItemRepository {
   final AppDatabase db;
   ItemRepositoryImpl(this.db);
 
-  Future<int> _activeBranchId() async {
-    final session = await db.sessionDao.getActiveSession();
-    return session?.branchId ?? 1;
+  Future<int?> _activeBranchIdOrNull() async {
+    final bid = (await db.sessionDao.getActiveSession())?.branchId;
+    if (bid == null || bid <= 0) return null;
+    return bid;
   }
 
   Future<Set<int>> _visibleCategoryIds(int branchId) async {
@@ -18,7 +19,8 @@ class ItemRepositoryImpl implements ItemRepository {
 
   @override
   Future<List<Item>> fetchItemsFromLocal() async {
-    final bid = await _activeBranchId();
+    final bid = await _activeBranchIdOrNull();
+    if (bid == null) return [];
     final catCount = (await db.categoryDao.getVisibleForBranch(bid)).length;
     final totalItemsRowCount = (await db.itemDao.getAll()).length;
     final rows = await db.itemDao.getVisibleForBranch(bid);
@@ -40,25 +42,35 @@ class ItemRepositoryImpl implements ItemRepository {
 
   @override
   Stream<List<Item>> watchItemsFromLocal() async* {
-    final bid = await _activeBranchId();
+    final bid = await _activeBranchIdOrNull();
+    if (bid == null) {
+      yield <Item>[];
+      return;
+    }
     yield* db.itemDao.watchVisibleForBranch(bid);
   }
 
   @override
   Future<List<Category>> fetchCategoriesFromLocal() async {
-    final bid = await _activeBranchId();
+    final bid = await _activeBranchIdOrNull();
+    if (bid == null) return [];
     return db.categoryDao.getVisibleForBranch(bid);
   }
 
   @override
   Stream<List<Category>> watchCategoriesFromLocal() async* {
-    final bid = await _activeBranchId();
+    final bid = await _activeBranchIdOrNull();
+    if (bid == null) {
+      yield <Category>[];
+      return;
+    }
     yield* db.categoryDao.watchVisibleForBranch(bid);
   }
 
   @override
   Future<List<ItemVariant>> fetchAllVariants() async {
-    final bid = await _activeBranchId();
+    final bid = await _activeBranchIdOrNull();
+    if (bid == null) return [];
     final visibleItemIds = (await db.itemDao.getVisibleForBranch(bid)).map((i) => i.id).toSet();
     if (visibleItemIds.isEmpty) return [];
     final all = await db.itemDao.getAllVariants();
@@ -67,7 +79,11 @@ class ItemRepositoryImpl implements ItemRepository {
 
   @override
   Stream<List<ItemVariant>> watchAllVariants() async* {
-    final bid = await _activeBranchId();
+    final bid = await _activeBranchIdOrNull();
+    if (bid == null) {
+      yield const <ItemVariant>[];
+      return;
+    }
     await for (final all in db.itemDao.watchAllVariants()) {
       final visibleItemIds = (await db.itemDao.getVisibleForBranch(bid)).map((i) => i.id).toSet();
       if (visibleItemIds.isEmpty) {
@@ -107,7 +123,8 @@ class ItemRepositoryImpl implements ItemRepository {
   Future<Item?> fetchItemByIdFromLocal(int id) async {
     final item = await db.itemDao.getItemById(id);
     if (item == null) return null;
-    final bid = await _activeBranchId();
+    final bid = await _activeBranchIdOrNull();
+    if (bid == null) return null;
     final catIds = await _visibleCategoryIds(bid);
     return catIds.contains(item.categoryId) ? item : null;
   }

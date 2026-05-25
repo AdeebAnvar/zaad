@@ -22,13 +22,17 @@ class CounterPermissions {
 ///
 /// ### Backend `permissions` keys (only enabled keys are sent)
 ///
-/// Typical tenant responses include (underscore / casing may vary): `couter` (server typo for counter),
-/// `expense`, `credit_sale`, `Recent_sales` / `recent_sales`, `recent_sale_delete`, `recent_sale_edit`,
-/// `settle_sale`, `opening_balance`, `crm`, `pay_back`, `open_drawer`,
-/// `delivery_log`, `delivery_log_move`, `delivery_log_delete`, `delivery_log_edit`,
-/// `take_away_log`, `take_away_log_delete`, `take_away_log_move`, `take_away_log_edit`,
-/// `delivery_sale`, `take_away`, `take_away_pay`, `dine_in`, `dine_in_pay`,
-/// `dine_in_log`, `dine_in_log_move`, `dine_in_log_delete`, `dine_in_log_edit`, `dine_in_log_split`.
+/// **Counter / logs:** `couter` (typo), `take_away`, `take_away_log`, `take_away_log_*`,
+/// `delivery_sale`, `delivery_log`, `delivery_log_*`, `dine_in`, `dine_in_ta`, `dine_in_log`,
+/// `dine_in_log_*`, `dine_in_pay`, `recent_sales`, `recent_sale_delete`, `recent_sale_edit`, …
+///
+/// **Sale / payment popup:** `cash_only`, `detailing`, `credit_pay`, `kot_print` (KOT print checkbox),
+/// `invoice_print` (invoice print checkbox), `discount_item`, `discount_invoice`, `name`, `number`,
+/// `email`, `gender`, `address`, `customer_*`, `payment_p` (payment methods in dialog), `printer_settings`, …
+/// Cart KOT/Pay buttons are not gated by `kot_print` / `invoice_print`.
+///
+/// **Drawer / finance:** `expense`, `credit_sale`, `opening_balance`, `crm`, `pay_back`,
+/// `open_drawer`, `settle_sale`, `day_closing`, …
 class CounterAccess {
   const CounterAccess._({required this.isAdmin, required Set<String> grantedNormalized}) : _granted = grantedNormalized;
 
@@ -44,13 +48,30 @@ class CounterAccess {
     }
     final g = user.permissions.map(CounterPermissions.normalize).where((e) => e.isNotEmpty).toSet();
 
-    /// Backend typo `couter` — treat as counter / counter-sale gates used by [CounterHome].
     final withAliases = {...g};
+
+    /// Backend typo `couter` — treat as counter / counter-sale gates used by [CounterHome].
     if (withAliases.contains('couter')) {
       withAliases.add('counter');
       withAliases.add('counter sale');
       withAliases.add('counter_sale');
     }
+
+    /// Truncated admin keys → dine-in module.
+    if (withAliases.contains('dine in ta') ||
+        withAliases.contains('dine in table') ||
+        withAliases.contains('dine in takeaway')) {
+      withAliases.add('dine in');
+      withAliases.add('dine_in');
+    }
+
+    /// `customer_*` / `customer` → CRM-style customer picker on payment popup.
+    if (withAliases.contains('customer') ||
+        withAliases.any((k) => k.startsWith('customer '))) {
+      withAliases.add('customer save');
+      withAliases.add('customer_save');
+    }
+
     return CounterAccess._(isAdmin: false, grantedNormalized: withAliases);
   }
 
@@ -74,21 +95,21 @@ class CounterAccess {
   /// Either explicit take-away permission or legacy "counter sale" also opens take-away counter.
   bool get canTakeAwayCounter => canTakeAway || canCounterSale;
 
-  bool get canTakeAwayLog => _hasAny(const ['take away log', 'take_away_log']);
+  bool get canTakeAwayLog => _hasAny(const ['take away log', 'take_away_log', 'take away lo', 'take_away_lo']);
   bool get canTakeAwayLogDelete => _hasAny(const ['take away log delete', 'take_away_log_delete']);
   bool get canTakeAwayLogMove => _hasAny(const ['take away log move', 'take_away_log_move']);
   bool get canTakeAwayLogEdit => _hasAny(const ['take away log edit', 'take_away_log_edit']);
   bool get canTakeAwayPay => _hasAny(const ['take away pay', 'take_away_pay']);
 
   bool get canDeliverySale => _hasAny(const ['delivery sale', 'delivery_sale']);
-  bool get canDeliveryLog => _hasAny(const ['delivery log', 'delivery_log']);
+  bool get canDeliveryLog => _hasAny(const ['delivery log', 'delivery_log', 'delivery lo', 'delivery_lo']);
   bool get canDeliveryLogMove => _hasAny(const ['delivery log move', 'delivery_log_move']);
   bool get canDeliveryLogDelete => _hasAny(const ['delivery log delete', 'delivery_log_delete']);
   bool get canDeliveryLogEdit => _hasAny(const ['delivery log edit', 'delivery_log_edit']);
 
-  bool get canDineIn => _hasAny(const ['dine in', 'dine_in']);
-  bool get canDineInPay => _hasAny(const ['dine in pay', 'dine_in_pay']);
-  bool get canDineInLog => _hasAny(const ['dine in log', 'dine_in_log']);
+  bool get canDineIn => _hasAny(const ['dine in', 'dine_in', 'dine in ta', 'dine_in_ta', 'dine in table', 'dine_in_table']);
+  bool get canDineInPay => _hasAny(const ['dine in pay', 'dine_in_pay', 'dine in pa', 'dine_in_pa']);
+  bool get canDineInLog => _hasAny(const ['dine in log', 'dine_in_log', 'dine in lo', 'dine_in_lo', 'dine in log lo']);
   bool get canDineInLogMove => _hasAny(const ['dine in log move', 'dine_in_log_move']);
   bool get canDineInLogDelete => _hasAny(const ['dine in log delete', 'dine_in_log_delete']);
   bool get canDineInLogEdit => _hasAny(const ['dine in log edit', 'dine_in_log_edit']);
@@ -97,20 +118,99 @@ class CounterAccess {
   /// --- Drawer ---
   bool get canOpeningBalance => _hasAny(const ['opening balance', 'opening_balance']);
   bool get canCrm => _hasAny(const ['crm']);
-  bool get canRecentSales => _hasAny(const ['recent sales', 'recent_sales']);
+  bool get canRecentSales => _hasAny(const ['recent sales', 'recent_sales', 'recent sal', 'recent_sal']);
   bool get canRecentSaleDelete => _hasAny(const ['recent sale delete', 'recent_sale_delete']);
   bool get canRecentSaleEdit => _hasAny(const ['recent sale edit', 'recent_sale_edit']);
-  bool get canCreditSale => _hasAny(const ['credit sale', 'credit_sale']);
+  bool get canCreditSale => _hasAny(const ['credit sale', 'credit_sale', 'credit pay', 'credit_pay']);
   bool get canExpense => _hasAny(const ['expense']);
   bool get canSettleSale => _hasAny(const ['settle sale', 'settle_sale']);
   bool get canPayBack => _hasAny(const ['pay back', 'pay_back']);
   bool get canOpenDrawer => _hasAny(const ['open drawer', 'open_drawer']);
 
   /// Printer Settings + ESC/POS cash drawer pulse share this gate.
-  bool get canPrinterSettings => _hasAny(const ["printer_settings", 'printer settings']);
+  bool get canPrinterSettings => _hasAny(const ['printer_settings', 'printer settings', 'printer set', 'printer_set']);
 
   /// Day Closing screen (admin label on server likely "Settle sale" or synonym).
   bool get canDayClosing => _hasAny(const ['day closing', 'day_closing', 'settle sale', 'settle_sale']);
+
+  /// --- Sale screen / payment popup ---
+  /// Payment methods / other toggle in payment dialog (not cart KOT/Pay buttons).
+  bool get canPayment => _hasAny(const ['payment', 'payment p', 'payment_p', 'payment pay', 'payment_pay']);
+
+  bool get canCashOnly => _hasAny(const ['cash only', 'cash_only']);
+
+  /// View cart / line-item detail (cart preview).
+  bool get canDetailing => _hasAny(const ['detailing', 'detail', 'detailing view']);
+
+  /// Payment popup footer: "KOT print" checkbox only (not cart KOT button).
+  bool get canKotPrint => _hasAny(const ['kot print', 'kot_print']);
+
+  /// Payment popup footer: "Invoice print" checkbox (also shown when [canPayment] — see PaymentDialog).
+  bool get canInvoicePrint => _hasAny(const ['invoice print', 'invoice_print', 'invoice pr', 'invoice_pr']);
+
+  /// Receipt on Pay — aligned with Recent Sales reprint (not gated on [canInvoicePrint] alone).
+  ///
+  /// Counter staff with only `take_away` / `dine_in` / `delivery_sale` (no `payment_p` or `invoice_print`)
+  /// still get a receipt when settling; [canInvoicePrint] only controls showing the opt-out checkbox.
+  bool get canPrintReceiptOnPayment =>
+      canInvoicePrint ||
+      canPayment ||
+      canTakeAwayPay ||
+      canDineInPay ||
+      _canAnyCounterSaleModule;
+
+  bool get canDiscountItem => _hasAny(const ['discount item', 'discount_item', 'discount i', 'discount_i']);
+
+  bool get canDiscountInvoice => _hasAny(const ['discount invoice', 'discount_invoice']);
+
+  bool get canCustomerName => _hasAny(const ['name', 'customer name', 'customer_name']);
+
+  bool get canCustomerNumber => _hasAny(const ['number', 'customer number', 'customer_number', 'phone', 'mobile']);
+
+  bool get canCustomerEmail => _hasAny(const ['email', 'customer email', 'customer_email']);
+
+  bool get canCustomerGender => _hasAny(const ['gender', 'customer gender', 'customer_gender']);
+
+  bool get canCustomerAddress => _hasAny(const ['address', 'customer address', 'customer_address']);
+
+  /// Customer search / save on payment popup (`customer_*` from admin).
+  bool get canCustomer => _hasAny(const [
+    'customer',
+    'customer save',
+    'customer_save',
+    'customer crm',
+    'customer_crm',
+  ]);
+
+  /// Default: CASH + CARD + CREDIT unless [canCashOnly].
+  bool get canCashPay => true;
+
+  bool get canCardPay => !canCashOnly;
+
+  bool get canCreditPay => !canCashOnly;
+
+  bool get canOnlinePay => !canCashOnly && _hasAny(const ['online pay', 'online_pay', 'online', 'payment']);
+
+  /// Any active counter-sale module (take-away, delivery, dine-in, legacy counter sale).
+  bool get _canAnyCounterSaleModule =>
+      canTakeAwayCounter || canDeliverySale || canDineIn || canCounterSale;
+
+  /// Payment popup / move-order customer block.
+  ///
+  /// Shown when profile-field permissions exist, customer CRM is enabled, or the user
+  /// can run any counter sale (standard popup for take-away / delivery / dine-in staff).
+  bool get showCustomerSection =>
+      canCustomerName ||
+      canCustomerNumber ||
+      canCustomerEmail ||
+      canCustomerGender ||
+      canCustomerAddress ||
+      canCustomer ||
+      _canAnyCounterSaleModule;
+
+  /// Payment popup discount block (manual discount, offers, amount payable).
+  bool get showDiscountSection =>
+      canDiscountItem || canDiscountInvoice || _canAnyCounterSaleModule;
 }
 
 /// Last resolved login user profile (for contexts without BuildContext — e.g. [CartCubit]).

@@ -10,7 +10,6 @@ import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
-import 'package:pos/core/constants/order_log_list_limits.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_actions.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_cubit.dart';
 import 'package:pos/presentation/widgets/order_log_user_filter_autocomplete.dart';
@@ -62,10 +61,11 @@ class RecentSalesScreen extends StatelessWidget {
               return LayoutBuilder(
                 builder: (context, constraints) {
                   final isMobile = constraints.maxWidth < 768;
+                  final cubit = context.read<RecentSalesCubit>();
                   return Stack(
                     children: [
                       RefreshIndicator(
-                        onRefresh: () => context.read<RecentSalesCubit>().refreshOrders(),
+                        onRefresh: () => cubit.refreshOrders(),
                         child: CustomScrollView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           slivers: [
@@ -75,18 +75,6 @@ class RecentSalesScreen extends StatelessWidget {
                                 delegate: SliverChildListDelegate([
                                   if (!isMobile) const _FilterBar(),
                                   if (!isMobile) const SizedBox(height: 16),
-                                  if (state.cappedToLatest)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 12),
-                                      child: Text(
-                                        'Showing the latest $kOrderLogDefaultListLimit sales. '
-                                        'Use receipt or reference filters to find older ones.',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                    ),
                                 ]),
                               ),
                             ),
@@ -112,10 +100,26 @@ class RecentSalesScreen extends StatelessWidget {
                                   child: _RecentSalesDesktopTable(orders: state.orders),
                                 ),
                               ),
-                            const SliverPadding(padding: EdgeInsets.only(bottom: 80)),
+                            SliverPadding(
+                              padding: EdgeInsets.fromLTRB(16, 8, 16, isMobile ? 96 : 24),
+                              sliver: SliverToBoxAdapter(
+                                child: _RecentSalesPaginationBar(
+                                  state: state,
+                                  onPrevious: state.hasPreviousPage ? cubit.previousPage : null,
+                                  onNext: state.hasNextPage ? cubit.nextPage : null,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
+                      if (state.isPageLoading)
+                        const Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: LinearProgressIndicator(minHeight: 2),
+                        ),
                       if (isMobile)
                         Positioned(
                           right: 16,
@@ -146,6 +150,54 @@ class RecentSalesScreen extends StatelessWidget {
             return const SizedBox.shrink();
           },
         ),
+      ),
+    );
+  }
+}
+
+class _RecentSalesPaginationBar extends StatelessWidget {
+  const _RecentSalesPaginationBar({
+    required this.state,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final RecentSalesLoaded state;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = state.totalCount == 0
+        ? 'No sales'
+        : 'Showing ${state.rangeStart}–${state.rangeEnd} of ${state.totalCount}';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Previous page',
+            onPressed: onPrevious,
+            icon: const Icon(Icons.chevron_left),
+          ),
+          Expanded(
+            child: Text(
+              '$summary · Page ${state.currentPage} of ${state.totalPages}',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Next page',
+            onPressed: onNext,
+            icon: const Icon(Icons.chevron_right),
+          ),
+        ],
       ),
     );
   }
@@ -327,7 +379,9 @@ class _RecentSalesDesktopTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canDelete = locator<CurrentCounterSession>().access.canRecentSaleDelete;
+    final access = locator<CurrentCounterSession>().access;
+    final canDelete = access.canRecentSaleDelete;
+    final canEdit = access.canRecentSaleEdit;
     return LayoutBuilder(
       builder: (context, constraints) {
         return Container(
@@ -444,16 +498,17 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                                 tooltip: 'Print',
                                 onPressed: () => printRecentSaleBill(context, order),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.edit_outlined, size: 20),
-                                color: AppColors.primaryColor,
-                                tooltip: 'Edit',
-                                onPressed: () => openRecentSaleForEdit(
-                                  context,
-                                  order,
-                                  onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+                              if (canEdit)
+                                IconButton(
+                                  icon: const Icon(Icons.edit_outlined, size: 20),
+                                  color: AppColors.primaryColor,
+                                  tooltip: 'Edit',
+                                  onPressed: () => openRecentSaleForEdit(
+                                    context,
+                                    order,
+                                    onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+                                  ),
                                 ),
-                              ),
                               if (canDelete)
                                 IconButton(
                                   icon: const Icon(Icons.delete_outline, size: 20),
@@ -703,7 +758,9 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
   }
 
   Widget _actions(BuildContext context, Order order) {
-    final canDelete = locator<CurrentCounterSession>().access.canRecentSaleDelete;
+    final access = locator<CurrentCounterSession>().access;
+    final canDelete = access.canRecentSaleDelete;
+    final canEdit = access.canRecentSaleEdit;
     return Row(
       children: [
         _icon(
@@ -716,15 +773,16 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
           tooltip: 'Print',
           onTap: () => printRecentSaleBill(context, order),
         ),
-        _icon(
-          Icons.edit_outlined,
-          tooltip: 'Edit',
-          onTap: () => openRecentSaleForEdit(
-            context,
-            order,
-            onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+        if (canEdit)
+          _icon(
+            Icons.edit_outlined,
+            tooltip: 'Edit',
+            onTap: () => openRecentSaleForEdit(
+              context,
+              order,
+              onReturn: () => context.read<RecentSalesCubit>().refreshOrders(),
+            ),
           ),
-        ),
         if (canDelete)
           _icon(
             Icons.delete_outline,

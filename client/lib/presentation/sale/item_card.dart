@@ -4,7 +4,9 @@ import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
+import 'package:pos/presentation/widgets/custom_toast.dart';
 import 'package:pos/presentation/sale/items_cubit/items_cubit.dart';
 import 'package:pos/presentation/sale/item_variant_dialog.dart';
 import 'package:pos/presentation/widgets/catalog_item_image.dart';
@@ -30,22 +32,34 @@ class ItemCard extends StatelessWidget {
         final cartCubit = context.read<CartCubit>();
         final itemsCubit = context.read<ItemsCubit>();
 
-        final variants = await itemsCubit.getVariants(item.id);
-        final toppings = await itemsCubit.getToppings(item.id);
-        final toppingGroups = await itemsCubit.getToppingGroups(item.id);
-        // If item has variants and/or toppings, show item configuration dialog.
-        if (variants.isNotEmpty) {
-          showItemConfigDialog(
-            context,
-            item: item,
-            variants: variants,
-            toppings: toppings,
-            toppingGroups: toppingGroups,
-          );
-        } else {
-          // Each tap adds a separate line (qty 1). Use cart +/- to change quantity.
-          await cartCubit.addItemToCart(item);
-          itemsCubit.clearSearch();
+        try {
+          final variants = await itemsCubit.getVariants(item.id);
+          final toppings = await itemsCubit.getToppings(item.id);
+          final toppingGroups = await itemsCubit.getToppingGroups(item.id);
+          // If item has variants, show configuration dialog (variant required before add).
+          if (variants.isNotEmpty) {
+            if (!context.mounted) return;
+            showItemConfigDialog(
+              context,
+              item: item,
+              variants: variants,
+              toppings: toppings,
+              toppingGroups: toppingGroups,
+            );
+          } else {
+            await cartCubit.addItemToCart(item);
+            itemsCubit.clearSearch();
+          }
+        } catch (e) {
+          if (!context.mounted) return;
+          final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+          if (msg.contains('No active branch session')) {
+            CustomSnackBar.showError(
+              message: 'Session expired — log in again before adding items.',
+            );
+          } else {
+            showErrorDialog(context, e);
+          }
         }
       },
       child: Container(

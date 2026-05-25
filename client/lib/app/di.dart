@@ -74,6 +74,7 @@ class ZaadDI {
       final db = AppDatabase();
       // Open + run beforeOpen/migrations before hub sync or login can touch branches.
       await db.ensureBranchesDefaultOpeningCashColumn();
+      await db.repairTextTimestampRows();
       locator.registerSingleton<AppDatabase>(db);
       BackupService.instance.startAutoBackup(db);
     }

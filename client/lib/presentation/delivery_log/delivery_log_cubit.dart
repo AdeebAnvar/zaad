@@ -7,6 +7,7 @@ import 'package:pos/core/constants/order_log_list_limits.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
+import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/driver_repository.dart';
@@ -21,9 +22,12 @@ part 'delivery_log_state.dart';
 /// Delivered, cancelled, and out-for-delivery rows belong in Driver Log or order history.
 const List<String> _kDeliverySaleLogPendingStatuses = ['placed', 'pending', 'kot'];
 
-/// Sale-log phase only (placed / pending / KOT). Payment may already be recorded at Save.
+/// Sale-log phase only (placed / pending / KOT). Hide fully paid rows (still blocks day close until status advances).
 bool deliveryLogOrderVisible(Order o) {
-  return _kDeliverySaleLogPendingStatuses.contains(o.status.toLowerCase());
+  final s = o.status.toLowerCase();
+  if (!_kDeliverySaleLogPendingStatuses.contains(s)) return false;
+  if (orderPayableAmount(o) <= 0.009) return true;
+  return orderHasOutstandingBalance(o);
 }
 
 /// True while the order is still in the sale-log phase (not dispatched / closed).
