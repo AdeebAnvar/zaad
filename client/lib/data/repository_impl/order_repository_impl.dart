@@ -332,6 +332,7 @@ class OrderRepositoryImpl implements OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     int? limit,
     int offset = 0,
   }) async {
@@ -348,6 +349,7 @@ class OrderRepositoryImpl implements OrderRepository {
       endDate: endDate,
       driverId: driverId,
       userId: userId,
+      pickupToken: pickupToken,
       branchId: bid,
       limit: limit,
       offset: offset,
@@ -367,6 +369,7 @@ class OrderRepositoryImpl implements OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
   }) async {
     final bid = await _activeBranchId();
     return db.ordersDao.countOrdersForList(
@@ -381,6 +384,7 @@ class OrderRepositoryImpl implements OrderRepository {
       endDate: endDate,
       driverId: driverId,
       userId: userId,
+      pickupToken: pickupToken,
       branchId: bid,
     );
   }

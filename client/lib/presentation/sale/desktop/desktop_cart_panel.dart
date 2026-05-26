@@ -1247,14 +1247,15 @@ class _PaymentDialogState extends State<PaymentDialog> {
     }
   }
 
-  /// Standard customer popup shows all fields when [showCustomerSection] (take-away / delivery / dine-in).
+  /// Standard customer popup: name / phone / address for counter sales (Kappuchai).
+  /// Email and gender only when admin grants those permissions explicitly.
   bool get _fillCustomerName => _access.showCustomerSection || _access.canCustomerName;
 
   bool get _fillCustomerPhone => _access.showCustomerSection || _access.canCustomerNumber;
 
-  bool get _fillCustomerEmail => _access.showCustomerSection || _access.canCustomerEmail;
+  bool get _fillCustomerEmail => _access.canCustomerEmail;
 
-  bool get _fillCustomerGender => _access.showCustomerSection || _access.canCustomerGender;
+  bool get _fillCustomerGender => _access.canCustomerGender;
 
   bool get _fillCustomerAddress => _access.showCustomerSection || _access.canCustomerAddress;
 
@@ -1754,15 +1755,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
             onChanged: (_) => setState(() {}),
           ),
         ],
-        const SizedBox(height: 12),
-        CustomTextField(
-          controller: _addressController,
-          labelText: 'Address',
-          keyBoardType: TextInputType.streetAddress,
-          maxLines: 3,
-          minLines: 2,
-          onChanged: (_) => setState(() {}),
-        ),
       ],
     );
   }

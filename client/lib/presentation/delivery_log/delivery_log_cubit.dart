@@ -146,6 +146,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
+    int? pickupToken,
   }) async {
     if (deliveryPartner != null && deliveryPartner.trim().isNotEmpty) {
       _selectedPartner = deliveryPartner.trim();
@@ -158,6 +159,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
       startDate: startDate,
       endDate: endDate,
       userId: _scopedUserId(uiUserId: userId),
+      pickupToken: pickupToken,
     );
   }
 
@@ -169,6 +171,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
+    int? pickupToken,
   }) async {
     final prior = state;
     try {
@@ -186,10 +189,12 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         startDate: startDate,
         endDate: endDate,
         userId: userId,
+        pickupToken: pickupToken,
         limit: orderLogDefaultQueryLimit(
           invoiceNumber: invoiceNumber,
           referenceNumber: referenceNumber,
           customerPhone: customerPhone,
+          pickupToken: pickupToken,
           startDate: startDate,
           endDate: endDate,
         ),

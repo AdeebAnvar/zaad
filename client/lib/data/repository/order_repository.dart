@@ -41,6 +41,7 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     int? limit,
     int offset = 0,
   });
@@ -58,6 +59,7 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
   });
 
   Future<List<Order>> getDeliveryOrdersWithDriver();

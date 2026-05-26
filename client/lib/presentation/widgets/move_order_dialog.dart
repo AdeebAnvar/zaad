@@ -206,10 +206,10 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
       if (_access.canCustomerNumber || _access.showCustomerSection) {
         _phone.text = customer.phone ?? '';
       }
-      if (_access.canCustomerEmail || _access.showCustomerSection) {
+      if (_access.canCustomerEmail) {
         _email.text = customer.email ?? '';
       }
-      if (_access.canCustomerGender || _access.showCustomerSection) {
+      if (_access.canCustomerGender) {
         final g = customer.gender?.trim();
         _gender = (g != null && g.isNotEmpty && _genderOptions.contains(g)) ? g : null;
       }

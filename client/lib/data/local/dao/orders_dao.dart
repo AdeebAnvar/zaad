@@ -246,6 +246,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
         orders.branchId,
         orders.serverOrderId,
         orders.hubSyncPending,
+        orders.pickupToken,
       ];
 
   Order _orderFromListRow(TypedResult row) {
@@ -277,6 +278,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       serverOrderId: row.read(orders.serverOrderId),
       hubMetadata: null,
       hubSyncPending: row.read(orders.hubSyncPending)!,
+      pickupToken: row.read(orders.pickupToken),
     );
   }
 
@@ -522,6 +524,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     int? branchId,
     int? limit,
     int offset = 0,
@@ -579,6 +582,10 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       query = query..where(orders.userId.equals(userId));
     }
 
+    if (pickupToken != null) {
+      query = query..where(orders.pickupToken.equals(pickupToken));
+    }
+
     query = query
       ..orderBy([
         OrderingTerm.desc(orders.createdAt),
@@ -603,6 +610,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     int? branchId,
   }) async {
     final countExp = orders.id.count();
@@ -657,6 +665,10 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
 
     if (userId != null) {
       query = query..where(orders.userId.equals(userId));
+    }
+
+    if (pickupToken != null) {
+      query = query..where(orders.pickupToken.equals(pickupToken));
     }
 
     final row = await query.getSingleOrNull();

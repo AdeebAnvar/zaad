@@ -203,6 +203,8 @@ class CounterAccess {
   ///
   /// Shown when profile-field permissions exist, customer CRM is enabled, or the user
   /// can run any counter sale (standard popup for take-away / delivery / dine-in staff).
+  /// Email/gender fields are separate ([canCustomerEmail] / [canCustomerGender]) — not
+  /// implied by this flag (Kappuchai default popup: name, phone, address only).
   bool get showCustomerSection =>
       canCustomerName ||
       canCustomerNumber ||
