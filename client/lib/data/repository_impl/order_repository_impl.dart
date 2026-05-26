@@ -34,7 +34,8 @@ class OrderRepositoryImpl implements OrderRepository {
   Future<int> _activeBranchId() => db.sessionDao.requireActiveBranchId();
 
   Future<void> _afterMutation() async {
-    unawaited(SalesCsvBackup.refreshFromDatabase(db));
+    // Full XLSX export is debounced — never block checkout on workbook build.
+    SalesCsvBackup.scheduleDebouncedRefresh(db);
     await BackupService.instance.recordOrderMutation(db);
     _notifyOrderLogsRefresh();
   }
@@ -186,6 +187,12 @@ class OrderRepositoryImpl implements OrderRepository {
   Future<List<Order>> getAllOrders() async {
     final bid = await _activeBranchId();
     return db.ordersDao.getAllOrders(branchId: bid);
+  }
+
+  @override
+  Future<List<Order>> getCompletedOrders() async {
+    final bid = await _activeBranchId();
+    return db.ordersDao.getCompletedOrders(branchId: bid);
   }
 
   @override

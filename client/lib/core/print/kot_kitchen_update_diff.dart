@@ -64,3 +64,19 @@ class KotKitchenUpdateDiff {
     return out;
   }
 }
+
+/// Input for [kotKitchenUpdateDiffInIsolate] ([AppIsolateService] / [flutterCompute]).
+class KotKitchenUpdateDiffInput {
+  const KotKitchenUpdateDiffInput({
+    required this.baseline,
+    required this.current,
+  });
+
+  final List<CartItem> baseline;
+  final List<CartItem> current;
+}
+
+@pragma('vm:entry-point')
+List<KotKitchenUpdateRow> kotKitchenUpdateDiffInIsolate(KotKitchenUpdateDiffInput input) {
+  return KotKitchenUpdateDiff.compute(input.baseline, input.current);
+}

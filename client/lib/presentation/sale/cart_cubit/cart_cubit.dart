@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
+import 'package:pos/core/isolate/app_isolate_service.dart';
 import 'package:pos/core/print/kot_kitchen_update_diff.dart';
 import 'package:pos/core/print/cash_drawer_on_payment.dart';
 import 'package:pos/core/print/print_service.dart';
@@ -618,7 +619,10 @@ class CartCubit extends Cubit<CartState> {
       final oTypeRaw = kotOrder?.orderType ?? orderType.value;
 
       if (_kotKitchenBaselineForDiff != null) {
-        final rows = KotKitchenUpdateDiff.compute(_kotKitchenBaselineForDiff!, currentSnap);
+        final rows = await AppIsolateService.instance.run(
+          kotKitchenUpdateDiffInIsolate,
+          KotKitchenUpdateDiffInput(baseline: _kotKitchenBaselineForDiff!, current: currentSnap),
+        );
         printFailed = rows.isEmpty
             ? <String>[]
             : await printService.printKOTUpdatePerKitchen(
@@ -1131,7 +1135,10 @@ class CartCubit extends Cubit<CartState> {
     if (printKot && cartItems.isNotEmpty) {
       final snap = List<CartItem>.from(sessionItems.isNotEmpty ? sessionItems : cartItems);
       if (_kotKitchenBaselineForDiff != null) {
-        final rows = KotKitchenUpdateDiff.compute(_kotKitchenBaselineForDiff!, snap);
+        final rows = await AppIsolateService.instance.run(
+          kotKitchenUpdateDiffInIsolate,
+          KotKitchenUpdateDiffInput(baseline: _kotKitchenBaselineForDiff!, current: snap),
+        );
         if (rows.isNotEmpty) {
           printFailed.addAll(
             await printService.printKOTUpdatePerKitchen(

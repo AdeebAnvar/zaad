@@ -36,8 +36,7 @@ class BackupService {
   Future<void> recordOrderMutation(AppDatabase db) async {
     _pendingOrderMutations += 1;
     final now = DateTime.now();
-    final shouldBackup = _pendingOrderMutations >= _orderMutationBackupThreshold ||
-        now.difference(_lastBackupAt) >= _minIntervalBetweenBackups;
+    final shouldBackup = _pendingOrderMutations >= _orderMutationBackupThreshold || now.difference(_lastBackupAt) >= _minIntervalBetweenBackups;
     if (!shouldBackup) return;
     await backupNow(db);
     _pendingOrderMutations = 0;
@@ -52,8 +51,13 @@ class BackupService {
 
   void startAutoBackup(AppDatabase db) {
     _periodicTimer?.cancel();
-    unawaited(_pruneOldBackups());
-    _periodicTimer = Timer.periodic(_periodicCheckInterval, (_) {
+    // Purge scans every backup .db — defer so login UI is not frozen on cold start.
+    Future<void>.delayed(const Duration(minutes: 3), () {
+      unawaited(purgeExpiredBackups().catchError((Object e, StackTrace st) {
+        _log('deferred purgeExpiredBackups: $e\n$st');
+      }));
+    });
+    _periodicTimer = Timer.periodic(_timeThreshold, (_) {
       backupNow(db);
     });
   }
@@ -279,14 +283,12 @@ class BackupService {
     }
 
     if (_tableExists(database, 'sync_outbox')) {
-      final outboxPending =
-          _scalarInt(database, "SELECT COUNT(*) FROM sync_outbox WHERE status IS NULL OR status != 'ACKED'");
+      final outboxPending = _scalarInt(database, "SELECT COUNT(*) FROM sync_outbox WHERE status IS NULL OR status != 'ACKED'");
       if (outboxPending > 0) return false;
     }
 
     if (_tableExists(database, 'settle_sales_outbox')) {
-      final settlePending =
-          _scalarInt(database, 'SELECT COUNT(*) FROM settle_sales_outbox WHERE synced = 0');
+      final settlePending = _scalarInt(database, 'SELECT COUNT(*) FROM settle_sales_outbox WHERE synced = 0');
       if (settlePending > 0) return false;
     }
 
@@ -322,6 +324,24 @@ class BackupService {
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
+  /// Fast path for cold start: only checks the newest backup files (not every `.db`).
+  Future<bool> quickEnsureDatabaseBeforeOpen({int maxCandidates = 3}) async {
+    try {
+      final localDir = await AppDirectories.local();
+      final dbFile = File(p.join(localDir.path, 'pos.sqlite'));
+      if (await dbFile.exists() && SqliteFileBackup.quickCheckOk(dbFile)) {
+        return true;
+      }
+      return restoreNewestBackupQuick(
+        corruptLiveFile: await dbFile.exists() ? dbFile : null,
+        maxCandidates: maxCandidates,
+      );
+    } catch (e, st) {
+      _log('quickEnsureDatabaseBeforeOpen: $e\n$st');
+      return false;
+    }
+  }
+
   Future<void> validateAndRecoverIfNeeded() async {
     await _pruneOldBackups();
     try {
@@ -347,6 +367,54 @@ class BackupService {
         await restoreLatestBackupIfAvailable();
       }
     }
+    // Do not purge backups here — opening every backup DB on cold start blocked the
+    // UI thread ("Not responding"). [startAutoBackup] schedules purge in background.
+  }
+
+  /// Startup-only: restore from the newest few backups (avoids scanning dozens of `.db` files).
+  Future<bool> restoreNewestBackupQuick({
+    File? corruptLiveFile,
+    int maxCandidates = 3,
+  }) async {
+    try {
+      final backupDir = await _backupDir();
+      final files = await _listBackupDbFiles(backupDir);
+      if (files.isEmpty) {
+        _log('quick restore: no backup files');
+        return false;
+      }
+
+      files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      final localDir = await AppDirectories.local();
+      final target = File(p.join(localDir.path, 'pos.sqlite'));
+
+      for (final source in files.take(maxCandidates)) {
+        if (!SqliteFileBackup.quickCheckOk(source)) continue;
+
+        if (corruptLiveFile != null && await corruptLiveFile.exists()) {
+          await _quarantineFile(corruptLiveFile, prefix: 'pos.sqlite.corrupt_');
+        } else if (await target.exists()) {
+          await _quarantineFile(target, prefix: 'pos.sqlite.before_restore_');
+        }
+
+        await SqliteFileBackup.deleteWalSidecars(target);
+        if (await target.exists()) {
+          await target.delete();
+        }
+        await source.copy(target.path);
+        await SqliteFileBackup.deleteWalSidecars(target);
+
+        if (SqliteFileBackup.quickCheckOk(target)) {
+          _log('quick restore from ${p.basename(source.path)}');
+          return true;
+        }
+        await _quarantineFile(target, prefix: 'pos.sqlite.bad_restore_');
+      }
+      return false;
+    } catch (e, st) {
+      _log('restoreNewestBackupQuick: $e\n$st');
+      return false;
+    }
   }
 
   Future<bool> restoreLatestBackupIfAvailable({File? corruptLiveFile}) async {
@@ -359,9 +427,7 @@ class BackupService {
       }
 
       final snapshots = await _inspectAll(files);
-      final liveOrders = corruptLiveFile != null && await corruptLiveFile.exists()
-          ? SqliteFileBackup.countOrders(corruptLiveFile)
-          : null;
+      final liveOrders = corruptLiveFile != null && await corruptLiveFile.exists() ? SqliteFileBackup.countOrders(corruptLiveFile) : null;
       final liveCount = liveOrders != null && liveOrders >= 0 ? liveOrders : null;
 
       final chosen = BackupRestorePolicy.chooseRestoreCandidate(
@@ -414,11 +480,7 @@ class BackupService {
   }
 
   Future<List<File>> _listBackupDbFiles(Directory backupDir) async {
-    return backupDir
-        .list()
-        .where((e) => e is File && p.extension(e.path).toLowerCase() == '.db')
-        .cast<File>()
-        .toList();
+    return backupDir.list().where((e) => e is File && p.extension(e.path).toLowerCase() == '.db').cast<File>().toList();
   }
 
   Future<List<BackupSnapshotInfo>> _inspectAll(List<File> files) async {

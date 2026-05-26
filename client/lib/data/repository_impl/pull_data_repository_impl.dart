@@ -4,11 +4,14 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:pos/app/di.dart';
+import 'package:pos/core/isolate/app_isolate_service.dart';
 import 'package:drift/drift.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:pos/core/network/cloud_sync_prerequisites.dart';
 import 'package:pos/core/sync/company_bootstrap_persist.dart';
+import 'package:pos/core/sync/pull_response_parse.dart';
 import 'package:pos/core/sync/hub_catalog_lan_publisher.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/core/utils/image_utils.dart';
@@ -65,6 +68,17 @@ class PullDataRepositoryImpl implements PullDataRepository {
   void _emitProgress(String message, int current, int total) {
     if (_progressController.isClosed) return;
     _progressController.add(PullSyncProgress(message: message, current: current, total: total));
+  }
+
+  Future<PullData> _parsePullPage(Map<String, dynamic> raw) async {
+    try {
+      return await locator<AppIsolateService>().run(parsePullPageFromRaw, raw);
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[pull] isolate parse failed, parsing inline: $e\n$st');
+      }
+      return parsePullPageFromRaw(raw);
+    }
   }
 
   /// API query parameter name for paged pull requests.
@@ -148,7 +162,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
       if (response.statusCode == null || response.statusCode! < 200 || response.statusCode! >= 300) {
         throw Exception('Pull failed: HTTP ${response.statusCode}');
       }
-      final raw = _normalizeToMap(response.data);
+      final raw = normalizePullResponseToMap(response.data);
       if (raw == null) {
         throw Exception('Pull failed: response body is not a JSON object');
       }
@@ -162,15 +176,15 @@ class PullDataRepositoryImpl implements PullDataRepository {
           '[pull] offers payload: created_updated=$offersCreatedCount, deleted=$offersDeletedCount, page=$page',
         );
       }
-      final responseLastSyncedAt = _extractLastSyncedAtFromResponse(raw);
+      final responseLastSyncedAt = extractLastSyncedAtFromResponse(raw);
       if (responseLastSyncedAt != null) {
         nextPullLastSyncedAt = responseLastSyncedAt;
       }
 
-      final driverForPersist = _extractApiDriverMap(raw);
-      _injectFullPullDataForParse(raw);
+      _emitProgress('Parsing page $page...', page - 1, _kMaxPagesPerResource);
 
-      final pull = PullData.fromJson(Map<String, dynamic>.from(raw));
+      final driverForPersist = extractApiDriverMap(raw);
+      final pull = await _parsePullPage(Map<String, dynamic>.from(raw));
       if (pull.success != true) {
         throw Exception(pull.message.isNotEmpty ? pull.message : 'Pull was not successful');
       }
@@ -290,84 +304,6 @@ class PullDataRepositoryImpl implements PullDataRepository {
     }
   }
 
-  /// Placeholder for [PullDataModel.driver] (Drift [DriverModel]) so [PullData.fromJson] succeeds.
-  static Map<String, dynamic> _driftDriverPlaceholder() => <String, dynamic>{
-        'id': 0,
-        'name': '',
-      };
-
-  static Map<String, dynamic> _emptyResourceEnvelope() => <String, dynamic>{
-        'created_updated': <dynamic>[],
-        'deleted': <dynamic>[],
-        'pagination': {
-          'current_page': 1,
-          'last_page': 1,
-          'per_page': 15,
-          'total': 0,
-          'has_more': false,
-        },
-      };
-
-  /// Ensures [raw] has a full `data` object so [PullDataModel.fromJson] can run on partial paged API responses.
-  void _injectFullPullDataForParse(Map<String, dynamic> raw) {
-    const keys = <String>[
-      'category',
-      'unit',
-      'deliveryService',
-      'variations',
-      'variationOptions',
-      'toppingCategories',
-      'toppings',
-      'kitchens',
-      'item',
-      'expenseCategory',
-      'paymentMethods',
-      'customer',
-      'driver',
-      'staffs',
-      'waiters',
-      'floors',
-      'tables',
-      'offers',
-    ];
-    final inRoot = raw['data'];
-    final inData = inRoot is Map
-        ? Map<String, dynamic>.from(
-            inRoot.map((k, v) => MapEntry(k.toString(), v)),
-          )
-        : <String, dynamic>{};
-
-    final d = inData['driver'];
-    if (d is Map && d['created_updated'] != null) {
-      inData['driver'] = _driftDriverPlaceholder();
-    } else {
-      inData['driver'] = d ?? _driftDriverPlaceholder();
-    }
-
-    for (final k in keys) {
-      if (k == 'driver') {
-        continue;
-      }
-      inData.putIfAbsent(k, () => _emptyResourceEnvelope());
-      if (k == 'item' && inData[k] is Map) {
-        inData[k] = _normalizeItemResourceEnvelope(Map<String, dynamic>.from(inData[k] as Map));
-      }
-    }
-
-    raw['data'] = inData;
-  }
-
-  String? _extractLastSyncedAtFromResponse(Map<String, dynamic> raw) {
-    final data = raw['data'];
-    if (data is Map) {
-      final inData = data['last_synced_at']?.toString().trim();
-      if (inData != null && inData.isNotEmpty) return inData;
-    }
-    final rootValue = raw['last_synced_at']?.toString().trim();
-    if (rootValue != null && rootValue.isNotEmpty) return rootValue;
-    return null;
-  }
-
   /// Ensures `last_synced_at` query uses API-friendly `yyyy-MM-dd HH:mm:ss`.
   String? _normalizeLastSyncedAtForQuery(String? value) {
     final input = value?.trim();
@@ -384,56 +320,6 @@ class PullDataRepositoryImpl implements PullDataRepository {
     }
 
     return input;
-  }
-
-  /// API sometimes returns map/object instead of list for item subfields.
-  /// Normalize to the shapes expected by [ItemModel.fromJson] and [ItemCreatedUpdated.fromJson].
-  Map<String, dynamic> _normalizeItemResourceEnvelope(Map<String, dynamic> itemEnvelope) {
-    final out = Map<String, dynamic>.from(itemEnvelope);
-
-    final created = out['created_updated'];
-    final createdList = created is List ? created : (created is Map ? <dynamic>[created] : <dynamic>[]);
-
-    final normalizedCreated = <dynamic>[];
-    for (final row in createdList) {
-      if (row is! Map) continue;
-      final m = Map<String, dynamic>.from(row.map((k, v) => MapEntry(k.toString(), v)));
-
-      final itemVariations = m['item_variations'];
-      if (itemVariations is Map) {
-        m['item_variations'] = <dynamic>[itemVariations];
-      } else if (itemVariations is! List) {
-        m['item_variations'] = <dynamic>[];
-      }
-
-      final itemPrice = m['itemprice'];
-      if (itemPrice is Map) {
-        m['itemprice'] = <dynamic>[itemPrice];
-      } else if (itemPrice is! List) {
-        m['itemprice'] = <dynamic>[];
-      }
-
-      normalizedCreated.add(m);
-    }
-
-    out['created_updated'] = normalizedCreated;
-    out['deleted'] = out['deleted'] is List ? out['deleted'] : <dynamic>[];
-    out['pagination'] = out['pagination'] is Map ? out['pagination'] : _emptyResourceEnvelope()['pagination'];
-    return out;
-  }
-
-  /// Parsed API driver for persistence when the payload uses sync shape with `created_updated`.
-  api_driver.DriverModel? _extractApiDriverMap(Map<String, dynamic> raw) {
-    try {
-      final data = raw['data'];
-      if (data is! Map) return null;
-      final d = data['driver'];
-      if (d is! Map) return null;
-      if (d['created_updated'] == null) return null;
-      return api_driver.DriverModel.fromJson(Map<String, dynamic>.from(d));
-    } catch (_) {
-      return null;
-    }
   }
 
   PaginationModel? _paginationForDataKey(PullDataModel m, String dataKey) {
@@ -706,20 +592,6 @@ class PullDataRepositoryImpl implements PullDataRepository {
       default:
         break;
     }
-  }
-
-  Map<String, dynamic>? _normalizeToMap(dynamic data) {
-    if (data == null) return null;
-    if (data is Map<String, dynamic>) return data;
-    if (data is Map) return data.map((k, v) => MapEntry(k.toString(), v));
-    if (data is String) {
-      try {
-        final d = json.decode(data);
-        if (d is Map<String, dynamic>) return d;
-        if (d is Map) return d.map((k, v) => MapEntry(k.toString(), v));
-      } catch (_) {}
-    }
-    return null;
   }
 
   Future<void> _savePagination(String resourceKey, PaginationModel? pg) async {
@@ -1364,17 +1236,15 @@ class PullDataRepositoryImpl implements PullDataRepository {
   @override
   Future<void> applyMirroredPullPage(dynamic responseBody) async {
     try {
-      final normalized = _normalizeToMap(responseBody);
+      final normalized = normalizePullResponseToMap(responseBody);
       if (normalized == null) return;
-      final mirroredLastSyncedAt = _extractLastSyncedAtFromResponse(normalized);
+      final mirroredLastSyncedAt = extractLastSyncedAtFromResponse(normalized);
       if (mirroredLastSyncedAt != null) {
         await _db.pullDataDao.savePullLastSyncedAt(mirroredLastSyncedAt);
       }
 
-      final driverForPersist = _extractApiDriverMap(normalized);
-      _injectFullPullDataForParse(normalized);
-
-      final pull = PullData.fromJson(Map<String, dynamic>.from(normalized));
+      final driverForPersist = extractApiDriverMap(normalized);
+      final pull = await _parsePullPage(Map<String, dynamic>.from(normalized));
       if (pull.success != true) return;
 
       final m = pull.data;

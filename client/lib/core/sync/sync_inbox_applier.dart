@@ -192,7 +192,7 @@ class SyncInboxApplier {
             final media = await AppDirectories.media();
             final name = 'hub_item_${item.id}_${const Uuid().v4()}${_extFromMime(mime)}';
             final f = File(p.join(media.path, name));
-            await f.writeAsBytes(bytes, flush: true);
+            await f.writeAsBytes(bytes);
             localPath = f.path;
           }
         } catch (e, st) {
@@ -328,7 +328,7 @@ class SyncInboxApplier {
         final media = await AppDirectories.media();
         final name = 'hub_branch_${b.id}_${const Uuid().v4()}${_extFromMimeForFile(mime)}';
         final f = File(p.join(media.path, name));
-        await f.writeAsBytes(bytes, flush: true);
+        await f.writeAsBytes(bytes);
         out.add(b.copyWith(localImage: f.path));
       } catch (e, st) {
         if (kDebugMode) debugPrint('[SyncInbox] branch inline decode failed id=${b.id}: $e\n$st');

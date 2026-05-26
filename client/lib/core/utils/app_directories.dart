@@ -32,6 +32,7 @@ class AppDirectories {
 
   static const String appFolderName = 'ZaadPOS';
   static const String _legacyAppFolderName = 'zaad pos';
+  static const String _windowsParentCacheFileName = 'data_parent_path.txt';
   static const String localFolderName = 'local';
   static const String mediaFolderName = 'media';
   static const String backupFolderName = 'backup';
@@ -53,6 +54,8 @@ class AppDirectories {
   /// One-time merge of old `Documents/zaad pos` → `Documents/ZaadPOS` on the **internal**
   /// Android path (where legacy builds stored data). Must run before [migrateAndroidInternalToPublicDocumentsIfNeeded].
   static Future<void> migrateLegacyLayoutIfNeeded() async {
+    if (!Platform.isAndroid) return;
+
     final docs = await getApplicationDocumentsDirectory();
     final legacy = Directory(p.join(docs.path, _legacyAppFolderName));
     final modern = Directory(p.join(docs.path, appFolderName));
@@ -288,9 +291,150 @@ class AppDirectories {
     }
   }
 
+  /// Windows may report Documents under a missing OneDrive drive (e.g. `D:\Onedrive\Documents`).
+  /// Probe writable locations and cache the first one that works.
+  static Future<Directory> _windowsWritableDocumentsParent() async {
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    Directory? cacheRoot;
+    Directory? cachedParentFromFile;
+    if (localAppData != null && localAppData.isNotEmpty) {
+      cacheRoot = Directory(p.join(localAppData, appFolderName));
+      try {
+        await cacheRoot.create(recursive: true);
+        final cacheFile = File(p.join(cacheRoot.path, _windowsParentCacheFileName));
+        if (await cacheFile.exists()) {
+          final cachedPath = (await cacheFile.readAsString()).trim();
+          if (cachedPath.isNotEmpty) {
+            cachedParentFromFile = Directory(cachedPath);
+          }
+        }
+      } catch (_) {
+        /* try fresh resolution */
+      }
+    }
+
+    // Fast path: last known good folder (avoids hanging on missing OneDrive Documents).
+    if (cachedParentFromFile != null && await cachedParentFromFile.exists()) {
+      final cachedBytes = await _existingPosSqliteBytes(cachedParentFromFile);
+      if (cachedBytes > 0) {
+        if (kDebugMode) {
+          debugPrint(
+            '[AppDirectories] Windows data parent (cached, $cachedBytes bytes): ${cachedParentFromFile.path}',
+          );
+        }
+        return cachedParentFromFile;
+      }
+      if (await _probeZaadPosDataTree(cachedParentFromFile)) {
+        return cachedParentFromFile;
+      }
+    }
+
+    final seen = <String>{};
+    final candidates = <Directory>[];
+
+    Future<void> addCandidate(Directory? dir) async {
+      if (dir == null) return;
+      if (!await dir.exists()) return;
+      final key = p.normalize(dir.path).toLowerCase();
+      if (seen.contains(key)) return;
+      seen.add(key);
+      candidates.add(dir);
+    }
+
+    final userProfile = Platform.environment['USERPROFILE'];
+    if (userProfile != null && userProfile.isNotEmpty) {
+      await addCandidate(Directory(p.join(userProfile, 'Documents')));
+    }
+
+    if (localAppData != null && localAppData.isNotEmpty) {
+      await addCandidate(Directory(localAppData));
+    }
+
+    try {
+      await addCandidate(await getApplicationSupportDirectory());
+    } catch (_) {}
+
+    // path_provider Documents last — can block on broken OneDrive redirect.
+    try {
+      await addCandidate(await getApplicationDocumentsDirectory());
+    } catch (_) {}
+
+    final withExistingDb = await _windowsParentWithLargestExistingDb(candidates);
+    if (withExistingDb != null) {
+      if (kDebugMode) {
+        final bytes = await _existingPosSqliteBytes(withExistingDb);
+        debugPrint(
+          '[AppDirectories] Windows data parent (existing pos.sqlite, $bytes bytes): ${withExistingDb.path}',
+        );
+      }
+      if (cacheRoot != null) {
+        try {
+          await File(p.join(cacheRoot.path, _windowsParentCacheFileName))
+              .writeAsString(withExistingDb.path, flush: true);
+        } catch (_) {}
+      }
+      return withExistingDb;
+    }
+
+    for (final parent in candidates) {
+      if (!await _probeZaadPosDataTree(parent)) continue;
+      if (kDebugMode) {
+        debugPrint('[AppDirectories] Windows data parent (new): ${parent.path}');
+      }
+      if (cacheRoot != null) {
+        try {
+          await File(p.join(cacheRoot.path, _windowsParentCacheFileName))
+              .writeAsString(parent.path, flush: true);
+        } catch (_) {}
+      }
+      return parent;
+    }
+
+    throw PathNotFoundException(
+      p.join('Documents', appFolderName),
+      const OSError('The system cannot find the path specified', 2),
+    );
+  }
+
+  static Future<bool> _probeZaadPosDataTree(Directory parent) async {
+    final localDir = Directory(p.join(parent.path, appFolderName, localFolderName));
+    return _probeSqliteInDirectory(localDir);
+  }
+
+  static File _posSqliteFileUnderParent(Directory parent) =>
+      File(p.join(parent.path, appFolderName, localFolderName, 'pos.sqlite'));
+
+  /// Bytes of an existing on-disk DB, or 0 when missing/empty.
+  static Future<int> _existingPosSqliteBytes(Directory parent) async {
+    final dbFile = _posSqliteFileUnderParent(parent);
+    if (!await dbFile.exists()) return 0;
+    try {
+      return await dbFile.length();
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Prefer the parent that already holds the largest [pos.sqlite] so invoice/order
+  /// history is not lost when Windows picks a fresh writable folder (e.g. OneDrive path change).
+  static Future<Directory?> _windowsParentWithLargestExistingDb(
+    List<Directory> candidates,
+  ) async {
+    Directory? bestParent;
+    var bestBytes = 0;
+    for (final parent in candidates) {
+      final bytes = await _existingPosSqliteBytes(parent);
+      if (bytes <= bestBytes) continue;
+      if (!await _probeZaadPosDataTree(parent)) continue;
+      bestBytes = bytes;
+      bestParent = parent;
+    }
+    return bestParent;
+  }
+
   static Future<Directory> _documentsParentForZaadPos() async {
     if (Platform.isWindows) {
-      return getApplicationDocumentsDirectory();
+      return _windowsWritableDocumentsParent();
     }
     if (Platform.isAndroid) {
       await _ensureAndroidCanUsePublicDocuments();

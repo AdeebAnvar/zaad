@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
@@ -6,6 +7,14 @@ import 'package:pos/data/models/pos_customer.dart';
 import 'package:pos/data/repository/customer_repository.dart';
 
 part 'crm_state.dart';
+
+// ── isolate-safe payload (no DB objects cross isolate boundary) ──────────────
+
+class _MatchPayload {
+  const _MatchPayload({required this.customers, required this.orders});
+  final List<PosCustomer> customers;
+  final List<Order> orders;
+}
 
 bool _orderMatchesCustomer(Order order, PosCustomer customer) {
   final r = customer.row;
@@ -17,15 +26,37 @@ bool _orderMatchesCustomer(Order order, PosCustomer customer) {
     return true;
   }
   if (r.customerEmail.isNotEmpty &&
-      (order.customerEmail?.trim().toLowerCase() == r.customerEmail.trim().toLowerCase())) {
+      (order.customerEmail?.trim().toLowerCase() ==
+          r.customerEmail.trim().toLowerCase())) {
     return true;
   }
   if (r.customerName.isNotEmpty &&
-      (order.customerName?.trim().toLowerCase() == r.customerName.trim().toLowerCase())) {
+      (order.customerName?.trim().toLowerCase() ==
+          r.customerName.trim().toLowerCase())) {
     return true;
   }
   return false;
 }
+
+/// Runs the O(N×M) customer–order join off the UI isolate.
+List<CustomerWithOrders> _buildCustomerWithOrders(_MatchPayload payload) {
+  final result = <CustomerWithOrders>[];
+  for (final customer in payload.customers) {
+    final orders = payload.orders
+        .where((order) => _orderMatchesCustomer(order, customer))
+        .toList();
+    result.add(CustomerWithOrders(
+      customer: customer,
+      orderCount: orders.length,
+      totalSpent:
+          orders.fold<double>(0.0, (sum, o) => sum + o.finalAmount),
+      lastOrderDate: orders.isNotEmpty ? orders.first.createdAt : null,
+    ));
+  }
+  return result;
+}
+
+// ── cubit ────────────────────────────────────────────────────────────────────
 
 class CrmCubit extends Cubit<CrmState> {
   final CustomerRepository _customerRepo;
@@ -44,19 +75,10 @@ class CrmCubit extends Cubit<CrmState> {
     try {
       final customers = await _customerRepo.getAllLocalCustomers();
       final allOrders = await _ordersForActiveBranch();
-      final customersWithOrders = <CustomerWithOrders>[];
-
-      for (final customer in customers) {
-        final orders = allOrders.where((order) => _orderMatchesCustomer(order, customer)).toList();
-
-        customersWithOrders.add(CustomerWithOrders(
-          customer: customer,
-          orderCount: orders.length,
-          totalSpent: orders.fold<double>(0.0, (sum, order) => sum + order.finalAmount),
-          lastOrderDate: orders.isNotEmpty ? orders.first.createdAt : null,
-        ));
-      }
-
+      final customersWithOrders = await compute(
+        _buildCustomerWithOrders,
+        _MatchPayload(customers: customers, orders: allOrders),
+      );
       emit(CrmLoaded(customersWithOrders));
     } catch (e) {
       emit(CrmError(e.toString()));
@@ -68,24 +90,14 @@ class CrmCubit extends Cubit<CrmState> {
       await loadCustomers();
       return;
     }
-
     emit(CrmLoading());
     try {
       final customers = await _customerRepo.searchCustomers(query);
       final allOrders = await _ordersForActiveBranch();
-      final customersWithOrders = <CustomerWithOrders>[];
-
-      for (final customer in customers) {
-        final orders = allOrders.where((order) => _orderMatchesCustomer(order, customer)).toList();
-
-        customersWithOrders.add(CustomerWithOrders(
-          customer: customer,
-          orderCount: orders.length,
-          totalSpent: orders.fold<double>(0.0, (sum, order) => sum + order.finalAmount),
-          lastOrderDate: orders.isNotEmpty ? orders.first.createdAt : null,
-        ));
-      }
-
+      final customersWithOrders = await compute(
+        _buildCustomerWithOrders,
+        _MatchPayload(customers: customers, orders: allOrders),
+      );
       emit(CrmLoaded(customersWithOrders));
     } catch (e) {
       emit(CrmError(e.toString()));
@@ -99,8 +111,7 @@ class CrmCubit extends Cubit<CrmState> {
   }) async {
     emit(CrmLoading());
     try {
-      List<PosCustomer> customers = [];
-
+      final List<PosCustomer> customers;
       if (name != null && name.isNotEmpty) {
         customers = await _customerRepo.getCustomersByName(name);
       } else if (phone != null && phone.isNotEmpty) {
@@ -111,20 +122,13 @@ class CrmCubit extends Cubit<CrmState> {
         customers = await _customerRepo.getAllLocalCustomers();
       }
 
-      final allOrders = await _db.ordersDao.getAllOrders();
-      final customersWithOrders = <CustomerWithOrders>[];
-
-      for (final customer in customers) {
-        final orders = allOrders.where((order) => _orderMatchesCustomer(order, customer)).toList();
-
-        customersWithOrders.add(CustomerWithOrders(
-          customer: customer,
-          orderCount: orders.length,
-          totalSpent: orders.fold<double>(0.0, (sum, order) => sum + order.finalAmount),
-          lastOrderDate: orders.isNotEmpty ? orders.first.createdAt : null,
-        ));
-      }
-
+      final session = await _db.sessionDao.getActiveSession();
+      final branchId = session?.branchId ?? 1;
+      final allOrders = await _db.ordersDao.getAllOrders(branchId: branchId);
+      final customersWithOrders = await compute(
+        _buildCustomerWithOrders,
+        _MatchPayload(customers: customers, orders: allOrders),
+      );
       emit(CrmLoaded(customersWithOrders));
     } catch (e) {
       emit(CrmError(e.toString()));
@@ -134,12 +138,27 @@ class CrmCubit extends Cubit<CrmState> {
   Future<List<Order>> getCustomerOrders(int customerId) async {
     final customer = await _customerRepo.getCustomerById(customerId);
     if (customer == null) return [];
-
     final allOrders = await _ordersForActiveBranch();
-    final list = allOrders.where((order) => _orderMatchesCustomer(order, customer)).toList();
-    sortOrdersNewestFirst(list);
+    final list = await compute(
+      _matchOrdersForCustomer,
+      _SingleCustomerPayload(customer: customer, orders: allOrders),
+    );
     return list;
   }
+}
+
+class _SingleCustomerPayload {
+  const _SingleCustomerPayload(
+      {required this.customer, required this.orders});
+  final PosCustomer customer;
+  final List<Order> orders;
+}
+
+List<Order> _matchOrdersForCustomer(_SingleCustomerPayload p) {
+  final list =
+      p.orders.where((o) => _orderMatchesCustomer(o, p.customer)).toList();
+  sortOrdersNewestFirst(list);
+  return list;
 }
 
 class CustomerWithOrders {

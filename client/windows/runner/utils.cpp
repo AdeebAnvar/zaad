@@ -41,6 +41,25 @@ std::vector<std::string> GetCommandLineArguments() {
   return command_line_arguments;
 }
 
+bool ActivateExistingPosWindow() {
+  // Prefer Flutter runner class (stable); fall back to window title from main.cpp.
+  HWND hwnd =
+      ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", nullptr);
+  if (hwnd == nullptr) {
+    hwnd = ::FindWindowW(nullptr, L"pos");
+  }
+  if (hwnd == nullptr) {
+    return false;
+  }
+  if (::IsIconic(hwnd)) {
+    ::ShowWindow(hwnd, SW_RESTORE);
+  } else {
+    ::ShowWindow(hwnd, SW_SHOW);
+  }
+  ::SetForegroundWindow(hwnd);
+  return true;
+}
+
 std::string Utf8FromUtf16(const wchar_t* utf16_string) {
   if (utf16_string == nullptr) {
     return std::string();

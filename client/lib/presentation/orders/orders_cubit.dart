@@ -36,9 +36,7 @@ class OrdersCubit extends Cubit<OrdersState> {
   Future<void> loadOrders() async {
     emit(OrdersLoading());
     try {
-      final orders = await orderRepo.getAllOrders();
-      // Filter only completed orders
-      final completedOrders = orders.where((o) => o.status == 'completed').toList();
+      final completedOrders = await orderRepo.getCompletedOrders();
       sortOrdersNewestFirst(completedOrders);
       emit(OrdersLoaded(completedOrders));
     } catch (e) {

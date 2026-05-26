@@ -33,6 +33,7 @@ import 'package:pos/data/repository_impl/settings_repository_impl.dart';
 import 'package:pos/domain/models/api/auth/auth_api.dart';
 import 'package:pos/domain/models/api/auth/auth_repository.dart';
 import 'package:pos/presentation/login/login_screen_cubit.dart';
+import 'package:pos/core/isolate/app_isolate_service.dart';
 import 'package:pos/core/sync/outbound_push_coordinator.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
 import 'package:pos/data/repository/push_records_repository.dart';
@@ -59,9 +60,9 @@ class ZaadDI {
     return r;
   }
 
+  /// Registers services and opens the DB. Heavy backup/hub/repair work runs in
+  /// [runDeferredBackgroundServices] after the login UI is shown.
   static Future<void> initialize() async {
-    await BackupService.instance.validateAndRecoverIfNeeded();
-
     late final SharedPreferences prefs;
     if (!locator.isRegistered<SharedPreferences>()) {
       prefs = await SharedPreferences.getInstance();
@@ -70,13 +71,31 @@ class ZaadDI {
       prefs = locator<SharedPreferences>();
     }
 
+    if (!locator.isRegistered<AppIsolateService>()) {
+      locator.registerSingleton<AppIsolateService>(AppIsolateService.instance);
+    }
+
     if (!locator.isRegistered<AppDatabase>()) {
       final db = AppDatabase();
-      // Open + run beforeOpen/migrations before hub sync or login can touch branches.
-      await db.ensureBranchesDefaultOpeningCashColumn();
-      await db.repairTextTimestampRows();
+      try {
+        await db.customSelect('SELECT 1').get().timeout(
+          const Duration(seconds: 25),
+          onTimeout: () {
+            throw StateError(
+              'Database is busy. Close any other Zaad POS windows in Task Manager, '
+              'wait a few seconds, and try again.',
+            );
+          },
+        );
+      } on StateError {
+        rethrow;
+      } catch (e) {
+        throw StateError(
+          'Could not open local database ($e). '
+          'Close other Zaad POS copies and try again.',
+        );
+      }
       locator.registerSingleton<AppDatabase>(db);
-      BackupService.instance.startAutoBackup(db);
     }
     if (!locator.isRegistered<UpdaterManager>()) {
       locator.registerSingleton<UpdaterManager>(UpdaterManager(database: locator<AppDatabase>()));
@@ -207,14 +226,10 @@ class ZaadDI {
     }
     if (!locator.isRegistered<OutboundPushCoordinator>()) {
       locator.registerLazySingleton<OutboundPushCoordinator>(
-        () {
-          final c = OutboundPushCoordinator(
-            locator<PushRecordsRepository>(),
-            locator<AppDatabase>(),
-          );
-          c.ensureListening();
-          return c;
-        },
+        () => OutboundPushCoordinator(
+          locator<PushRecordsRepository>(),
+          locator<AppDatabase>(),
+        ),
       );
     }
     if (!locator.isRegistered<AuthRepository>()) {
@@ -226,10 +241,10 @@ class ZaadDI {
     if (!locator.isRegistered<PrintService>()) {
       locator.registerLazySingleton<PrintService>(
         () => PrintService(
-              locator<AppDatabase>(),
-              locator<ItemRepository>(),
-              locator<CartRepository>(),
-            ),
+          locator<AppDatabase>(),
+          locator<ItemRepository>(),
+          locator<CartRepository>(),
+        ),
       );
     }
 
@@ -244,35 +259,75 @@ class ZaadDI {
       );
     }
 
-    final runtime = locator<PosAppRuntimeConfig>();
-
-    if (!runtime.isSetupCompleted && !runtime.needsFirstRunSetup()) {
-      await runtime.markSetupCompleted();
-      debugPrint('[POS] Setup flag migrated for existing install (tenant present)');
-    }
-
-    locator<PosAppRuntimeConfig>().logDiagnostics();
-    debugPrint('[POS] BASE URL (tenant REST / cloud sync): ${locator<PosServerSettings>().tenantApiBaseUrl ?? '(unset)'}');
-
-    final hubSettings = locator<LocalHubSettings>();
-    if (hubSettings.blocksTenantCloudRest) {
-      debugPrint(
-        '[POS] LAN SUB terminal — tenant REST pull/push disabled. Hub WS: '
-        '${hubSettings.hubWsUrl ?? '(unset; ${LocalHubSettings.wsUrlKey})'}',
-      );
-    }
-
-    if (!hubSettings.blocksTenantCloudRest) {
-      locator<OutboundPushCoordinator>().scheduleFlush();
-    }
-    unawaited(locator<LocalHubSyncCoordinator>().startIfEnabled());
-    unawaited(locator<LocalHubPrimaryInboundCoordinator>().startIfEnabled());
-
     if (!locator.isRegistered<LanHubReconnectService>()) {
       locator.registerLazySingleton<LanHubReconnectService>(
         () => LanHubReconnectService(locator<LocalHubSettings>()),
       );
     }
+  }
+
+  /// Backup restore, SQL repairs, auto-backup timer, hub WebSockets, cloud push.
+  /// Called from [PostLoginDeferredStartup] — not during splash / login paint.
+  static Future<void> runDeferredBackgroundServices() async {
+    try {
+      await BackupService.instance.quickEnsureDatabaseBeforeOpen().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          if (kDebugMode) {
+            debugPrint('[ZaadDI] quickEnsureDatabaseBeforeOpen timed out — continuing');
+          }
+          return false;
+        },
+      );
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[ZaadDI] quickEnsureDatabaseBeforeOpen failed: $e\n$st');
+      }
+    }
+
+    if (!locator.isRegistered<AppDatabase>()) return;
+    final db = locator<AppDatabase>();
+
+    try {
+      await db.repairTextTimestampRows();
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[ZaadDI] repairTextTimestampRows failed: $e\n$st');
+      }
+    }
+
+    BackupService.instance.startAutoBackup(db);
+
+    final runtime = locator<PosAppRuntimeConfig>();
+    if (!runtime.isSetupCompleted && !runtime.needsFirstRunSetup()) {
+      await runtime.markSetupCompleted();
+      if (kDebugMode) {
+        debugPrint('[POS] Setup flag migrated for existing install (tenant present)');
+      }
+    }
+
+    if (kDebugMode) {
+      locator<PosAppRuntimeConfig>().logDiagnostics();
+      debugPrint(
+        '[POS] BASE URL (tenant REST / cloud sync): '
+        '${locator<PosServerSettings>().tenantApiBaseUrl ?? '(unset)'}',
+      );
+      final hubSettings = locator<LocalHubSettings>();
+      if (hubSettings.blocksTenantCloudRest) {
+        debugPrint(
+          '[POS] LAN SUB terminal — tenant REST pull/push disabled. Hub WS: '
+          '${hubSettings.hubWsUrl ?? '(unset; ${LocalHubSettings.wsUrlKey})'}',
+        );
+      }
+    }
+
+    final hubSettings = locator<LocalHubSettings>();
+    locator<OutboundPushCoordinator>().ensureListening();
+    if (!hubSettings.blocksTenantCloudRest) {
+      locator<OutboundPushCoordinator>().scheduleFlush();
+    }
+    unawaited(locator<LocalHubSyncCoordinator>().startIfEnabled());
+    unawaited(locator<LocalHubPrimaryInboundCoordinator>().startIfEnabled());
     locator<LanHubReconnectService>().ensureStarted();
   }
 }

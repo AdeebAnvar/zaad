@@ -1,7 +1,8 @@
 import 'dart:async';
-import 'dart:isolate';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
+import 'package:pos/app/di.dart';
+import 'package:pos/core/isolate/app_isolate_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:pos/data/models/pos_customer.dart';
 import 'package:pos/domain/models/category_model.dart';
@@ -378,8 +379,8 @@ class SyncService {
       // Get placed / completed orders for active branch only (exclude kot).
       final sessionForUpload = await db.sessionDao.getActiveSession();
       final uploadBranchId = sessionForUpload?.branchId ?? 1;
-      final allOrders = await db.ordersDao.getAllOrders(branchId: uploadBranchId);
-      final ordersToUpload = allOrders.where((order) => order.status != 'kot' && (order.status == 'placed' || order.status == 'completed')).toList();
+      final ordersToUpload =
+          await db.ordersDao.getPlacedOrCompletedOrders(branchId: uploadBranchId);
 
       if (ordersToUpload.isEmpty) {
         _emit(const SyncStatus(
@@ -422,7 +423,7 @@ class SyncService {
             };
 
             // Upload customer to server (using isolate for network operations)
-            await Isolate.run(() => _uploadCustomerToServer(customerData));
+            await locator<AppIsolateService>().run(_uploadCustomerToServer, customerData);
 
             // Mark as synced
             await db.customersDao.markAsSynced(customer.id);
@@ -488,7 +489,7 @@ class SyncService {
           };
 
           // Upload to server (using isolate for network operations)
-          await Isolate.run(() => _uploadOrderToServer(orderData));
+          await locator<AppIsolateService>().run(_uploadOrderToServer, orderData);
 
           uploaded++;
           final progress = uploadStartProgress + (((uploaded / ordersToUpload.length) * (100 - uploadStartProgress)).toInt());
@@ -529,7 +530,7 @@ class SyncService {
     }
   }
 
-  // Static function for isolate - Upload order to server
+  @pragma('vm:entry-point')
   static Future<void> _uploadOrderToServer(Map<String, dynamic> orderData) async {
     // TODO: Implement actual server upload logic
     // This is a placeholder - replace with actual API call
@@ -546,7 +547,7 @@ class SyncService {
     // }
   }
 
-  // Static function for isolate - Upload customer to server
+  @pragma('vm:entry-point')
   static Future<void> _uploadCustomerToServer(Map<String, dynamic> customerData) async {
     // TODO: Implement actual server upload logic
     // This is a placeholder - replace with actual API call

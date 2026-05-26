@@ -132,7 +132,10 @@ class UpdaterManager {
     _didScheduleColdStartCheck = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!locator.isRegistered<UpdaterManager>()) return;
-      unawaited(locator<UpdaterManager>().beginStartupWorkflow());
+      Future<void>.delayed(const Duration(seconds: 45), () {
+        if (!locator.isRegistered<UpdaterManager>()) return;
+        unawaited(locator<UpdaterManager>().beginStartupWorkflow());
+      });
     });
   }
 

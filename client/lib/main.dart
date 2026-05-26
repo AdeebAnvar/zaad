@@ -1,15 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:pos/app/app_startup.dart';
-import 'package:pos/core/auth/counter_access.dart';
-import 'package:pos/core/constants/enums.dart';
-import 'package:pos/core/settings/runtime_app_settings.dart';
-import 'package:pos/core/utils/app_directories.dart';
-import 'package:pos/core/utils/app_update_cache_clear.dart';
-import 'package:pos/data/local/drift_database.dart';
-import 'app/app.dart';
-import 'app/di.dart';
+import 'package:pos/app/pos_bootstrap.dart';
 
 class MyHttpOverrides extends HttpOverrides {
   @override
@@ -18,7 +10,7 @@ class MyHttpOverrides extends HttpOverrides {
   }
 }
 
-void main() async {
+void main() {
   HttpOverrides.global = MyHttpOverrides();
 
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,28 +20,6 @@ void main() async {
     ..maximumSize = 200
     ..maximumSizeBytes = 50 << 20;
 
-  await AppDirectories.migrateLegacyLayoutIfNeeded();
-  await AppDirectories.migrateAndroidInternalToPublicDocumentsIfNeeded();
-  await AppDirectories.recoverAndroidDbFromPublicIfNeeded();
-
-  // ✅ Initialize DI ONCE
-  await ZaadDI.initialize();
-
-  final db = locator<AppDatabase>();
-  // Require sign-in on every cold start (process died). Background resume does not re-run [main].
-  await db.sessionDao.clearSession();
-  locator<CurrentCounterSession>().clear();
-
-  final startup = AppStartup(db);
-
-  // Schema bumps: Drift migrates in place (no DB wipe). Ephemeral caches cleared on app version bumps.
-  await startup.ensureCompatibleLocalData();
-  await AppUpdateCacheClear.runOnColdStartIfNeeded();
-  await RuntimeAppSettings.refreshFromLocalSettings();
-
-  final UserType? userType = await startup.checkLoggedInUser();
-
-  final setupRoute = userType == null ? ZaadDI.consumePendingInitialRoute() : null;
-
-  runApp(ZaadPOSApp(userType: userType, initialRouteOverride: setupRoute));
+  // Window appears immediately; heavy init runs inside [PosBootstrapRoot].
+  runApp(const PosBootstrapRoot());
 }

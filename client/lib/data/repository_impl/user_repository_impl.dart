@@ -12,12 +12,10 @@ class UserRepositoryImpl implements UserRepository {
 
   @override
   Future<void> saveUsersToLocal(List<UserModel> users) async {
-    await db.transaction(() async {
-      await db.delete(db.users).go();
-      if (users.isNotEmpty) {
-        await db.usersDao.insertUsers(users);
-      }
-    });
+    if (users.isEmpty) return;
+    // Upsert only — never DELETE all users while [Orders.userId] FK rows exist
+    // (Connect to server used to fail with SqliteException on runDelete).
+    await db.usersDao.insertUsers(users);
   }
   // ---------------- LOCAL LOGIN ----------------
 

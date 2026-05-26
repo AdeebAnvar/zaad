@@ -21,6 +21,9 @@ class BranchModel {
   /// Persistent branch default opening balance (survives day close).
   final int? defaultOpeningCash;
 
+  /// Last invoice issued on the server/admin (`/sync/bootstrap` → `last_receipt`), e.g. `INV-4-1155`.
+  final String? lastReceipt;
+
   BranchModel({
     required this.id,
     required this.branchName,
@@ -39,6 +42,7 @@ class BranchModel {
     required this.expiryDate,
     required this.openingCash,
     this.defaultOpeningCash,
+    this.lastReceipt,
   });
 
   BranchModel copyWith({
@@ -59,6 +63,7 @@ class BranchModel {
     DateTime? expiryDate,
     int? openingCash,
     int? defaultOpeningCash,
+    String? lastReceipt,
   }) =>
       BranchModel(
         id: id ?? this.id,
@@ -78,6 +83,7 @@ class BranchModel {
         expiryDate: expiryDate ?? this.expiryDate,
         openingCash: openingCash ?? this.openingCash,
         defaultOpeningCash: defaultOpeningCash ?? this.defaultOpeningCash,
+        lastReceipt: lastReceipt ?? this.lastReceipt,
       );
 
   factory BranchModel.fromJson(Map<String, dynamic> json) => BranchModel(
@@ -99,6 +105,7 @@ class BranchModel {
         expiryDate: DateTime.tryParse(json["expiry_date"]?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
         openingCash: (json["opening_cash"] as num?)?.toInt(),
         defaultOpeningCash: (json["opening_cash"] as num?)?.toInt(),
+        lastReceipt: json["last_receipt"]?.toString(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -119,6 +126,8 @@ class BranchModel {
         "expiry_date": "${expiryDate.year.toString().padLeft(4, '0')}-${expiryDate.month.toString().padLeft(2, '0')}-${expiryDate.day.toString().padLeft(2, '0')}",
         "opening_cash": openingCash,
         "default_opening_cash": defaultOpeningCash ?? openingCash,
+        if (lastReceipt != null && lastReceipt!.trim().isNotEmpty)
+          "last_receipt": lastReceipt,
       };
 
   /// Saved default opening balance for day closing and the drawer dialog.

@@ -52,6 +52,7 @@ class ItemsCubit extends Cubit<ItemState> {
   StreamSubscription<List<Category>>? _categoriesSub;
   StreamSubscription<List<ItemVariant>>? _variantsSub;
   VoidCallback? _partnersRevisionListener;
+  Timer? _filterDebounce;
 
   /// Avoid spamming debug log on every keystroke/category tap.
   String? _lastFilterLogSignature;
@@ -100,10 +101,19 @@ class ItemsCubit extends Cubit<ItemState> {
     });
     _categoriesSub = _repo.watchCategoriesFromLocal().listen((categories) {
       _allCategories = categories;
-      _applyFilters();
+      _scheduleApplyFilters();
     });
     _variantsSub = _repo.watchAllVariants().listen((variants) {
       _variantItemIds = variants.map((v) => v.itemId).toSet();
+      _scheduleApplyFilters();
+    });
+  }
+
+  /// Hub WebSocket catalog updates can fire many Drift watches/sec — debounce UI filtering.
+  void _scheduleApplyFilters() {
+    _filterDebounce?.cancel();
+    _filterDebounce = Timer(const Duration(milliseconds: 180), () {
+      if (isClosed) return;
       _applyFilters();
     });
   }
@@ -136,7 +146,7 @@ class ItemsCubit extends Cubit<ItemState> {
     if (saleOrderType == OrderType.delivery) {
       await _resolveDeliveryFilterToken();
     }
-    _applyFilters();
+    _scheduleApplyFilters();
   }
 
   Future<void> _resolveDeliveryFilterToken() async {
@@ -264,6 +274,7 @@ class ItemsCubit extends Cubit<ItemState> {
     await _itemsSub?.cancel();
     await _categoriesSub?.cancel();
     await _variantsSub?.cancel();
+    _filterDebounce?.cancel();
     return super.close();
   }
 }

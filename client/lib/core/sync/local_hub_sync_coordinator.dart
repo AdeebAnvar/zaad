@@ -7,6 +7,7 @@ import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/core/sync/ws_detach_done_errors.dart';
+import 'package:pos/core/sync/hub_inbound_dispatch.dart';
 import 'package:pos/core/sync/sync_inbox_applier.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/branch_repository.dart';
@@ -376,6 +377,7 @@ class LocalHubSyncCoordinator {
     } else {
       _ordersLive.notifyHubOrdersChanged();
     }
+    await HubInboundSerialDispatcher.yieldToUi();
   }
 
   int payloadTimestampMs(Map<String, dynamic> p, {required int fallbackSec}) {
@@ -438,6 +440,7 @@ class LocalHubSyncCoordinator {
       if (inner.type == PosSyncEventTypes.dayClosingSettled) {
         dayClosingTouched = true;
       }
+      await HubInboundSerialDispatcher.yieldToUi();
     }
 
     if (dayClosingTouched) {

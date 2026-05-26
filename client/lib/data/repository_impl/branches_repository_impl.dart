@@ -1,3 +1,4 @@
+import 'package:pos/core/utils/invoice_counter_seed.dart';
 import 'package:pos/data/repository/branch_repository.dart';
 import 'package:pos/domain/models/branch_model.dart';
 
@@ -22,9 +23,10 @@ class BranchRepositoryImpl implements BranchRepository {
       );
     }).toList();
 
-    await db.delete(db.branches).go();
-
+    // Upsert branches from server; do not DELETE ALL (unnecessary and can fail with FK/WAL locks).
     await db.branchesDao.insertBranches(branchesToSave,
         downloadRemoteImages: downloadRemoteImages);
+
+    await seedInvoiceCountersFromBranches(db, branchesToSave);
   }
 }
