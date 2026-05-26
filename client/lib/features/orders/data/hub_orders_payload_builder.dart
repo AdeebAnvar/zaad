@@ -106,7 +106,6 @@ class HubOrdersPayloadBuilder {
         'driver_name': draft.driverName,
         'user_id': draft.userId,
         'order_type': draft.orderType,
-        'branch_id': draft.branchId,
         if (draft.pickupToken != null) 'pickup_token': draft.pickupToken,
       };
   }

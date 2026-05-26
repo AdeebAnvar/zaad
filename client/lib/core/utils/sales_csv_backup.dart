@@ -27,6 +27,8 @@ class SalesCsvBackup {
   static Future<void> _writeQueue = Future<void>.value();
   static Timer? _debounceTimer;
   static AppDatabase? _debouncedDb;
+  /// Last successful full workbook write (`refreshFromDatabase` / `refreshNow`).
+  static DateTime _lastRefreshAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Coalesces bursts (checkout, KOT updates) — does not block the caller.
   static void scheduleDebouncedRefresh(
@@ -197,6 +199,7 @@ class SalesCsvBackup {
         try {
           await file.writeAsBytes(bytes);
           await _writeMeta(orders.length);
+          _lastRefreshAt = DateTime.now();
           return;
         } on FileSystemException {
           if (attempt == 2) return;

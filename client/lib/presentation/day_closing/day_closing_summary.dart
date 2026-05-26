@@ -5,6 +5,7 @@ import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/branch_model.dart';
+import 'package:pos/domain/models/financial_record_type.dart';
 import 'package:pos/domain/models/user_model.dart';
 
 double _sumOrders(Iterable<Order> list, double Function(Order o) pick) =>
@@ -329,6 +330,108 @@ class DayClosingPaymentVariance {
   final double short;
 }
 
+/// Opening staff reconciliation: manual excess/short per channel at day close.
+class DayClosingCloseReconciliation {
+  const DayClosingCloseReconciliation({
+    required this.cashExpected,
+    required this.cashExcess,
+    required this.cashShort,
+    required this.cardExpected,
+    required this.cardExcess,
+    required this.cardShort,
+    required this.creditExpected,
+    required this.creditExcess,
+    required this.creditShort,
+    required this.onlineExpected,
+    required this.onlineExcess,
+    required this.onlineShort,
+  });
+
+  final double cashExpected;
+  final double cashExcess;
+  final double cashShort;
+  final double cardExpected;
+  final double cardExcess;
+  final double cardShort;
+  final double creditExpected;
+  final double creditExcess;
+  final double creditShort;
+  final double onlineExpected;
+  final double onlineExcess;
+  final double onlineShort;
+
+  double get actualCash => cashExpected + cashExcess - cashShort;
+  double get actualCard => cardExpected + cardExcess - cardShort;
+  double get actualCredit => creditExpected + creditExcess - creditShort;
+  double get actualOnline => onlineExpected + onlineExcess - onlineShort;
+
+  double get totalExcess => cashExcess + cardExcess + creditExcess + onlineExcess;
+  double get totalShort => cashShort + cardShort + creditShort + onlineShort;
+
+  List<DayClosingPaymentVariance> get paymentVariances => <DayClosingPaymentVariance>[
+        DayClosingPaymentVariance(channel: 'CASH', excess: cashExcess, short: cashShort),
+        DayClosingPaymentVariance(channel: 'CARD', excess: cardExcess, short: cardShort),
+        DayClosingPaymentVariance(channel: 'CREDIT', excess: creditExcess, short: creditShort),
+        DayClosingPaymentVariance(channel: 'ONLINE', excess: onlineExcess, short: onlineShort),
+      ];
+}
+
+/// UI / print tolerance for rounding “non-zero” excess or short rows.
+const double kDayCloseAmountTolerance = 0.009;
+
+double effectiveDayClosingCashIn(
+  DayClosingSummary summary, {
+  DayClosingCloseReconciliation? closeReconciliation,
+}) {
+  final recon = closeReconciliation;
+  if (recon == null) return summary.cashIn;
+  return summary.openingCash + recon.actualCash + summary.otherIncome;
+}
+
+double effectiveDayClosingCashDrawer(
+  DayClosingSummary summary, {
+  DayClosingCloseReconciliation? closeReconciliation,
+}) {
+  final recon = closeReconciliation;
+  if (recon == null) return summary.cashDrawer;
+  final cashIn = effectiveDayClosingCashIn(summary, closeReconciliation: recon);
+  return cashIn - summary.cashOut;
+}
+
+double effectiveDayClosingDifference(
+  DayClosingSummary summary, {
+  DayClosingCloseReconciliation? closeReconciliation,
+}) {
+  final section3Total =
+      summary.purchase + summary.salary + summary.unpaidAmount - summary.otherIncome;
+  final drawer =
+      effectiveDayClosingCashDrawer(summary, closeReconciliation: closeReconciliation);
+  return section3Total - drawer;
+}
+
+List<DayClosingPaymentVariance> effectiveDayClosingPaymentVariances(
+  DayClosingSummary summary, {
+  DayClosingCloseReconciliation? closeReconciliation,
+}) {
+  if (closeReconciliation != null) {
+    return closeReconciliation.paymentVariances;
+  }
+  return summary.paymentVariances;
+}
+
+List<DayClosingPaymentVariance> orderedDayClosingPaymentVariances(
+  DayClosingSummary summary, {
+  DayClosingCloseReconciliation? closeReconciliation,
+}) {
+  final vs =
+      effectiveDayClosingPaymentVariances(summary, closeReconciliation: closeReconciliation);
+  const order = ['CASH', 'CARD', 'CREDIT', 'ONLINE'];
+  final idx = {for (var i = 0; i < order.length; i++) order[i]: i};
+  final out = [...vs];
+  out.sort((a, b) => (idx[a.channel] ?? 99).compareTo(idx[b.channel] ?? 99));
+  return out;
+}
+
 const _varianceTol = 0.009;
 
 /// Splits collected-vs-net variance across payment channels proportionally.
@@ -387,6 +490,9 @@ class _DayClosingComputeInput {
     required this.linesByOrderId,
     required this.counterAccess,
     required this.missingItemsById,
+    required this.purchase,
+    required this.salary,
+    required this.otherIncomeRows,
   });
 
   final List<Order> rawOrders;
@@ -398,6 +504,9 @@ class _DayClosingComputeInput {
   final Map<int, List<CartItem>> linesByOrderId;
   final CounterAccess counterAccess;
   final Map<int, Item> missingItemsById;
+  final double purchase;
+  final double salary;
+  final List<DayClosingOtherIncomeRow> otherIncomeRows;
 }
 
 DayClosingSummary _computeSummarySync(_DayClosingComputeInput i) {
@@ -503,32 +612,11 @@ DayClosingSummary _computeSummarySync(_DayClosingComputeInput i) {
   final openingCash = openingBalance;
   final defaultOpeningCash = openingBalance;
   const deliveryRecovery = 0.0;
-  final purchase = await db.financialRecordsDao.sumFinalAmount(
-    branchId: branchId,
-    recordType: FinancialRecordType.expense.storageKey,
-    lastSettledAt: cutoff,
-  );
-  final salary = await db.financialRecordsDao.sumFinalAmount(
-    branchId: branchId,
-    recordType: FinancialRecordType.salary.storageKey,
-    lastSettledAt: cutoff,
-  );
-  final otherIncomeRecords = await db.financialRecordsDao.listSinceClose(
-    branchId: branchId,
-    recordType: FinancialRecordType.otherIncome.storageKey,
-    lastSettledAt: cutoff,
-  );
-  final otherIncome = otherIncomeRecords.fold<double>(0, (s, r) => s + r.finalAmount);
-  final otherIncomeRows = otherIncomeRecords
-      .map(
-        (r) => DayClosingOtherIncomeRow(
-          description: (r.description ?? '').trim().isEmpty ? '—' : r.description!.trim(),
-          payment: (r.paymentMethodName ?? '—').trim(),
-          amount: r.finalAmount,
-          createdAt: r.createdAt,
-        ),
-      )
-      .toList();
+  final purchase = i.purchase;
+  final salary = i.salary;
+  final otherIncomeRows = i.otherIncomeRows;
+  final otherIncome =
+      otherIncomeRows.fold<double>(0, (double s, DayClosingOtherIncomeRow r) => s + r.amount);
   final expUnpaidTotal = purchase + salary + unpaidAmount - otherIncome;
   // Modeled drawer: opening + net cash sales + other income (cash in) − expenses from cash.
   final cashIn = openingCash + cashSaleAfterDiscount + otherIncome;
@@ -681,6 +769,7 @@ DayClosingSummary _computeSummarySync(_DayClosingComputeInput i) {
     categoryRows: categoryRows,
     cancelledRows: cancelledRows,
     openBills: openBills,
+    otherIncomeRows: otherIncomeRows,
   );
 }
 
@@ -759,6 +848,32 @@ Future<DayClosingSummary> computeDayClosingSummary(
     }
   }
 
+  final purchase = await db.financialRecordsDao.sumFinalAmount(
+    branchId: branchId,
+    recordType: FinancialRecordType.expense.storageKey,
+    lastSettledAt: cutoff,
+  );
+  final salary = await db.financialRecordsDao.sumFinalAmount(
+    branchId: branchId,
+    recordType: FinancialRecordType.salary.storageKey,
+    lastSettledAt: cutoff,
+  );
+  final otherIncomeRecords = await db.financialRecordsDao.listSinceClose(
+    branchId: branchId,
+    recordType: FinancialRecordType.otherIncome.storageKey,
+    lastSettledAt: cutoff,
+  );
+  final otherIncomeRows = otherIncomeRecords
+      .map(
+        (r) => DayClosingOtherIncomeRow(
+          description: (r.description ?? '').trim().isEmpty ? '—' : r.description!.trim(),
+          payment: (r.paymentMethodName ?? '—').trim(),
+          amount: r.finalAmount,
+          createdAt: r.createdAt,
+        ),
+      )
+      .toList();
+
   // Offload all aggregation to a background isolate.
   return compute(
     _computeSummarySync,
@@ -772,6 +887,9 @@ Future<DayClosingSummary> computeDayClosingSummary(
       linesByOrderId: linesByOrderId,
       counterAccess: counterAccess,
       missingItemsById: missingItemsById,
+      purchase: purchase,
+      salary: salary,
+      otherIncomeRows: otherIncomeRows,
     ),
   );
 }

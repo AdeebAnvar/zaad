@@ -20,7 +20,6 @@ import 'package:pos/features/day_closing/data/day_closing_live_sync.dart';
 import 'package:pos/presentation/day_closing/day_closing_reconciliation_dialog.dart';
 import 'package:pos/presentation/day_closing/day_closing_settlement.dart';
 import 'package:pos/presentation/day_closing/day_closing_summary.dart';
-import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:uuid/uuid.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
@@ -124,17 +123,6 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       if (!mounted) return;
       showErrorDialog(context, e);
     }
-  }
-
-  Future<bool> _confirmSubmitDayClosing() async {
-    final result = await showAppConfirmDialog(
-      context,
-      title: 'Close day?',
-      message: 'Are you sure you want to close the day?',
-      cancelText: 'Cancel',
-      confirmText: 'Yes, close day',
-    );
-    return result == true;
   }
 
   Future<int?> _displayCashierScope() async {

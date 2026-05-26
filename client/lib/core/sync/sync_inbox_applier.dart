@@ -680,7 +680,7 @@ class SyncInboxApplier {
             totalAmount: Value(totalAmt),
             finalAmount: Value(finalAmt),
             status: Value(status),
-            orderType: orderTypeRaw != null ? Value(orderTypeRaw) : const Value.absent(),
+            orderType: Value(orderTypeRaw),
             referenceNumber: ref != null && ref.isNotEmpty ? Value(ref) : const Value.absent(),
             userId: mirroredUserId != null ? Value(mirroredUserId) : const Value.absent(),
             hubMetadata: Value(hubMeta),

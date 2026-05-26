@@ -50,7 +50,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
   final _orderRepo = locator<OrderRepository>();
 
   bool _loading = true;
-  bool? _seatHandlingEnabled;
+  bool _seatHandlingEnabled = false;
   String? _error;
   List<DiningFloor> _floors = [];
   List<DiningTable> _tables = [];
@@ -140,7 +140,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
     }
 
     final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInRoutingAnchorForMatching(widget.order));
-    final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
+    final seatHandling = _seatHandlingEnabled;
     final active = await _orderRepo.filterOrders(
       orderType: 'dine_in',
       userId: HubLogOrderUserScope.effectiveFilterUserId(

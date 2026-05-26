@@ -57,7 +57,7 @@ class BackupService {
         _log('deferred purgeExpiredBackups: $e\n$st');
       }));
     });
-    _periodicTimer = Timer.periodic(_timeThreshold, (_) {
+    _periodicTimer = Timer.periodic(_periodicCheckInterval, (_) {
       backupNow(db);
     });
   }
