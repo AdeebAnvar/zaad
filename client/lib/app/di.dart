@@ -60,23 +60,9 @@ class ZaadDI {
     return r;
   }
 
+  /// Registers services and opens the DB. Heavy backup/hub/repair work runs in
+  /// [runDeferredBackgroundServices] after the login UI is shown.
   static Future<void> initialize() async {
-    try {
-      await BackupService.instance.quickEnsureDatabaseBeforeOpen().timeout(
-        const Duration(seconds: 8),
-        onTimeout: () {
-          if (kDebugMode) {
-            debugPrint('[ZaadDI] quickEnsureDatabaseBeforeOpen timed out — continuing');
-          }
-          return false;
-        },
-      );
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('[ZaadDI] quickEnsureDatabaseBeforeOpen failed: $e\n$st');
-      }
-    }
-
     late final SharedPreferences prefs;
     if (!locator.isRegistered<SharedPreferences>()) {
       prefs = await SharedPreferences.getInstance();
@@ -109,9 +95,7 @@ class ZaadDI {
           'Close other Zaad POS copies and try again.',
         );
       }
-      await db.repairTextTimestampRows();
       locator.registerSingleton<AppDatabase>(db);
-      BackupService.instance.startAutoBackup(db);
     }
     if (!locator.isRegistered<UpdaterManager>()) {
       locator.registerSingleton<UpdaterManager>(UpdaterManager(database: locator<AppDatabase>()));
@@ -242,14 +226,10 @@ class ZaadDI {
     }
     if (!locator.isRegistered<OutboundPushCoordinator>()) {
       locator.registerLazySingleton<OutboundPushCoordinator>(
-        () {
-          final c = OutboundPushCoordinator(
-            locator<PushRecordsRepository>(),
-            locator<AppDatabase>(),
-          );
-          c.ensureListening();
-          return c;
-        },
+        () => OutboundPushCoordinator(
+          locator<PushRecordsRepository>(),
+          locator<AppDatabase>(),
+        ),
       );
     }
     if (!locator.isRegistered<AuthRepository>()) {
@@ -261,10 +241,10 @@ class ZaadDI {
     if (!locator.isRegistered<PrintService>()) {
       locator.registerLazySingleton<PrintService>(
         () => PrintService(
-              locator<AppDatabase>(),
-              locator<ItemRepository>(),
-              locator<CartRepository>(),
-            ),
+          locator<AppDatabase>(),
+          locator<ItemRepository>(),
+          locator<CartRepository>(),
+        ),
       );
     }
 
@@ -279,38 +259,76 @@ class ZaadDI {
       );
     }
 
-    final runtime = locator<PosAppRuntimeConfig>();
-
-    if (!runtime.isSetupCompleted && !runtime.needsFirstRunSetup()) {
-      await runtime.markSetupCompleted();
-      debugPrint('[POS] Setup flag migrated for existing install (tenant present)');
-    }
-
-    locator<PosAppRuntimeConfig>().logDiagnostics();
-    debugPrint('[POS] BASE URL (tenant REST / cloud sync): ${locator<PosServerSettings>().tenantApiBaseUrl ?? '(unset)'}');
-
-    final hubSettings = locator<LocalHubSettings>();
-    if (hubSettings.blocksTenantCloudRest) {
-      debugPrint(
-        '[POS] LAN SUB terminal — tenant REST pull/push disabled. Hub WS: '
-        '${hubSettings.hubWsUrl ?? '(unset; ${LocalHubSettings.wsUrlKey})'}',
-      );
-    }
-
     if (!locator.isRegistered<LanHubReconnectService>()) {
       locator.registerLazySingleton<LanHubReconnectService>(
         () => LanHubReconnectService(locator<LocalHubSettings>()),
       );
     }
 
-    // Defer hub/sync until login is usable (SUB WS + outbox flush block the UI isolate).
-    Future<void>.delayed(const Duration(seconds: 30), () {
-      if (!hubSettings.blocksTenantCloudRest) {
-        locator<OutboundPushCoordinator>().scheduleFlush();
+  }
+
+  /// Backup restore, SQL repairs, auto-backup timer, hub WebSockets, cloud push.
+  /// Called from [PostLoginDeferredStartup] — not during splash / login paint.
+  static Future<void> runDeferredBackgroundServices() async {
+    try {
+      await BackupService.instance.quickEnsureDatabaseBeforeOpen().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          if (kDebugMode) {
+            debugPrint('[ZaadDI] quickEnsureDatabaseBeforeOpen timed out — continuing');
+          }
+          return false;
+        },
+      );
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[ZaadDI] quickEnsureDatabaseBeforeOpen failed: $e\n$st');
       }
-      unawaited(locator<LocalHubSyncCoordinator>().startIfEnabled());
-      unawaited(locator<LocalHubPrimaryInboundCoordinator>().startIfEnabled());
-      locator<LanHubReconnectService>().ensureStarted();
-    });
+    }
+
+    if (!locator.isRegistered<AppDatabase>()) return;
+    final db = locator<AppDatabase>();
+
+    try {
+      await db.repairTextTimestampRows();
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[ZaadDI] repairTextTimestampRows failed: $e\n$st');
+      }
+    }
+
+    BackupService.instance.startAutoBackup(db);
+
+    final runtime = locator<PosAppRuntimeConfig>();
+    if (!runtime.isSetupCompleted && !runtime.needsFirstRunSetup()) {
+      await runtime.markSetupCompleted();
+      if (kDebugMode) {
+        debugPrint('[POS] Setup flag migrated for existing install (tenant present)');
+      }
+    }
+
+    if (kDebugMode) {
+      locator<PosAppRuntimeConfig>().logDiagnostics();
+      debugPrint(
+        '[POS] BASE URL (tenant REST / cloud sync): '
+        '${locator<PosServerSettings>().tenantApiBaseUrl ?? '(unset)'}',
+      );
+      final hubSettings = locator<LocalHubSettings>();
+      if (hubSettings.blocksTenantCloudRest) {
+        debugPrint(
+          '[POS] LAN SUB terminal — tenant REST pull/push disabled. Hub WS: '
+          '${hubSettings.hubWsUrl ?? '(unset; ${LocalHubSettings.wsUrlKey})'}',
+        );
+      }
+    }
+
+    final hubSettings = locator<LocalHubSettings>();
+    locator<OutboundPushCoordinator>().ensureListening();
+    if (!hubSettings.blocksTenantCloudRest) {
+      locator<OutboundPushCoordinator>().scheduleFlush();
+    }
+    unawaited(locator<LocalHubSyncCoordinator>().startIfEnabled());
+    unawaited(locator<LocalHubPrimaryInboundCoordinator>().startIfEnabled());
+    locator<LanHubReconnectService>().ensureStarted();
   }
 }

@@ -338,7 +338,8 @@ class AppDatabase extends _$AppDatabase {
       // Skip if a column is missing (migrations are responsible for adding columns).
       beforeOpen: (details) async {
         await customStatement('PRAGMA journal_mode = WAL;');
-        await customStatement('PRAGMA synchronous = FULL;');
+        // FULL + OneDrive Documents caused multi-second UI stalls on every fsync.
+        await customStatement('PRAGMA synchronous = NORMAL;');
         try {
           await customStatement(
             "DELETE FROM sessions WHERE branch_id IS NULL OR user_id IS NULL OR role IS NULL",
@@ -348,7 +349,7 @@ class AppDatabase extends _$AppDatabase {
           if (!m.contains('no such column')) rethrow;
         }
         await repairLegacyBranchRows();
-        await repairTextTimestampRows();
+        // repairTextTimestampRows runs from ZaadDI.runDeferredBackgroundServices.
       },
     );
   }
@@ -359,6 +360,7 @@ QueryExecutor _openBackgroundExecutor(File file) {
     file,
     setup: (rawDb) {
       rawDb.execute('PRAGMA journal_mode = WAL;');
+      rawDb.execute('PRAGMA synchronous = NORMAL;');
       // Avoid hanging forever when a zombie pos.exe still holds the DB lock.
       rawDb.execute('PRAGMA busy_timeout = 10000;');
     },

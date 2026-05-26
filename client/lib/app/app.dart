@@ -31,7 +31,7 @@ class ZaadPOSApp extends StatelessWidget {
       initialRoute: _resolveHome(),
       routes: Routes.map,
       builder: (context, child) {
-        UpdaterManager.scheduleColdStartCheckOnce();
+        // Update check is scheduled from [PostLoginDeferredStartup] after login is responsive.
         var subtree = child ?? const SizedBox.shrink();
         if (locator.isRegistered<UpdaterManager>()) {
           subtree = locator<UpdaterManager>().wrapAppWithUpdateLayers(subtree);

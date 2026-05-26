@@ -379,8 +379,8 @@ class SyncService {
       // Get placed / completed orders for active branch only (exclude kot).
       final sessionForUpload = await db.sessionDao.getActiveSession();
       final uploadBranchId = sessionForUpload?.branchId ?? 1;
-      final allOrders = await db.ordersDao.getAllOrders(branchId: uploadBranchId);
-      final ordersToUpload = allOrders.where((order) => order.status != 'kot' && (order.status == 'placed' || order.status == 'completed')).toList();
+      final ordersToUpload =
+          await db.ordersDao.getPlacedOrCompletedOrders(branchId: uploadBranchId);
 
       if (ordersToUpload.isEmpty) {
         _emit(const SyncStatus(

@@ -33,38 +33,11 @@ class PrintService {
 
   static const int _defaultPort = 9100;
   static const Duration _connectionTimeout = Duration(seconds: 15);
-  static const String _debugLogPath = r'c:\Users\adeeb\OneDrive\Desktop\pos\pos\debug-079196.log';
-
   static String get _currency => '${RuntimeAppSettings.currency} ';
 
   static int get _decimals => RuntimeAppSettings.decimalDigits;
 
   static String _fmtMoney(num v) => v.toStringAsFixed(_decimals);
-
-  static Future<void> _dbg({
-    required String runId,
-    required String hypothesisId,
-    required String location,
-    required String message,
-    required Map<String, Object?> data,
-  }) async {
-    final payload = <String, Object?>{
-      'sessionId': '079196',
-      'runId': runId,
-      'hypothesisId': hypothesisId,
-      'location': location,
-      'message': message,
-      'data': data,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    };
-    try {
-      await File(_debugLogPath).writeAsString(
-        '${jsonEncode(payload)}\n',
-        mode: FileMode.append,
-        flush: true,
-      );
-    } catch (_) {}
-  }
 
   /// Normalize text for ESC/POS: [Generator.text] uses Latin-1; Unicode punctuation
   /// (e.g. em dash, minus sign, smart quotes) must be replaced or encode throws.
@@ -425,6 +398,16 @@ class PrintService {
       final file = File(path);
       if (!await file.exists()) return null;
       final bytes = await file.readAsBytes();
+      // Decode + resize off the UI isolate — avoids "Not responding" during print.
+      return compute(_decodeAndResizeLogo, bytes);
+    } catch (e) {
+      if (kDebugMode) debugPrint('PrintService: logo decode failed: $e');
+      return null;
+    }
+  }
+
+  static img.Image? _decodeAndResizeLogo(Uint8List bytes) {
+    try {
       final decoded = img.decodeImage(bytes);
       if (decoded == null) return null;
       const maxW = 700;
@@ -432,8 +415,7 @@ class PrintService {
         return img.copyResize(decoded, width: maxW, interpolation: img.Interpolation.linear);
       }
       return decoded;
-    } catch (e) {
-      if (kDebugMode) debugPrint('PrintService: logo decode failed: $e');
+    } catch (_) {
       return null;
     }
   }
@@ -868,19 +850,6 @@ class PrintService {
     bool asTaxInvoice = true,
   }) async {
     final failed = <String>[];
-    // #region agent log
-    await _dbg(
-      runId: 'pre-fix',
-      hypothesisId: 'H1',
-      location: 'print_service.dart:printFinalBill:entry',
-      message: 'Entered printFinalBill',
-      data: {
-        'orderId': order.id,
-        'orderCartId': order.cartId,
-        'cartItemsArgCount': cartItems.length,
-      },
-    );
-    // #endregion
     // Call sites sometimes pass an empty list after UI cleared state. Hub SUB mirrors share a shadow
     // [cartId] — never read that cart by id before hub snapshot ([OrderLogCartFallback]).
     var effectiveCart = cartItems;
@@ -920,19 +889,6 @@ class PrintService {
         ];
       }
     }
-    // #region agent log
-    await _dbg(
-      runId: 'pre-fix',
-      hypothesisId: 'H2',
-      location: 'print_service.dart:printFinalBill:resolved-lines',
-      message: 'Resolved effective cart and receipt lines',
-      data: {
-        'orderId': order.id,
-        'effectiveCartCount': effectiveCart.length,
-        'linesCount': lines.length,
-      },
-    );
-    // #endregion
     if (kDebugMode) {
       final src = effectiveCart.isNotEmpty ? 'cart_rows' : 'fallback_rows';
       debugPrint(
@@ -949,18 +905,6 @@ class PrintService {
     final noBillPrinter = billPrinter == null || billPrinter.printerIp.trim().isEmpty;
 
     if (noBillPrinter && !kDebugMode) {
-      // #region agent log
-      await _dbg(
-        runId: 'pre-fix',
-        hypothesisId: 'H3',
-        location: 'print_service.dart:printFinalBill:no-printer',
-        message: 'Bill printer missing while lines were already resolved',
-        data: {
-          'orderId': order.id,
-          'linesCount': lines.length,
-        },
-      );
-      // #endregion
       debugPrint('PrintService: No bill printer configured');
       return failed;
     }
@@ -974,19 +918,6 @@ class PrintService {
         updatedOrder: updatedOrder,
         asTaxInvoice: asTaxInvoice,
       );
-      // #region agent log
-      await _dbg(
-        runId: 'pre-fix',
-        hypothesisId: 'H4',
-        location: 'print_service.dart:printFinalBill:bytes-ready',
-        message: 'Generated receipt ticket bytes',
-        data: {
-          'orderId': order.id,
-          'linesCount': lines.length,
-          'bytesCount': bytes.length,
-        },
-      );
-      // #endregion
       if (kDebugMode) {
         final preview = await _buildReceiptPreviewData(
           order: order,
@@ -1384,13 +1315,6 @@ class PrintService {
       if (kDebugMode) {
         debugPrint('PrintService: No printer configured for cash drawer');
       }
-      await _dbg(
-        runId: 'drawer-fix',
-        hypothesisId: 'H2',
-        location: 'print_service.dart:openCashDrawer',
-        message: 'cash_drawer_no_printer',
-        data: const <String, Object?>{},
-      );
       failed.add('Cash drawer (no bill or kitchen printer configured)');
       return failed;
     }
@@ -1423,18 +1347,6 @@ class PrintService {
     if (!ok && pin != PosDrawer.pin5) {
       ok = await pulseOnce(PosDrawer.pin5);
     }
-
-    await _dbg(
-      runId: 'drawer-fix',
-      hypothesisId: 'H-drawer',
-      location: 'print_service.dart:openCashDrawer',
-      message: ok ? 'cash_drawer_pulse_ok' : 'cash_drawer_pulse_failed',
-      data: <String, Object?>{
-        'printerLabel': printerLabel,
-        'printerIpLen': printerIp.length,
-        'port': printerPort,
-      },
-    );
 
     if (!ok) failed.add(printerLabel);
     return failed;
@@ -1731,39 +1643,9 @@ class PrintService {
     final wrapped = _wrapReceiptLine(itemText.trim(), itemWrapChars);
     final u = _sanitize(unitPriceStr);
     final t = _sanitize(lineTotalStr);
-    // #region agent log
-    _dbg(
-      runId: 'pre-fix',
-      hypothesisId: 'H6',
-      location: 'print_service.dart:_billEmitItemTableRow:entry',
-      message: 'Receipt row layout inputs before generator.row',
-      data: {
-        'itemText': itemText,
-        'quantity': quantity,
-        'unitPriceStr': unitPriceStr,
-        'lineTotalStr': lineTotalStr,
-        'wrappedCount': wrapped.length,
-      },
-    );
-    // #endregion
     for (var i = 0; i < wrapped.length; i++) {
       final qtyCell = i == 0 ? '$quantity' : '';
       final productCell = wrapped[i];
-      // #region agent log
-      _dbg(
-        runId: 'pre-fix',
-        hypothesisId: 'H6',
-        location: 'print_service.dart:_billEmitItemTableRow:row-cells',
-        message: 'Resolved row cells for fixed-width receipt row',
-        data: {
-          'rowIndex': i,
-          'rowLeft': productCell,
-          'qCell': qtyCell,
-          'uCell': i == 0 ? u : ' ',
-          'tCell': i == 0 ? t : ' ',
-        },
-      );
-      // #endregion
       final product = productCell.isEmpty ? ' ' : productCell;
       final productCol = product.length >= 20 ? product.substring(0, 20) : product.padRight(20);
       final qtyCol = qtyCell.padRight(4);
@@ -2111,18 +1993,6 @@ class PrintService {
     bytes += generator.text('Qty '.padRight(4) + 'Product'.padRight(20) + 'Price'.padLeft(8) + 'Subtotal'.padLeft(10));
     bytes += generator.hr(ch: '-');
 
-    // #region agent log
-    await _dbg(
-      runId: 'pre-fix',
-      hypothesisId: 'H7',
-      location: 'print_service.dart:_generateFinalBillTicket:before-items-loop',
-      message: 'Receipt layout about to render item table loop',
-      data: {
-        'orderId': order.id,
-        'lineCount': lines.length,
-      },
-    );
-    // #endregion
     for (final line in lines) {
       String name = line.itemName;
       if (line.variantName != null) name += ' (${line.variantName})';

@@ -1,4 +1,3 @@
-import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/item_repository.dart';
 
@@ -21,23 +20,7 @@ class ItemRepositoryImpl implements ItemRepository {
   Future<List<Item>> fetchItemsFromLocal() async {
     final bid = await _activeBranchIdOrNull();
     if (bid == null) return [];
-    final catCount = (await db.categoryDao.getVisibleForBranch(bid)).length;
-    final totalItemsRowCount = (await db.itemDao.getAll()).length;
-    final rows = await db.itemDao.getVisibleForBranch(bid);
-    // #region agent log
-    agentDebugLog(
-      hypothesisId: 'H_ITEMS_1',
-      location: 'item_repository_impl.dart:fetchItemsFromLocal',
-      message: 'visible_items_for_branch',
-      data: <String, Object?>{
-        'branchId': bid,
-        'visibleCategoryCount': catCount,
-        'totalItemRowsAllBranches': totalItemsRowCount,
-        'visibleItemCount': rows.length,
-      },
-    );
-    // #endregion
-    return rows;
+    return db.itemDao.getVisibleForBranch(bid);
   }
 
   @override

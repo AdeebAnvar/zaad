@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/utils/credit_payment_metadata.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/domain/models/branch_model.dart';
+import 'package:pos/domain/models/user_model.dart';
 
 double _sumOrders(Iterable<Order> list, double Function(Order o) pick) =>
     list.fold<double>(0, (acc, e) => acc + pick(e));
@@ -305,33 +308,46 @@ List<Order> _ordersForCashierScope(List<Order> orders, int? cashierUserId) {
   return orders.where((o) => o.userId == cashierUserId).toList();
 }
 
-/// Computes the same aggregates previously inlined in [DayClosingScreen._load].
-///
-/// [counterAccess] scopes **displayed** unsettled totals and [openBills] to logs the user may open.
-/// [scopedCashierUserId] limits sales/unpaid rows to one cashier (SUB tablets); MAIN passes `null`.
-Future<DayClosingSummary> computeDayClosingSummary(
-  AppDatabase db, {
-  CounterAccess counterAccess = const CounterAccess.admin(),
-  int? scopedCashierUserId,
-}) async {
-  final session = await db.sessionDao.getActiveSession();
-  final branchId = session?.branchId ?? 1;
-  final rawOrders = _ordersForCashierScope(
-    await db.ordersDao.getAllOrders(branchId: branchId),
-    scopedCashierUserId,
-  );
-  final cutoff = await db.dayClosingCheckpointDao.lastSettledAtForBranch(branchId);
-  /// Sales after last close, plus older orders that received credit payments after close.
+// ── isolate-safe data bundle for the computation pass ───────────────────────
+
+class _DayClosingComputeInput {
+  const _DayClosingComputeInput({
+    required this.rawOrders,
+    required this.cutoff,
+    required this.branch,
+    required this.users,
+    required this.visibleItems,
+    required this.categoryNameByCatId,
+    required this.linesByOrderId,
+    required this.counterAccess,
+    required this.missingItemsById,
+  });
+
+  final List<Order> rawOrders;
+  final DateTime? cutoff;
+  final BranchModel? branch;
+  final List<UserModel> users;
+  final List<Item> visibleItems;
+  final Map<int, String> categoryNameByCatId;
+  final Map<int, List<CartItem>> linesByOrderId;
+  final CounterAccess counterAccess;
+  final Map<int, Item> missingItemsById;
+}
+
+DayClosingSummary _computeSummarySync(_DayClosingComputeInput i) {
+  final rawOrders = i.rawOrders;
+  final cutoff = i.cutoff;
+  final branch = i.branch;
+  final users = i.users;
+  final visibleItems = i.visibleItems;
+  final categoryNameByCatId = i.categoryNameByCatId;
+  final linesByOrderId = i.linesByOrderId;
+  final counterAccess = i.counterAccess;
+  final missingItemsById = i.missingItemsById;
+
   final ordersInWindow = cutoff == null
       ? rawOrders
       : rawOrders.where((o) => orderInDayCloseWindow(o, cutoff)).toList();
-  final branch = await db.branchesDao.getBranchById(branchId);
-  final users = await db.usersDao.getAllUsers();
-  final visibleItems = await db.itemDao.getVisibleForBranch(branchId);
-  final branchCategories = await db.categoryDao.getVisibleForBranch(branchId);
-  final categoryNameByCatId = {
-    for (final c in branchCategories) c.id: (c.name).trim(),
-  };
 
   final settledAll = ordersInWindow.where(_isSettledForDayClose).toList();
   /// New sales in this period (exclude post-close credit collections from revenue breakdown).
@@ -346,20 +362,6 @@ Future<DayClosingSummary> computeDayClosingSummary(
   final unpaidBranchList = rawOrders.where(_isUnsettledForDayClose).toList();
   final unpaidVisible =
       unpaidBranchList.where((o) => _unsettledMatchesUserLogAccess(o, counterAccess)).toList();
-  final linesByOrderId = <int, List<CartItem>>{};
-  if (settled.isNotEmpty) {
-    const parallel = 24;
-    for (var i = 0; i < settled.length; i += parallel) {
-      final end = i + parallel > settled.length ? settled.length : i + parallel;
-      final slice = settled.sublist(i, end);
-      final batch = await Future.wait(
-        slice.map((o) => OrderLogCartFallback.resolveWithDb(order: o, db: db)),
-      );
-      for (var j = 0; j < slice.length; j++) {
-        linesByOrderId[slice[j].id] = batch[j];
-      }
-    }
-  }
   // [Order.totalAmount] is the sum of line totals; each line total already excludes [CartItem.discount].
   //
   // Day-closing discount reporting must include:
@@ -491,23 +493,10 @@ Future<DayClosingSummary> computeDayClosingSummary(
   final categoryMap = <String, DayClosingCategoryRow>{};
   final itemMap = <int, DayClosingItemRow>{};
   if (settled.isNotEmpty) {
-    final settledItemIds = <int>{};
-    for (final order in settled) {
-      final lines = linesByOrderId[order.id] ?? const <CartItem>[];
-      for (final line in lines) {
-        settledItemIds.add(line.itemId);
-      }
-    }
-    final itemByVisible = {for (final i in visibleItems) i.id: i};
-    final missingIds = settledItemIds.difference(itemByVisible.keys.toSet()).toList();
-    final Map<int, Item> itemByAny = Map<int, Item>.from(itemByVisible);
-    if (missingIds.isNotEmpty) {
-      final extras =
-          await (db.select(db.items)..where((i) => i.id.isIn(missingIds))).get();
-      for (final e in extras) {
-        itemByAny[e.id] = e;
-      }
-    }
+    final itemByAny = {
+      for (final i in visibleItems) i.id: i,
+      ...missingItemsById,
+    };
     for (final order in settled) {
       final lines = linesByOrderId[order.id] ?? const <CartItem>[];
       for (final line in lines) {
@@ -613,5 +602,97 @@ Future<DayClosingSummary> computeDayClosingSummary(
     itemRows: itemRows,
     cancelledRows: cancelledRows,
     openBills: openBills,
+  );
+}
+
+// ── public async entry point ─────────────────────────────────────────────────
+
+/// Computes the same aggregates previously inlined in [DayClosingScreen._load].
+///
+/// DB queries run on the UI isolate (SQLite cannot cross isolate boundaries).
+/// All CPU-bound aggregation is offloaded to a background isolate via [compute].
+///
+/// [counterAccess] scopes **displayed** unsettled totals and [openBills] to logs
+/// the user may open.
+/// [scopedCashierUserId] limits sales/unpaid rows to one cashier (SUB tablets);
+/// MAIN passes `null`.
+Future<DayClosingSummary> computeDayClosingSummary(
+  AppDatabase db, {
+  CounterAccess counterAccess = const CounterAccess.admin(),
+  int? scopedCashierUserId,
+}) async {
+  final session = await db.sessionDao.getActiveSession();
+  final branchId = session?.branchId ?? 1;
+  final rawOrders = _ordersForCashierScope(
+    await db.ordersDao.getAllOrders(branchId: branchId),
+    scopedCashierUserId,
+  );
+  final cutoff =
+      await db.dayClosingCheckpointDao.lastSettledAtForBranch(branchId);
+  final branch = await db.branchesDao.getBranchById(branchId);
+  final users = await db.usersDao.getAllUsers();
+  final visibleItems = await db.itemDao.getVisibleForBranch(branchId);
+  final branchCategories = await db.categoryDao.getVisibleForBranch(branchId);
+  final categoryNameByCatId = {
+    for (final c in branchCategories) c.id: (c.name).trim(),
+  };
+
+  // Fetch cart lines for settled orders (DB work must stay on the main isolate).
+  final ordersInWindow = cutoff == null
+      ? rawOrders
+      : rawOrders.where((o) => orderInDayCloseWindow(o, cutoff)).toList();
+  final settledAllIds =
+      ordersInWindow.where(_isSettledForDayClose).toList();
+  final settled =
+      settledAllIds.where((o) => orderCreatedInDayCloseWindow(o, cutoff)).toList();
+
+  final linesByOrderId = <int, List<CartItem>>{};
+  if (settled.isNotEmpty) {
+    const parallel = 24;
+    for (var i = 0; i < settled.length; i += parallel) {
+      final end = i + parallel > settled.length ? settled.length : i + parallel;
+      final slice = settled.sublist(i, end);
+      final batch = await Future.wait(
+        slice.map((o) => OrderLogCartFallback.resolveWithDb(order: o, db: db)),
+      );
+      for (var j = 0; j < slice.length; j++) {
+        linesByOrderId[slice[j].id] = batch[j];
+      }
+    }
+  }
+
+  // Fetch any items missing from the visible set (archived/hidden items still on old orders).
+  final settledItemIds = <int>{};
+  for (final lines in linesByOrderId.values) {
+    for (final l in lines) {
+      settledItemIds.add(l.itemId);
+    }
+  }
+  final visibleById = {for (final i in visibleItems) i.id: i};
+  final missingIds =
+      settledItemIds.difference(visibleById.keys.toSet()).toList();
+  final missingItemsById = <int, Item>{};
+  if (missingIds.isNotEmpty) {
+    final extras =
+        await (db.select(db.items)..where((i) => i.id.isIn(missingIds))).get();
+    for (final e in extras) {
+      missingItemsById[e.id] = e;
+    }
+  }
+
+  // Offload all aggregation to a background isolate.
+  return compute(
+    _computeSummarySync,
+    _DayClosingComputeInput(
+      rawOrders: rawOrders,
+      cutoff: cutoff,
+      branch: branch,
+      users: users,
+      visibleItems: visibleItems,
+      categoryNameByCatId: categoryNameByCatId,
+      linesByOrderId: linesByOrderId,
+      counterAccess: counterAccess,
+      missingItemsById: missingItemsById,
+    ),
   );
 }

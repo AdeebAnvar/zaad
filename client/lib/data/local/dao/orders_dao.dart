@@ -81,6 +81,36 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
         .get();
   }
 
+  /// Returns only [status='completed'] orders — avoids loading all rows when callers
+  /// only need completed sales (e.g. [OrdersCubit]).
+  Future<List<Order>> getCompletedOrders({int? branchId}) {
+    var q = select(orders)..where((o) => o.status.equals('completed'));
+    if (branchId != null) {
+      q = q..where((o) => o.branchId.equals(branchId));
+    }
+    return (q
+          ..orderBy([
+            (o) => OrderingTerm.desc(o.createdAt),
+            (o) => OrderingTerm.desc(o.id),
+          ]))
+        .get();
+  }
+
+  /// Placed + completed rows for cloud upload ([SyncService]) — excludes kot/cancelled in SQL.
+  Future<List<Order>> getPlacedOrCompletedOrders({int? branchId}) {
+    var q = select(orders)
+      ..where((o) => o.status.isIn(const ['placed', 'completed']));
+    if (branchId != null) {
+      q = q..where((o) => o.branchId.equals(branchId));
+    }
+    return (q
+          ..orderBy([
+            (o) => OrderingTerm.desc(o.createdAt),
+            (o) => OrderingTerm.desc(o.id),
+          ]))
+        .get();
+  }
+
   Future<Order?> getOrderById(int orderId) {
     return (select(orders)..where((o) => o.id.equals(orderId))).getSingleOrNull();
   }
