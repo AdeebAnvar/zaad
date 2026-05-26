@@ -444,12 +444,10 @@ class _TakeAwayCardState extends State<TakeAwayCard> {
     }
 
     if (context.mounted) {
-      showDialog(
-        context: context,
-        builder: (_) => OrderLogDetailsDialog(
-          order: order,
-          itemsWithDetails: itemsWithDetails,
-        ),
+      await showOrderLogDetailsDialog(
+        context,
+        order: order,
+        itemsWithDetails: itemsWithDetails,
       );
     }
   }

@@ -922,7 +922,7 @@ class CartCubit extends Cubit<CartState> {
 
     emit(CartState(state.items, orderSubmitPending: true, orderSubmitError: null));
     try {
-      final newId = await orderRepo.createOrder(order);
+      final newId = await orderRepo.createOrder(order, cartLines: List<CartItem>.from(state.items));
       final saved = await orderRepo.getOrderById(newId) ?? order;
 
       final sessionItems = List<CartItem>.from(state.items);

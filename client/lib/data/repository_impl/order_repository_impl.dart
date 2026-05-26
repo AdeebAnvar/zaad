@@ -91,12 +91,22 @@ class OrderRepositoryImpl implements OrderRepository {
     final snapshot = await _orderSnapshotMap(order, cartItems);
     final anchor = DineInRefParser.dineInAnchorFromHubMetadata(order.hubMetadata) ?? _dineInRoutingRefFromOrderRow(order);
     final creditPayments = creditPaymentsFromHubMetadata(order.hubMetadata);
+    dynamic appliedOffer;
+    if (order.hubMetadata != null && order.hubMetadata!.trim().isNotEmpty) {
+      try {
+        final parsed = jsonDecode(order.hubMetadata!);
+        if (parsed is Map && parsed['applied_offer'] != null) {
+          appliedOffer = parsed['applied_offer'];
+        }
+      } catch (_) {}
+    }
     final hubMeta = jsonEncode(<String, dynamic>{
       'orderId': HubOrderLanPublisher.hubOrderCorrelationId(order, order.id),
       'snapshot': snapshot,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
       if (anchor != null && anchor.isNotEmpty) DineInRefParser.hubMetadataAnchorKey: anchor,
       if (creditPayments != null && creditPayments.isNotEmpty) 'creditPayments': creditPayments,
+      if (appliedOffer != null) 'applied_offer': appliedOffer,
     });
     await (db.update(db.orders)..where((o) => o.id.equals(order.id))).write(
       OrdersCompanion(hubMetadata: Value(hubMeta)),
@@ -113,7 +123,7 @@ class OrderRepositoryImpl implements OrderRepository {
   }
 
   @override
-  Future<int> createOrder(Order order) async {
+  Future<int> createOrder(Order order, {List<CartItem>? cartLines}) async {
     final branchId = await _activeBranchId();
     final nextToken = await _pickupTokenLock.synchronized(() async {
       final after = await db.dayClosingCheckpointDao.lastSettledAtForBranch(branchId);
@@ -155,7 +165,10 @@ class OrderRepositoryImpl implements OrderRepository {
     if (saved == null) {
       throw StateError('createOrder failed to read row $newId');
     }
-    final cartItems = await db.cartsDao.getItemsByCart(saved.cartId);
+    var cartItems = await db.cartsDao.getItemsByCart(saved.cartId);
+    if (cartItems.isEmpty && cartLines != null && cartLines.isNotEmpty) {
+      cartItems = cartLines;
+    }
     await _persistFrozenLineSnapshotOnOrder(saved, cartItems);
     final frozen = await db.ordersDao.getOrderById(newId) ?? saved;
     await db.ordersDao.insertOrderLog(await _orderSnapshotJson(frozen, cartItems));

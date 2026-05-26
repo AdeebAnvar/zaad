@@ -1,7 +1,8 @@
 import 'package:pos/data/local/drift_database.dart';
 
 abstract class OrderRepository {
-  Future<int> createOrder(Order order);
+  /// [cartLines] — use when cart rows are only in memory (avoids empty frozen snapshot).
+  Future<int> createOrder(Order order, {List<CartItem>? cartLines});
   Future<List<Order>> getAllOrders();
   Future<Order?> getOrderById(int orderId);
   Future<List<Order>> getOrdersByDateRange(DateTime start, DateTime end);

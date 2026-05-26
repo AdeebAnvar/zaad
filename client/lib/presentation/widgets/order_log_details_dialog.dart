@@ -56,16 +56,40 @@ bool _orderLineTitleShouldAvoidCatalogFallback(Order order) {
   }
 }
 
+/// Opens the themed order-details dialog (Take Away / Dine In / Delivery logs, cart preview).
+Future<void> showOrderLogDetailsDialog(
+  BuildContext context, {
+  required Order order,
+  required List<Map<String, dynamic>> itemsWithDetails,
+  String? headerSubtitle,
+  bool hideStatusChip = false,
+}) async {
+  if (itemsWithDetails.isEmpty) return;
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => OrderLogDetailsDialog(
+      order: order,
+      itemsWithDetails: itemsWithDetails,
+      headerSubtitle: headerSubtitle,
+      hideStatusChip: hideStatusChip,
+    ),
+  );
+}
+
 /// Shared order line-item dialog used by Take Away Log, Dine In Log, etc.
 class OrderLogDetailsDialog extends StatelessWidget {
   const OrderLogDetailsDialog({
     super.key,
     required this.order,
     required this.itemsWithDetails,
+    this.headerSubtitle,
+    this.hideStatusChip = false,
   });
 
   final Order order;
   final List<Map<String, dynamic>> itemsWithDetails;
+  final String? headerSubtitle;
+  final bool hideStatusChip;
 
   static const double _kWideBreakpoint = 520;
 
@@ -100,7 +124,12 @@ class OrderLogDetailsDialog extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _Header(order: order, onClose: () => Navigator.pop(context)),
+                        _Header(
+                          order: order,
+                          headerSubtitle: headerSubtitle,
+                          hideStatusChip: hideStatusChip,
+                          onClose: () => Navigator.pop(context),
+                        ),
                         Expanded(
                           child: LayoutBuilder(
                             builder: (ctx, inner) {
@@ -127,10 +156,17 @@ class OrderLogDetailsDialog extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.order, required this.onClose});
+  const _Header({
+    required this.order,
+    required this.onClose,
+    this.headerSubtitle,
+    this.hideStatusChip = false,
+  });
 
   final Order order;
   final VoidCallback onClose;
+  final String? headerSubtitle;
+  final bool hideStatusChip;
 
   @override
   Widget build(BuildContext context) {
@@ -154,13 +190,13 @@ class _Header extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  order.invoiceNumber,
+                  headerSubtitle ?? order.invoiceNumber,
                   style: AppStyles.getMediumTextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.92)),
                 ),
               ],
             ),
           ),
-          _StatusChip(status: order.status),
+          if (!hideStatusChip) _StatusChip(status: order.status),
           IconButton(
             onPressed: onClose,
             icon: const Icon(Icons.close_rounded, color: Colors.white),

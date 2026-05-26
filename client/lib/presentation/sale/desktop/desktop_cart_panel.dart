@@ -19,6 +19,7 @@ import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/models/pos_customer.dart';
+import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/customer_repository.dart';
@@ -625,7 +626,7 @@ class CartPanel extends StatelessWidget {
                                     },
                               text: "Save",
                             );
-                            final eye = saleAccess.canDetailing
+                            final eye = saleAccess.canViewCart
                                 ? IconButton(
                                     tooltip: 'View cart',
                                     icon: Icon(
@@ -659,7 +660,7 @@ class CartPanel extends StatelessWidget {
                           return Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
-                              if (saleAccess.canDetailing)
+                              if (saleAccess.canViewCart)
                                 IconButton(
                                   tooltip: 'View cart',
                                   icon: Icon(
@@ -668,7 +669,7 @@ class CartPanel extends StatelessWidget {
                                   ),
                                   onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
                                 ),
-                              if (saleAccess.canDetailing) const SizedBox(width: 4),
+                              if (saleAccess.canViewCart) const SizedBox(width: 4),
                               _KitchenOrderIconButton(
                                 width: 110,
                                 onPressed: state.items.isEmpty
@@ -755,7 +756,10 @@ class CartPanel extends StatelessWidget {
     final cartCubit = context.read<CartCubit>();
     final prefill = await cartCubit.getPaymentPrefillForEdit();
     final cartLines = cartCubit.state.items;
-    final offerLines = cartLines.isEmpty ? <PaymentOfferLine>[] : await buildPaymentOfferLines(cartLines, locator<ItemRepository>());
+    // Open dialog immediately; offer lines use category 0 until [PaymentDialog] loads offers.
+    final offerLines = cartLines
+        .map((l) => PaymentOfferLine(itemId: l.itemId, categoryId: 0, lineTotal: l.total))
+        .toList();
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => PaymentDialog(
@@ -1225,37 +1229,104 @@ class _PaymentDialogState extends State<PaymentDialog> {
   }
 
   void _applyCustomerPrefill(Map<String, dynamic> prefill) {
-    if (_access.canCustomerName) {
+    if (_fillCustomerName) {
       _nameController.text = (prefill['name'] as String?)?.trim() ?? '';
     }
-    if (_access.canCustomerNumber || _access.showCustomerSection) {
+    if (_fillCustomerPhone) {
       _phoneController.text = (prefill['phone'] as String?)?.trim() ?? '';
     }
-    if (_access.canCustomerEmail) {
+    if (_fillCustomerEmail) {
       _emailController.text = (prefill['email'] as String?)?.trim() ?? '';
     }
-    if (_access.canCustomerGender) {
-      _genderController.text = (prefill['gender'] as String?)?.trim() ?? '';
+    if (_fillCustomerGender) {
+      final g = (prefill['gender'] as String?)?.trim() ?? '';
+      _genderController.text = _genderOptions.contains(g) ? g : '';
     }
+    if (_fillCustomerAddress) {
+      _addressController.text = (prefill['address'] as String?)?.trim() ?? '';
+    }
+  }
+
+  /// Standard customer popup shows all fields when [showCustomerSection] (take-away / delivery / dine-in).
+  bool get _fillCustomerName => _access.showCustomerSection || _access.canCustomerName;
+
+  bool get _fillCustomerPhone => _access.showCustomerSection || _access.canCustomerNumber;
+
+  bool get _fillCustomerEmail => _access.showCustomerSection || _access.canCustomerEmail;
+
+  bool get _fillCustomerGender => _access.showCustomerSection || _access.canCustomerGender;
+
+  bool get _fillCustomerAddress => _access.showCustomerSection || _access.canCustomerAddress;
+
+  bool get _showCustomerName => _fillCustomerName;
+
+  bool get _showCustomerPhone => _fillCustomerPhone;
+
+  bool get _showCustomerEmail => _fillCustomerEmail;
+
+  bool get _showCustomerGender => _fillCustomerGender;
+
+  bool get _showCustomerAddress => _fillCustomerAddress;
+
+  PosCustomer? _findCustomerByPhone(String selectedPhone) {
+    final want = normalizePhoneDigits(selectedPhone);
+    if (want == null || want.isEmpty) return null;
+    for (final c in _allCustomers) {
+      final p = normalizePhoneDigits(c.phone);
+      if (p != null && p == want) return c;
+    }
+    return null;
+  }
+
+  PosCustomer? _findCustomerByName(String selectedName) {
+    final want = selectedName.trim().toLowerCase();
+    if (want.isEmpty) return null;
+    for (final c in _allCustomers) {
+      if (c.name.trim().toLowerCase() == want) return c;
+    }
+    return null;
+  }
+
+  PosCustomer? _findCustomerByEmail(String selectedEmail) {
+    final want = selectedEmail.trim().toLowerCase();
+    if (want.isEmpty) return null;
+    for (final c in _allCustomers) {
+      final e = c.email?.trim().toLowerCase();
+      if (e != null && e == want) return c;
+    }
+    return null;
   }
 
   void _prefillCustomer(PosCustomer customer) {
     setState(() {
-      if (_access.canCustomerName) _nameController.text = customer.name;
-      if (_access.canCustomerNumber) _phoneController.text = customer.phone ?? '';
-      if (_access.canCustomerEmail) _emailController.text = customer.email ?? '';
-      if (_access.canCustomerGender) _genderController.text = customer.gender ?? '';
-      _addressController.text = customer.address ?? '';
+      if (_fillCustomerName) {
+        _nameController.text = customer.name;
+      }
+      if (_fillCustomerPhone) {
+        _phoneController.text = customer.phone ?? '';
+      }
+      if (_fillCustomerEmail) {
+        _emailController.text = customer.email ?? '';
+      }
+      if (_fillCustomerGender) {
+        final g = customer.gender?.trim() ?? '';
+        _genderController.text = _genderOptions.contains(g) ? g : '';
+      }
+      if (_fillCustomerAddress) {
+        _addressController.text = customer.address ?? '';
+      }
     });
   }
 
+  static const _genderOptions = ['Male', 'Female', 'Other'];
+
   Map<String, dynamic> _customerDetailsPayload() {
     return {
-      if (_access.canCustomerName) 'name': _nameController.text,
-      if (_access.canCustomerNumber) 'phone': _phoneController.text,
-      if (_access.canCustomerEmail) 'email': _emailController.text,
-      if (_access.canCustomerGender) 'gender': _genderController.text,
-      if (_addressController.text.trim().isNotEmpty) 'address': _addressController.text,
+      if (_fillCustomerName) 'name': _nameController.text,
+      if (_fillCustomerPhone) 'phone': _phoneController.text,
+      if (_fillCustomerEmail) 'email': _emailController.text,
+      if (_fillCustomerGender) 'gender': _genderController.text,
+      if (_fillCustomerAddress && _addressController.text.trim().isNotEmpty) 'address': _addressController.text.trim(),
       'onlineOrderNumber': _onlineOrderNumberController.text.trim().isEmpty ? null : _onlineOrderNumberController.text.trim(),
     };
   }
@@ -1266,6 +1337,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
+    final email = _emailController.text.trim();
+    final gender = _genderController.text.trim();
     final address = _addressController.text.trim();
 
     if (name.isEmpty && phone.isEmpty) return;
@@ -1286,9 +1359,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
           branchId: 0,
           customerName: name.isEmpty ? (phone.isNotEmpty ? phone : 'Customer') : name,
           customerNumber: phone,
-          customerEmail: '',
+          customerEmail: email,
           customerAddress: address,
-          customerGender: '',
+          customerGender: gender,
           cardNo: '',
           createdAt: now,
           updatedAt: now,
@@ -1530,88 +1603,94 @@ class _PaymentDialogState extends State<PaymentDialog> {
     final phoneSuggestions = _allCustomers.where((c) => c.phone != null && c.phone!.isNotEmpty).map((c) => c.phone!).toSet().toList();
     final nameSuggestions = _allCustomers.map((c) => c.name).toSet().toList();
     final emailSuggestions = _allCustomers.where((c) => c.email != null && c.email!.isNotEmpty).map((c) => c.email!).toSet().toList();
-    final genderOptions = ['Male', 'Female', 'Other'];
-    final customersByName = _allCustomers.where((c) => c.name.toLowerCase().contains(_nameController.text.toLowerCase())).toList();
 
-    final rowChildren = <Widget>[];
-    if (_access.canCustomerNumber || _access.showCustomerSection) {
-      rowChildren.add(
-        Expanded(
-          child: AutoCompleteTextField<String>(
-            items: phoneSuggestions,
-            displayStringFunction: (item) => item,
-            defaultText: '',
-            labelText: 'Contact Number',
-            controller: _phoneController,
-            filterType: FilterType.contains,
-            onSelected: (selectedPhone) {
-              final customer = _allCustomers.firstWhere(
-                (c) => c.phone == selectedPhone,
-                orElse: () => PosCustomer.placeholder(phone: selectedPhone),
-              );
-              if (customer.id > 0) _prefillCustomer(customer);
-            },
-          ),
+    Widget? phoneField() {
+      if (!_showCustomerPhone) return null;
+      return Expanded(
+        child: AutoCompleteTextField<String>(
+          items: phoneSuggestions,
+          displayStringFunction: (item) => item,
+          defaultText: '',
+          labelText: 'Contact Number',
+          controller: _phoneController,
+          filterType: FilterType.contains,
+          onSelected: (selectedPhone) {
+            final customer = _findCustomerByPhone(selectedPhone);
+            if (customer != null) _prefillCustomer(customer);
+          },
         ),
       );
     }
-    if (_access.canCustomerName || _access.showCustomerSection) {
-      if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
-      rowChildren.add(
-        Expanded(
-          child: AutoCompleteTextField<String>(
-            items: nameSuggestions,
-            displayStringFunction: (item) => item,
-            defaultText: '',
-            labelText: 'Name',
-            controller: _nameController,
-            filterType: FilterType.contains,
-            onSelected: (selectedName) {
-              final customer = _allCustomers.firstWhere(
-                (c) => c.name == selectedName,
-                orElse: () => PosCustomer.placeholder(name: selectedName),
-              );
-              if (customer.id > 0) _prefillCustomer(customer);
-            },
-            onChanged: (value) {
-              final matching = customersByName.where((c) => c.name.toLowerCase() == value.toLowerCase()).toList();
-              if (matching.isNotEmpty) _prefillCustomer(matching.first);
-            },
-          ),
+
+    Widget? nameField() {
+      if (!_showCustomerName) return null;
+      return Expanded(
+        child: AutoCompleteTextField<String>(
+          items: nameSuggestions,
+          displayStringFunction: (item) => item,
+          defaultText: '',
+          labelText: 'Name',
+          controller: _nameController,
+          filterType: FilterType.contains,
+          onSelected: (selectedName) {
+            final customer = _findCustomerByName(selectedName);
+            if (customer != null) _prefillCustomer(customer);
+          },
+          onChanged: (value) {
+            final customer = _findCustomerByName(value);
+            if (customer != null) _prefillCustomer(customer);
+          },
         ),
       );
     }
-    if (_access.canCustomerEmail) {
-      if (rowChildren.isNotEmpty) rowChildren.add(const SizedBox(width: 8));
-      rowChildren.add(
-        Expanded(
-          child: AutoCompleteTextField<String>(
-            items: emailSuggestions,
-            displayStringFunction: (item) => item,
-            defaultText: '',
-            labelText: 'Email',
-            controller: _emailController,
-            filterType: FilterType.contains,
-            onSelected: (selectedEmail) {
-              final customer = _allCustomers.firstWhere(
-                (c) => c.email == selectedEmail,
-                orElse: () => PosCustomer.placeholder(email: selectedEmail),
-              );
-              if (customer.id > 0) _prefillCustomer(customer);
-            },
-          ),
+
+    Widget? emailField() {
+      if (!_showCustomerEmail) return null;
+      return Expanded(
+        child: AutoCompleteTextField<String>(
+          items: emailSuggestions,
+          displayStringFunction: (item) => item,
+          defaultText: '',
+          labelText: 'Email',
+          controller: _emailController,
+          filterType: FilterType.contains,
+          onSelected: (selectedEmail) {
+            final customer = _findCustomerByEmail(selectedEmail);
+            if (customer != null) _prefillCustomer(customer);
+          },
         ),
       );
     }
+
+    final row1 = <Widget>[];
+    final p = phoneField();
+    final n = nameField();
+    if (p != null) row1.add(p);
+    if (p != null && n != null) row1.add(const SizedBox(width: 8));
+    if (n != null) row1.add(n);
+
+    final row2 = <Widget>[];
+    final e = emailField();
+    if (e != null) row2.add(e);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (rowChildren.isNotEmpty) Row(children: rowChildren),
-        if (_access.canCustomerGender || _access.showCustomerSection) ...[
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            initialValue: genderOptions.contains(_genderController.text) ? _genderController.text : null,
+        if (row1.isNotEmpty) Row(children: row1),
+        if (row2.isNotEmpty || _showCustomerGender) ...[
+          if (row1.isNotEmpty) const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (e != null) ...[
+                e,
+                if (_showCustomerGender) const SizedBox(width: 8),
+              ],
+              if (_showCustomerGender)
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+            key: ValueKey<String>('payment_gender_${_genderController.text}'),
+            value: _genderOptions.contains(_genderController.text) ? _genderController.text : null,
             decoration: InputDecoration(
               labelStyle: TextStyle(
                 color: AppColors.hintFontColor,
@@ -1655,10 +1734,24 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 ),
               ),
             ),
-            items: genderOptions.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-            onChanged: (v) {
-              setState(() => _genderController.text = v ?? '');
-            },
+            items: _genderOptions.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                    onChanged: (v) {
+                      setState(() => _genderController.text = v ?? '');
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ],
+        if (_showCustomerAddress) ...[
+          const SizedBox(height: 8),
+          CustomTextField(
+            controller: _addressController,
+            labelText: 'Address',
+            keyBoardType: TextInputType.streetAddress,
+            maxLines: 3,
+            minLines: 2,
+            onChanged: (_) => setState(() {}),
           ),
         ],
         const SizedBox(height: 12),
@@ -2068,7 +2161,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                         }
                         setState(() => _isSubmitting = true);
                         try {
-                          await _saveNewCustomerIfNeeded();
+                          final saveCustomerFuture = _access.canCustomer ? _saveNewCustomerIfNeeded() : Future<void>.value();
                           final sel = _selectedOfferIndex;
                           final applied = sel != null && sel >= 0 && sel < _dropdownOffers.length ? _dropdownOffers[sel] : null;
                           final autoDisc = _autoDayOffers.fold<double>(0, (a, o) => a + o.discountAmount);
@@ -2099,23 +2192,26 @@ class _PaymentDialogState extends State<PaymentDialog> {
                                   'autoDayDiscount': autoDisc,
                                   if (_autoDayOffers.isNotEmpty) 'autoDayOfferNames': _autoDayOffers.map((e) => e.name).toList(),
                                 };
-                          await widget.onSave(
-                            _customerDetailsPayload(),
-                            {
-                              'type': _manualDiscountMode,
-                              'value': _manualRawValue,
-                              'offer': offerPayload,
-                            },
-                            {
-                              'cash': double.tryParse(_cashController.text) ?? 0,
-                              'credit': double.tryParse(_creditController.text) ?? 0,
-                              'card': double.tryParse(_cardController.text) ?? 0,
-                              'online': double.tryParse(_onlineController.text) ?? 0,
-                              'other': double.tryParse(_otherController.text) ?? 0,
-                            },
-                            printInvoice: _canOfferInvoicePrint && _printInvoice,
-                            printKot: _access.canKotPrint && _printKot,
-                          );
+                          await Future.wait([
+                            saveCustomerFuture,
+                            widget.onSave(
+                              _customerDetailsPayload(),
+                              {
+                                'type': _manualDiscountMode,
+                                'value': _manualRawValue,
+                                'offer': offerPayload,
+                              },
+                              {
+                                'cash': double.tryParse(_cashController.text) ?? 0,
+                                'credit': double.tryParse(_creditController.text) ?? 0,
+                                'card': double.tryParse(_cardController.text) ?? 0,
+                                'online': double.tryParse(_onlineController.text) ?? 0,
+                                'other': double.tryParse(_otherController.text) ?? 0,
+                              },
+                              printInvoice: _canOfferInvoicePrint && _printInvoice,
+                              printKot: _access.canKotPrint && _printKot,
+                            ),
+                          ]);
                         } catch (e) {
                           if (mounted) {
                             showErrorDialog(context, e);

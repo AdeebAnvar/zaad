@@ -47,14 +47,25 @@ class _CustomScaffoldState extends State<CustomScaffold> {
 
   Future<void> _loadUser() async {
     try {
-      // Get user from active session
+      final cached = locator<CurrentCounterSession>();
+      if (cached.user != null && cached.branch != null) {
+        if (mounted) {
+          setState(() {
+            branchModel = cached.branch;
+            user = cached.user;
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
       final session = await locator<AppDatabase>().sessionDao.getActiveSession();
       if (session != null && mounted) {
         final loadedBranch = await locator<AppDatabase>().branchesDao.getBranchById(session.branchId);
         final loadedUser = await locator<AppDatabase>().usersDao.findUserById(session.userId);
 
         if (mounted) {
-          locator<CurrentCounterSession>().setUser(loadedUser);
+          cached.setProfile(u: loadedUser, b: loadedBranch);
           setState(() {
             branchModel = loadedBranch;
             user = loadedUser;
@@ -62,7 +73,7 @@ class _CustomScaffoldState extends State<CustomScaffold> {
           });
         }
       } else if (mounted) {
-        locator<CurrentCounterSession>().clear();
+        cached.clear();
         setState(() {
           _isLoading = false;
         });

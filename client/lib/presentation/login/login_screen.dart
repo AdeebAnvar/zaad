@@ -133,7 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _showServerConnectErrorDialog(state.message);
     }
     if (state is LoginLoading) {
-      LoaderOverlay.show(context, message: 'Connecting...');
+      LoaderOverlay.show(context, message: 'Signing in…');
     }
     if (state is LoginServerConnected) {
       LoaderOverlay.hide();

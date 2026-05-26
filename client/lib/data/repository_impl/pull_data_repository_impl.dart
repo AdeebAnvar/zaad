@@ -678,9 +678,17 @@ class PullDataRepositoryImpl implements PullDataRepository {
         break;
       case 'item':
         await (_db.delete(_db.pullItemRows)..where((t) => t.id.isIn(ids))).go();
+        for (final itemId in ids) {
+          await _db.itemDao.detachCartVariantRefsForItem(itemId);
+          await _db.itemDao.detachCartToppingRefsForItem(itemId);
+        }
         await (_db.delete(_db.itemVariants)..where((t) => t.itemId.isIn(ids))).go();
         await (_db.delete(_db.itemToppings)..where((t) => t.itemId.isIn(ids))).go();
-        await (_db.delete(_db.items)..where((t) => t.id.isIn(ids))).go();
+        final inUse = await _db.itemDao.itemIdsReferencedByCart(ids);
+        final deletable = ids.where((id) => !inUse.contains(id)).toList();
+        if (deletable.isNotEmpty) {
+          await (_db.delete(_db.items)..where((t) => t.id.isIn(deletable))).go();
+        }
         break;
       case 'customer':
         await (_db.delete(_db.customers)
@@ -1279,6 +1287,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
     );
     // #endregion
 
+    await _db.itemDao.detachCartToppingRefsForItem(e.id);
     await _db.itemDao.deleteToppingsByItem(e.id);
     await _db.itemDao.deleteToppingGroupsByItem(e.id);
     final toppingIds = _parseToppingIds(e.toppingIds);
@@ -1297,7 +1306,6 @@ class PullDataRepositoryImpl implements PullDataRepository {
       );
     }
 
-    await _db.itemDao.deleteVariantsByItem(e.id);
     final variantsByName = <String, double>{};
 
     for (final v in e.itemVariations) {
@@ -1327,6 +1335,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
         ),
       );
     }
+    await _db.itemDao.pruneVariantsByItemKeepingNames(e.id, variantsByName.keys.toSet());
   }
 
   @override

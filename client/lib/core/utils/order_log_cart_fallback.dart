@@ -105,6 +105,37 @@ class OrderLogCartFallback {
     return out;
   }
 
+  /// Line rows for dialogs when only [cartItems] are available (live cart, etc.).
+  static Future<List<Map<String, dynamic>>> buildItemsWithDetailsFromCartItems({
+    required List<CartItem> cartItems,
+    required ItemRepository itemRepo,
+  }) async {
+    final out = <Map<String, dynamic>>[];
+    for (final cartItem in cartItems) {
+      Item? item;
+      if (cartItem.itemId > 0) {
+        item = await itemRepo.fetchItemByIdFromLocal(cartItem.itemId);
+      }
+      ItemVariant? variant;
+      final vid = cartItem.itemVariantId;
+      if (vid != null && vid > 0) {
+        variant = await itemRepo.fetchVariantById(vid);
+      }
+      ItemTopping? topping;
+      final tid = cartItem.itemToppingId;
+      if (tid != null && tid > 0) {
+        topping = await itemRepo.fetchToppingById(tid);
+      }
+      out.add(<String, dynamic>{
+        'cartItem': cartItem,
+        'item': item,
+        'variant': variant,
+        'topping': topping,
+      });
+    }
+    return out;
+  }
+
   /// Parses LAN envelope wrapper (`snapshot.items`) or flat maps with `items` / `cart_lines`.
   static List<CartItem> decodeCartItemsFromPayloadJson(String jsonStr, int orderCartId) {
     try {

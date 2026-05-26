@@ -53,7 +53,8 @@ class ItemCard extends StatelessWidget {
         } catch (e) {
           if (!context.mounted) return;
           final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
-          if (msg.contains('No active branch session')) {
+          if (msg.contains('No active branch session') ||
+              msg.contains('Session expired — log in again')) {
             CustomSnackBar.showError(
               message: 'Session expired — log in again before adding items.',
             );

@@ -7,6 +7,7 @@ import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/utils/order_display_utils.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
+import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/features/orders/data/hub_orders_live_sync.dart';
@@ -122,41 +123,67 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
 
     try {
       final dbOrderType = orderTypeFilterToDb(_orderType);
-      final dbStatus = _status == null || _status!.isEmpty || _status == 'All' ? 'completed' : _status;
+      final useDefaultSettledView =
+          _status == null || _status!.isEmpty || _status == 'All';
+      final dbStatus = useDefaultSettledView ? null : _status;
       final userId = _userId ?? _scopedUserId(uiUserId: null);
 
-      final totalCount = await orderRepo.countOrdersForList(
-        invoiceNumber: _invoiceNumber,
-        referenceNumber: _referenceNumber,
-        status: dbStatus,
-        orderType: dbOrderType,
-        startDate: _startDate,
-        endDate: _endDate,
-        userId: userId,
-      );
+      List<Order> orders;
+      late final int totalCount;
 
-      final totalPages = totalCount == 0 ? 1 : (totalCount / kRecentSalesPageSize).ceil();
-      if (_page > totalPages) {
-        _page = totalPages;
-      }
-
-      final offset = (_page - 1) * kRecentSalesPageSize;
-
-      var orders = await orderRepo.filterOrdersForList(
-        invoiceNumber: _invoiceNumber,
-        referenceNumber: _referenceNumber,
-        status: dbStatus,
-        orderType: dbOrderType,
-        startDate: _startDate,
-        endDate: _endDate,
-        userId: userId,
-        limit: kRecentSalesPageSize,
-        offset: offset,
-      );
-
-      if (_status == null || _status!.isEmpty || _status == 'All') {
-        orders = orders.where((order) => order.status == 'completed').toList();
+      if (useDefaultSettledView) {
+        var settled = await orderRepo.filterOrdersForList(
+          invoiceNumber: _invoiceNumber,
+          referenceNumber: _referenceNumber,
+          orderType: dbOrderType,
+          startDate: _startDate,
+          endDate: _endDate,
+          userId: userId,
+          limit: orderLogDefaultQueryLimit(
+            invoiceNumber: _invoiceNumber,
+            referenceNumber: _referenceNumber,
+            startDate: _startDate,
+            endDate: _endDate,
+          ),
+        );
+        settled = settled.where(orderCountsAsRecentSale).toList();
+        sortOrdersNewestFirst(settled);
+        totalCount = settled.length;
+        final totalPages = totalCount == 0 ? 1 : (totalCount / kRecentSalesPageSize).ceil();
+        if (_page > totalPages) {
+          _page = totalPages;
+        }
+        final offset = (_page - 1) * kRecentSalesPageSize;
+        orders = settled.skip(offset).take(kRecentSalesPageSize).toList();
       } else {
+        totalCount = await orderRepo.countOrdersForList(
+          invoiceNumber: _invoiceNumber,
+          referenceNumber: _referenceNumber,
+          status: dbStatus,
+          orderType: dbOrderType,
+          startDate: _startDate,
+          endDate: _endDate,
+          userId: userId,
+        );
+
+        final totalPages = totalCount == 0 ? 1 : (totalCount / kRecentSalesPageSize).ceil();
+        if (_page > totalPages) {
+          _page = totalPages;
+        }
+
+        final offset = (_page - 1) * kRecentSalesPageSize;
+
+        orders = await orderRepo.filterOrdersForList(
+          invoiceNumber: _invoiceNumber,
+          referenceNumber: _referenceNumber,
+          status: dbStatus,
+          orderType: dbOrderType,
+          startDate: _startDate,
+          endDate: _endDate,
+          userId: userId,
+          limit: kRecentSalesPageSize,
+          offset: offset,
+        );
         orders = orders.where((order) => order.status != 'kot').toList();
       }
 

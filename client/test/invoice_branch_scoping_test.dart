@@ -92,7 +92,17 @@ void main() {
       expect(() => db.sessionDao.requireActiveBranchId(), throwsA(isA<StateError>()));
     });
 
-    test('throws when session branch is 0', () async {
+    test('repairs session branch 0 from logged-in user branch', () async {
+      final db = AppDatabase.memory();
+      addTearDown(db.close);
+      await seedBranch2Session(db);
+      await (db.update(db.sessions)).write(const SessionsCompanion(branchId: Value(0)));
+      expect(await db.sessionDao.requireActiveBranchId(), 2);
+      final row = await db.sessionDao.getActiveSession();
+      expect(row?.branchId, 2);
+    });
+
+    test('throws when session branch is 0 and user branch missing', () async {
       final db = AppDatabase.memory();
       addTearDown(db.close);
       await db.into(db.sessions).insert(

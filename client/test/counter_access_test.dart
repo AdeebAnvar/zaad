@@ -96,6 +96,7 @@ void main() {
 
       expect(access.showCustomerSection, isTrue);
       expect(access.showDiscountSection, isTrue);
+      expect(access.canViewCart, isTrue);
       expect(access.canKotPrint, isFalse);
       expect(access.canInvoicePrint, isFalse);
       expect(access.canPrintReceiptOnPayment, isTrue);

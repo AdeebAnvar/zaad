@@ -193,18 +193,15 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
                   _header(),
                   if (access.canOpeningBalance) _openingBalanceTile(),
                   if (access.canOpenDrawer) _openCashDrawerTile(),
-                  ...List.generate(menus.length, (index) {
-                    final item = menus[index];
-                    return Padding(
-                      padding: EdgeInsets.only(bottom: index < menus.length - 1 ? 6 : 0),
-                      child: _menuItem(
-                        icon: item.icon,
-                        title: item.title,
-                        onTap: () => _navigate(item.route, arguments: item.arguments),
-                        color: item.color ?? AppColors.textColor,
-                      ),
-                    );
-                  }),
+                  for (var i = 0; i < menus.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 6),
+                    _menuItem(
+                      icon: menus[i].icon,
+                      title: menus[i].title,
+                      onTap: () => _navigate(menus[i].route, arguments: menus[i].arguments),
+                      color: menus[i].color ?? AppColors.textColor,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -235,7 +232,7 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
             const Divider(),
             _menuItem(
               icon: Icons.logout,
-              title: "Logout",
+              title: 'Logout',
               color: Colors.red,
               onTap: _logout,
             ),
