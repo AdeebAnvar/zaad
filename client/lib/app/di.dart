@@ -33,6 +33,7 @@ import 'package:pos/data/repository_impl/settings_repository_impl.dart';
 import 'package:pos/domain/models/api/auth/auth_api.dart';
 import 'package:pos/domain/models/api/auth/auth_repository.dart';
 import 'package:pos/presentation/login/login_screen_cubit.dart';
+import 'package:pos/core/isolate/app_isolate_service.dart';
 import 'package:pos/core/sync/outbound_push_coordinator.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
 import 'package:pos/data/repository/push_records_repository.dart';
@@ -60,7 +61,21 @@ class ZaadDI {
   }
 
   static Future<void> initialize() async {
-    await BackupService.instance.validateAndRecoverIfNeeded();
+    try {
+      await BackupService.instance.quickEnsureDatabaseBeforeOpen().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          if (kDebugMode) {
+            debugPrint('[ZaadDI] quickEnsureDatabaseBeforeOpen timed out — continuing');
+          }
+          return false;
+        },
+      );
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[ZaadDI] quickEnsureDatabaseBeforeOpen failed: $e\n$st');
+      }
+    }
 
     late final SharedPreferences prefs;
     if (!locator.isRegistered<SharedPreferences>()) {
@@ -70,8 +85,30 @@ class ZaadDI {
       prefs = locator<SharedPreferences>();
     }
 
+    if (!locator.isRegistered<AppIsolateService>()) {
+      locator.registerSingleton<AppIsolateService>(AppIsolateService.instance);
+    }
+
     if (!locator.isRegistered<AppDatabase>()) {
       final db = AppDatabase();
+      try {
+        await db.customSelect('SELECT 1').get().timeout(
+          const Duration(seconds: 25),
+          onTimeout: () {
+            throw StateError(
+              'Database is busy. Close any other Zaad POS windows in Task Manager, '
+              'wait a few seconds, and try again.',
+            );
+          },
+        );
+      } on StateError {
+        rethrow;
+      } catch (e) {
+        throw StateError(
+          'Could not open local database ($e). '
+          'Close other Zaad POS copies and try again.',
+        );
+      }
       await db.repairTextTimestampRows();
       locator.registerSingleton<AppDatabase>(db);
       BackupService.instance.startAutoBackup(db);
@@ -260,17 +297,20 @@ class ZaadDI {
       );
     }
 
-    if (!hubSettings.blocksTenantCloudRest) {
-      locator<OutboundPushCoordinator>().scheduleFlush();
-    }
-    unawaited(locator<LocalHubSyncCoordinator>().startIfEnabled());
-    unawaited(locator<LocalHubPrimaryInboundCoordinator>().startIfEnabled());
-
     if (!locator.isRegistered<LanHubReconnectService>()) {
       locator.registerLazySingleton<LanHubReconnectService>(
         () => LanHubReconnectService(locator<LocalHubSettings>()),
       );
     }
-    locator<LanHubReconnectService>().ensureStarted();
+
+    // Defer hub/sync until login is usable (SUB WS + outbox flush block the UI isolate).
+    Future<void>.delayed(const Duration(seconds: 30), () {
+      if (!hubSettings.blocksTenantCloudRest) {
+        locator<OutboundPushCoordinator>().scheduleFlush();
+      }
+      unawaited(locator<LocalHubSyncCoordinator>().startIfEnabled());
+      unawaited(locator<LocalHubPrimaryInboundCoordinator>().startIfEnabled());
+      locator<LanHubReconnectService>().ensureStarted();
+    });
   }
 }

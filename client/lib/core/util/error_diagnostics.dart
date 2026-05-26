@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pos/domain/models/api/network_exceptions.dart';
 
@@ -18,8 +19,28 @@ String userFacingConnectErrorMessage(Object error, StackTrace stack) {
     }
     return describeErrorForSupportDialog(error, stack);
   }
+  if (error is SqliteException) {
+    final msg = error.message.trim();
+    if (msg.toLowerCase().contains('foreign key')) {
+      return 'Could not save company data locally because old sales are still '
+          'linked in the database.\n\n'
+          'Close Zaad POS, end every "pos" task in Task Manager, open again, '
+          'tap Connect to server once more.\n\n'
+          'If it persists, contact support with this detail:\n$sqliteExceptionSummary(error)';
+    }
+    if (msg.toLowerCase().contains('locked') || msg.toLowerCase().contains('busy')) {
+      return 'The local database is busy. End every "pos" task in Task Manager, '
+          'wait 10 seconds, then try Connect to server again.\n\n'
+          '$sqliteExceptionSummary(error)';
+    }
+    return 'Local database error while saving company data.\n\n'
+        '$sqliteExceptionSummary(error)';
+  }
   return describeErrorForSupportDialog(error, stack);
 }
+
+String sqliteExceptionSummary(SqliteException error) =>
+    'SQLite (${error.extendedResultCode}): ${error.message}';
 
 /// Multi-line text for support / field debugging (release-safe: no auth headers).
 String describeErrorForSupportDialog(Object error, StackTrace stack) {

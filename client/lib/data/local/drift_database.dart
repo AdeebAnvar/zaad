@@ -354,11 +354,22 @@ class AppDatabase extends _$AppDatabase {
   }
 }
 
+QueryExecutor _openBackgroundExecutor(File file) {
+  return NativeDatabase.createInBackground(
+    file,
+    setup: (rawDb) {
+      rawDb.execute('PRAGMA journal_mode = WAL;');
+      // Avoid hanging forever when a zombie pos.exe still holds the DB lock.
+      rawDb.execute('PRAGMA busy_timeout = 10000;');
+    },
+  );
+}
+
 LazyDatabase _open() {
   return LazyDatabase(() async {
     final dir = await AppDirectories.local();
     final file = File(p.join(dir.path, 'pos.sqlite'));
-    return NativeDatabase(file);
+    return _openBackgroundExecutor(file);
   });
 }
 
@@ -367,7 +378,7 @@ LazyDatabase _openFile(File file) {
     if (!await file.parent.exists()) {
       await file.parent.create(recursive: true);
     }
-    return NativeDatabase(file);
+    return _openBackgroundExecutor(file);
   });
 }
 

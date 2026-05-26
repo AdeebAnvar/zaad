@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pos/core/utils/invoice_counter_seed.dart';
 import 'package:pos/core/utils/invoice_number_utils.dart';
+import 'package:pos/domain/models/branch_model.dart';
 import 'package:pos/core/utils/json_int_parse.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository_impl/order_repository_impl.dart';
@@ -8,6 +10,120 @@ import 'package:pos/domain/models/user_model.dart';
 import 'helpers/sales_integrity_fixtures.dart';
 
 void main() {
+  group('parseBranchScopedInvoice / last_receipt', () {
+    test('parses INV-4-1155', () {
+      final p = parseBranchScopedInvoice('INV-4-1155');
+      expect(p?.prefix, 'INV');
+      expect(p?.branchId, 4);
+      expect(p?.suffix, 1155);
+    });
+
+    test('null last_receipt starts from 001', () async {
+      final db = AppDatabase.memory();
+      addTearDown(db.close);
+      await seedBranch2Session(db);
+      final repo = OrderRepositoryImpl(db);
+      final r = await repo.createCartWithReservedInvoice(orderType: 'take_away');
+      expect(r.invoice, 'INV-2-001');
+    });
+
+    test('last_receipt INV-4-1110 next sale is INV-4-1111', () async {
+      final db = AppDatabase.memory();
+      addTearDown(db.close);
+      final now = DateTime(2020, 1, 1);
+      await db.into(db.branches).insert(
+            BranchesCompanion.insert(
+              id: const Value(4),
+              branchName: 'Branch 4',
+              location: '-',
+              contactNo: '-',
+              vat: 'no_vat',
+              prefixInv: 'INV',
+              invoiceHeader: 'B4',
+              image: '',
+              installationDate: now,
+              expiryDate: now,
+              openingCash: 0,
+            ),
+          );
+      await db.sessionDao.saveSession(1, 'counter', 4);
+
+      await seedInvoiceCounterForBranchIfNeeded(
+        db,
+        BranchModel(
+          id: 4,
+          branchName: 'Branch 4',
+          location: '-',
+          contactNo: '-',
+          email: null,
+          socialMedia: null,
+          vat: 'no_vat',
+          vatPercent: null,
+          trnNumber: null,
+          prefixInv: 'INV',
+          invoiceHeader: 'B4',
+          image: '',
+          installationDate: now,
+          expiryDate: now,
+          openingCash: 0,
+          lastReceipt: 'INV-4-1110',
+        ),
+      );
+
+      final repo = OrderRepositoryImpl(db);
+      final r = await repo.createCartWithReservedInvoice(orderType: 'take_away');
+      expect(r.invoice, 'INV-4-1111');
+    });
+
+    test('after bootstrap last_receipt next sale is suffix + 1', () async {
+      final db = AppDatabase.memory();
+      addTearDown(db.close);
+      final now = DateTime(2020, 1, 1);
+      await db.into(db.branches).insert(
+            BranchesCompanion.insert(
+              id: const Value(4),
+              branchName: 'Branch 4',
+              location: '-',
+              contactNo: '-',
+              vat: 'no_vat',
+              prefixInv: 'INV',
+              invoiceHeader: 'B4',
+              image: '',
+              installationDate: now,
+              expiryDate: now,
+              openingCash: 0,
+            ),
+          );
+      await db.sessionDao.saveSession(1, 'counter', 4);
+
+      await seedInvoiceCounterForBranchIfNeeded(
+        db,
+        BranchModel(
+          id: 4,
+          branchName: 'Branch 4',
+          location: '-',
+          contactNo: '-',
+          email: null,
+          socialMedia: null,
+          vat: 'no_vat',
+          vatPercent: null,
+          trnNumber: null,
+          prefixInv: 'INV',
+          invoiceHeader: 'B4',
+          image: '',
+          installationDate: now,
+          expiryDate: now,
+          openingCash: 0,
+          lastReceipt: 'INV-4-1155',
+        ),
+      );
+
+      final repo = OrderRepositoryImpl(db);
+      final r = await repo.createCartWithReservedInvoice(orderType: 'take_away');
+      expect(r.invoice, 'INV-4-1156');
+    });
+  });
+
   group('formatShortInvoice', () {
     test('uses explicit branch digit in label', () {
       expect(formatShortInvoice('INV', 2, 5), 'INV-2-005');

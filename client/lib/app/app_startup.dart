@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -73,11 +74,10 @@ class AppStartup {
       schemaVersion: db.schemaVersion,
     );
 
-    try {
-      await SalesCsvBackup.refreshFromDatabase(db);
-    } catch (_) {
-      // Best-effort backup only.
-    }
+    // Do not block cold start on XLSX export (large order history can delay the window).
+    unawaited(
+      SalesCsvBackup.refreshFromDatabase(db).catchError((Object _, StackTrace __) {}),
+    );
   }
 
   Future<UserType?> checkLoggedInUser() async {

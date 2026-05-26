@@ -39,7 +39,12 @@ class BackupService {
 
   void startAutoBackup(AppDatabase db) {
     _periodicTimer?.cancel();
-    unawaited(purgeExpiredBackups());
+    // Purge scans every backup .db — defer so login UI is not frozen on cold start.
+    Future<void>.delayed(const Duration(minutes: 3), () {
+      unawaited(purgeExpiredBackups().catchError((Object e, StackTrace st) {
+        _log('deferred purgeExpiredBackups: $e\n$st');
+      }));
+    });
     _periodicTimer = Timer.periodic(_timeThreshold, (_) {
       backupNow(db);
     });
@@ -201,6 +206,24 @@ class BackupService {
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
+  /// Fast path for cold start: only checks the newest backup files (not every `.db`).
+  Future<bool> quickEnsureDatabaseBeforeOpen({int maxCandidates = 3}) async {
+    try {
+      final localDir = await AppDirectories.local();
+      final dbFile = File(p.join(localDir.path, 'pos.sqlite'));
+      if (await dbFile.exists() && SqliteFileBackup.quickCheckOk(dbFile)) {
+        return true;
+      }
+      return restoreNewestBackupQuick(
+        corruptLiveFile: await dbFile.exists() ? dbFile : null,
+        maxCandidates: maxCandidates,
+      );
+    } catch (e, st) {
+      _log('quickEnsureDatabaseBeforeOpen: $e\n$st');
+      return false;
+    }
+  }
+
   Future<void> validateAndRecoverIfNeeded() async {
     try {
       final localDir = await AppDirectories.local();
@@ -224,8 +247,54 @@ class BackupService {
       } else {
         await restoreLatestBackupIfAvailable();
       }
-    } finally {
-      await purgeExpiredBackups();
+    }
+    // Do not purge backups here — opening every backup DB on cold start blocked the
+    // UI thread ("Not responding"). [startAutoBackup] schedules purge in background.
+  }
+
+  /// Startup-only: restore from the newest few backups (avoids scanning dozens of `.db` files).
+  Future<bool> restoreNewestBackupQuick({
+    File? corruptLiveFile,
+    int maxCandidates = 3,
+  }) async {
+    try {
+      final backupDir = await _backupDir();
+      final files = await _listBackupDbFiles(backupDir);
+      if (files.isEmpty) {
+        _log('quick restore: no backup files');
+        return false;
+      }
+
+      files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      final localDir = await AppDirectories.local();
+      final target = File(p.join(localDir.path, 'pos.sqlite'));
+
+      for (final source in files.take(maxCandidates)) {
+        if (!SqliteFileBackup.quickCheckOk(source)) continue;
+
+        if (corruptLiveFile != null && await corruptLiveFile.exists()) {
+          await _quarantineFile(corruptLiveFile, prefix: 'pos.sqlite.corrupt_');
+        } else if (await target.exists()) {
+          await _quarantineFile(target, prefix: 'pos.sqlite.before_restore_');
+        }
+
+        await SqliteFileBackup.deleteWalSidecars(target);
+        if (await target.exists()) {
+          await target.delete();
+        }
+        await source.copy(target.path);
+        await SqliteFileBackup.deleteWalSidecars(target);
+
+        if (SqliteFileBackup.quickCheckOk(target)) {
+          _log('quick restore from ${p.basename(source.path)}');
+          return true;
+        }
+        await _quarantineFile(target, prefix: 'pos.sqlite.bad_restore_');
+      }
+      return false;
+    } catch (e, st) {
+      _log('restoreNewestBackupQuick: $e\n$st');
+      return false;
     }
   }
 

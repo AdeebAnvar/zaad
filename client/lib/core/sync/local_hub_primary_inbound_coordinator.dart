@@ -6,6 +6,7 @@ import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/core/sync/ws_detach_done_errors.dart';
+import 'package:pos/core/sync/hub_inbound_dispatch.dart';
 import 'package:pos/core/sync/sync_inbox_applier.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/branch_repository.dart';
@@ -70,6 +71,7 @@ class LocalHubPrimaryInboundCoordinator {
   WebSocketChannel? _channel;
   int _backoffSec = 0;
   bool _fastReconnectRequested = false;
+  final HubInboundSerialDispatcher _inboundDispatch = HubInboundSerialDispatcher();
 
   /// True while MAIN is listening on the hub WebSocket.
   bool get hasActiveSocket => _channel != null;
@@ -139,16 +141,10 @@ class LocalHubPrimaryInboundCoordinator {
         sub = ch.stream.listen(
           (dynamic raw) {
             if (_stopDesired) return;
-            unawaited(Future<void>(() async {
-              try {
-                final s = _stringFromDynamic(raw);
-                await _onRawMessage(s);
-              } catch (e, st) {
-                if (kDebugMode) {
-                  debugPrint('[LocalHubPrimaryInbound] inbound message handler: $e\n$st');
-                }
-              }
-            }));
+            _inboundDispatch.dispatch(() async {
+              final s = _stringFromDynamic(raw);
+              await _onRawMessage(s);
+            });
           },
           onError: (Object e, StackTrace st) {
             streamErr = e;
@@ -324,6 +320,7 @@ class LocalHubPrimaryInboundCoordinator {
       if (inner.type == PosSyncEventTypes.dayClosingSettled) {
         _dayClosingLive?.notifyDayClosingChanged();
       }
+      await HubInboundSerialDispatcher.yieldToUi();
     }
 
     _ordersLive.notifyHubOrdersChanged();

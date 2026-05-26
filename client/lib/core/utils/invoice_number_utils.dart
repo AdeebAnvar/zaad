@@ -1,3 +1,34 @@
+/// Parsed `PREFIX-branchId-suffix` invoice (e.g. `INV-4-1155`).
+class ParsedBranchInvoice {
+  const ParsedBranchInvoice({
+    required this.prefix,
+    required this.branchId,
+    required this.suffix,
+  });
+
+  final String prefix;
+  final int branchId;
+  final int suffix;
+}
+
+/// Parses branch-scoped invoices like `INV-4-1155`. Returns null when unrecognized.
+ParsedBranchInvoice? parseBranchScopedInvoice(String? raw) {
+  final s = raw?.trim() ?? '';
+  if (s.isEmpty) return null;
+  final match = RegExp(r'^([A-Za-z0-9]+)-(\d+)-(\d+)$').firstMatch(s);
+  if (match == null) return null;
+  final branchId = int.tryParse(match.group(2)!);
+  final suffix = int.tryParse(match.group(3)!);
+  if (branchId == null || branchId <= 0 || suffix == null || suffix <= 0) {
+    return null;
+  }
+  return ParsedBranchInvoice(
+    prefix: match.group(1)!,
+    branchId: branchId,
+    suffix: suffix,
+  );
+}
+
 /// Single prefix for all channels (take away, dine in, delivery).
 String invoicePrefixForOrderType(String orderType) {
   return 'INV';

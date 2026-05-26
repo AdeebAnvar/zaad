@@ -9,7 +9,7 @@ class HubOrdersLiveSync {
 
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
   Timer? _debounce;
-  static const int _debounceMs = 200;
+  static const int _debounceMs = 400;
 
   void notifyHubOrdersChanged() {
     _debounce?.cancel();

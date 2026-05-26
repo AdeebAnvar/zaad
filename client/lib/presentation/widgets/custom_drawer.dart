@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/isolate/app_isolate_service.dart';
 import 'package:pos/core/utils/app_update_cache_clear.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -454,6 +455,7 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
   }
 
   void _logout() async {
+    await locator<AppIsolateService>().shutdown();
     await locator<AppDatabase>().sessionDao.clearSession();
     locator<CurrentCounterSession>().clear();
 
