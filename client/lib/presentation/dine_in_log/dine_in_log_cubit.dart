@@ -140,8 +140,18 @@ class DineInLogCubit extends Cubit<DineInLogState> {
 
   Future<void> deleteOrder(int orderId) async {
     try {
+      final prior = state;
+      if (prior is DineInLogLoaded) {
+        final removed = prior.orders.where((o) => o.id == orderId).firstOrNull;
+        final counts = Map<int, int>.from(prior.cartLineCountsByCartId);
+        if (removed != null) counts.remove(removed.cartId);
+        emit(DineInLogLoaded(
+          prior.orders.where((o) => o.id != orderId).toList(),
+          counts,
+        ));
+      }
       await orderRepo.deleteOrder(orderId);
-      await loadOrders();
+      unawaited(loadOrders());
     } catch (e) {
       emit(DineInLogError(e.toString()));
     }

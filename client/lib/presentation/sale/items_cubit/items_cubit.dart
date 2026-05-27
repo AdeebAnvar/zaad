@@ -69,10 +69,14 @@ class ItemsCubit extends Cubit<ItemState> {
 
   Future<void> fetchItemsAndCategories() async {
     unawaited(TenantImageUrlCache.ensureBaseUrlLoaded());
-    _allItems = await _repo.fetchItemsFromLocal();
-    _allCategories = await _repo.fetchCategoriesFromLocal();
-    final allVariants = await _repo.fetchAllVariants();
-    _variantItemIds = allVariants.map((v) => v.itemId).toSet();
+    final trio = await Future.wait([
+      _repo.fetchItemsFromLocal(),
+      _repo.fetchCategoriesFromLocal(),
+      _repo.fetchAllVariants(),
+    ]);
+    _allItems = trio[0] as List<Item>;
+    _allCategories = trio[1] as List<Category>;
+    _variantItemIds = (trio[2] as List<ItemVariant>).map((v) => v.itemId).toSet();
     await _resolveDeliveryFilterToken();
     // #region agent log
     agentDebugLog(

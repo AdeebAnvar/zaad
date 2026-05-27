@@ -76,7 +76,7 @@ class _DineInScreenState extends State<DineInScreen> {
     super.initState();
     final hub = locator<HubOrdersLiveSync>();
     void onRev() {
-      if (mounted) _load();
+      if (mounted) _load(showLoadingOverlay: false);
     }
 
     hub.revision.addListener(onRev);
@@ -90,19 +90,26 @@ class _DineInScreenState extends State<DineInScreen> {
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool showLoadingOverlay = true}) async {
+    if (showLoadingOverlay) {
+      setState(() => _loading = true);
+    }
     final priorFloorIndex = _selectedFloorIndex;
     final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
     final session = await _db.sessionDao.getActiveSession();
     final branchId = session?.branchId ?? 1;
-    final floors = await _db.diningTablesDao.getFloorsForBranch(branchId);
-    final allTables = await _db.diningTablesDao.getAllDiningTablesForBranch(branchId);
-    final orders = await _orderRepo.filterOrders(orderType: 'dine_in');
-    final active = orders.where((o) {
-      final s = o.status.toLowerCase();
-      return s != 'completed' && s != 'cancelled';
-    }).toList();
+    final triple = await Future.wait([
+      _db.diningTablesDao.getFloorsForBranch(branchId),
+      _db.diningTablesDao.getAllDiningTablesForBranch(branchId),
+      _orderRepo.filterOrders(
+        orderType: 'dine_in',
+        excludeStatusAnyOf: const ['completed', 'cancelled'],
+      ),
+    ]);
+    final floors = triple[0] as List<DiningFloor>;
+    final allTables = triple[1] as List<DiningTable>;
+    final orders = triple[2] as List<Order>;
+    final active = List<Order>.from(orders);
     sortOrdersNewestFirst(active);
 
     final codeToFloors = <String, Set<int>>{};

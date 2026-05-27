@@ -33,4 +33,7 @@ abstract class CartRepository {
   Future<void> updateCartItemTotal(int cartItemId, double total);
 
   Future<void> removeCartItem(int cartItemId);
+
+  /// Clears and re-inserts all lines (single transaction).
+  Future<void> replaceCartItems(int cartId, List<CartItem> lines);
 }

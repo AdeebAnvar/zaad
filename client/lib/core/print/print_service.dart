@@ -19,17 +19,20 @@ import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/presentation/day_closing/day_closing_summary.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
-import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/domain/models/branch_model.dart';
 
 /// Handles KOT (per-kitchen) and final bill printing.
 class PrintService {
-  PrintService(this._db, this._itemRepo, this._cartRepo);
+  PrintService(this._db, this._cartRepo);
 
   final AppDatabase _db;
-  final ItemRepository _itemRepo;
   final CartRepository _cartRepo;
+
+  CapabilityProfile? _thermalProfile;
+
+  Future<CapabilityProfile> _thermalCapabilityProfile() async =>
+      _thermalProfile ??= await CapabilityProfile.load();
 
   static const int _defaultPort = 9100;
   static const Duration _connectionTimeout = Duration(seconds: 15);
@@ -290,14 +293,6 @@ class PrintService {
     if (st == 'completed') return true;
     if (totalPayable <= 0.009) return false;
     return paidSum + 0.02 >= totalPayable;
-  }
-
-  /// Prefer visible-catalog item; fall back to raw row so print routing ([Item.kitchenId]) works
-  /// when the category was hidden from POS but cart lines still reference the item.
-  Future<Item?> _itemRowForPrint(int itemId) async {
-    final visible = await _itemRepo.fetchItemByIdFromLocal(itemId);
-    if (visible != null) return visible;
-    return _db.itemDao.getItemById(itemId);
   }
 
   Future<({String ip, int port, String kitchenLabel})?> _firstNonBillKitchenPrinter() async {
@@ -564,11 +559,10 @@ class PrintService {
         ? cashierName!.trim()
         : await _resolveCashierName();
 
+    final kotLines = await _buildPrintLines(rows.map((r) => r.lineForKitchen).toList());
     final paired = <(KotKitchenUpdateRow, _PrintLine)>[];
-    for (final r in rows) {
-      final pls = await _buildPrintLines([r.lineForKitchen]);
-      if (pls.isEmpty) continue;
-      paired.add((r, pls.first));
+    for (var i = 0; i < rows.length && i < kotLines.length; i++) {
+      paired.add((rows[i], kotLines[i]));
     }
     if (paired.isEmpty) return failed;
 
@@ -1321,7 +1315,7 @@ class PrintService {
 
     Future<bool> pulseOnce(PosDrawer drawerPin) async {
       try {
-        final profile = await CapabilityProfile.load();
+        final profile = await _thermalCapabilityProfile();
         final generator = Generator(PaperSize.mm80, profile);
         final bytes = generator.drawer(pin: drawerPin);
         final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
@@ -1434,17 +1428,36 @@ class PrintService {
   }
 
   Future<List<_PrintLine>> _buildPrintLines(List<CartItem> cartItems) async {
+    if (cartItems.isEmpty) return const [];
+
+    final itemIds = cartItems.map((c) => c.itemId).toSet().toList();
+    final variantIds = cartItems.map((c) => c.itemVariantId).whereType<int>().toSet().toList();
+    final toppingIds = cartItems.map((c) => c.itemToppingId).whereType<int>().toSet().toList();
+
+    final sessionBranch = (await _db.sessionDao.getActiveSession())?.branchId ?? 1;
+
+    final batch = await Future.wait([
+      _db.itemDao.getItemsByIds(itemIds),
+      _db.itemDao.getVisibleItemsForIds(branchId: sessionBranch, itemIds: itemIds),
+      _db.itemDao.getVariantsByIds(variantIds),
+      _db.itemDao.getToppingsByIds(toppingIds),
+    ]);
+    final rawById = {for (final i in batch[0] as List<Item>) i.id: i};
+    final visById = {for (final i in batch[1] as List<Item>) i.id: i};
+    final varById = {for (final v in batch[2] as List<ItemVariant>) v.id: v};
+    final topById = {for (final t in batch[3] as List<ItemTopping>) t.id: t};
+
     final lines = <_PrintLine>[];
     for (final ci in cartItems) {
-      final item = await _itemRowForPrint(ci.itemId);
+      final item = visById[ci.itemId] ?? rawById[ci.itemId];
+
       ItemVariant? variant;
-      if (ci.itemVariantId != null) {
-        variant = await _itemRepo.fetchVariantById(ci.itemVariantId!);
-      }
+      final vid = ci.itemVariantId;
+      if (vid != null) variant = varById[vid];
+
       ItemTopping? topping;
-      if (ci.itemToppingId != null) {
-        topping = await _itemRepo.fetchToppingById(ci.itemToppingId!);
-      }
+      final tid = ci.itemToppingId;
+      if (tid != null) topping = topById[tid];
 
       String? toppingInfo;
       List<(String name, num qty)>? kotToppings;
@@ -1742,7 +1755,7 @@ class PrintService {
     required DateTime orderedAt,
     String? cashierName,
   }) async {
-    final profile = await CapabilityProfile.load();
+    final profile = await _thermalCapabilityProfile();
     final generator = Generator(PaperSize.mm80, profile);
     List<int> bytes = [];
 
@@ -1812,7 +1825,7 @@ class PrintService {
     required DateTime orderedAt,
     String? cashierName,
   }) async {
-    final profile = await CapabilityProfile.load();
+    final profile = await _thermalCapabilityProfile();
     final generator = Generator(PaperSize.mm80, profile);
     List<int> bytes = [];
 
@@ -1889,7 +1902,7 @@ class PrintService {
     bool updatedOrder = false,
     bool asTaxInvoice = true,
   }) async {
-    final profile = await CapabilityProfile.load();
+    final profile = await _thermalCapabilityProfile();
     final generator = Generator(PaperSize.mm80, profile);
     List<int> bytes = [];
 
@@ -2183,7 +2196,7 @@ class PrintService {
     required img.Image? logoImage,
     required String closedBy,
   }) async {
-    final profile = await CapabilityProfile.load();
+    final profile = await _thermalCapabilityProfile();
     final generator = Generator(PaperSize.mm80, profile);
     List<int> bytes = [];
 

@@ -163,8 +163,9 @@ class DineInRefParser {
     required int excludeOrderId,
     required AppDatabase db,
     required List<Order> activeDineInOrders,
+    required int branchId,
   }) async {
-    final allTables = await db.diningTablesDao.getAllDiningTables();
+    final allTables = await db.diningTablesDao.getAllDiningTablesForBranch(branchId);
     final codeToFloors = <String, Set<int>>{};
     for (final t in allTables) {
       codeToFloors.putIfAbsent(tableKey(t.code), () => {}).add(t.floorId);

@@ -97,6 +97,13 @@ class SalesCsvBackup {
     await _writeQueue;
   }
 
+  /// Clears debounced XLSX rebuild so it does not start while the DB is closing.
+  static void cancelScheduledDebouncedRefresh() {
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+    _debouncedDb = null;
+  }
+
   static const List<String> _headers = [
     'id',
     'cart_id',

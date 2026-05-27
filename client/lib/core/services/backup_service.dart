@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:pos/core/services/backup_restore_policy.dart';
 import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/core/utils/sqlite_file_backup.dart';
+import 'package:pos/core/utils/sqlite_file_backup_async.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite;
 
@@ -16,11 +17,14 @@ class BackupService {
   static const int _orderThreshold = 10;
   static const Duration _timeThreshold = Duration(minutes: 2);
   static const Duration _retention = Duration(days: 7);
+  /// Only compare against recent snapshots when validating order counts (avoids opening every `.db`).
+  static const int _maxBackupsForOrderCountScan = 12;
 
   int _pendingOrderMutations = 0;
   DateTime _lastBackupAt = DateTime.fromMillisecondsSinceEpoch(0);
   Future<void> _queue = Future<void>.value();
   Timer? _periodicTimer;
+  bool _preparingExit = false;
 
   Future<Directory> _backupDir() => AppDirectories.backupDir();
 
@@ -29,18 +33,36 @@ class BackupService {
     return 'backup_${now.year}_${two(now.month)}_${two(now.day)}_${two(now.hour)}_${two(now.minute)}.db';
   }
 
-  Future<void> recordOrderMutation(AppDatabase db) async {
+  /// Counts mutations and queues a WAL backup when thresholds are met.
+  ///
+  /// Returns immediately — does **not** wait for checkpoint/copy/purge. Safe on checkout
+  /// hot paths (`createOrder`, etc.).
+  void enqueueBackupAfterMutation(AppDatabase db) {
+    if (_preparingExit) return;
     _pendingOrderMutations += 1;
     final now = DateTime.now();
-    final shouldBackup = _pendingOrderMutations >= _orderThreshold || now.difference(_lastBackupAt) >= _timeThreshold;
+    final shouldBackup =
+        _pendingOrderMutations >= _orderThreshold ||
+        now.difference(_lastBackupAt) >= _timeThreshold;
     if (!shouldBackup) return;
-    await backupNow(db);
+    _queue = _queue
+        .then((_) => _doBackup(db))
+        .catchError((Object e, StackTrace st) {
+      debugPrint('[BackupService] Background backup failed: $e\n$st');
+      unawaited(_log('Background backup failed: $e\n$st'));
+    });
   }
 
+  /// @nodoc Prefer [enqueueBackupAfterMutation] — awaiting backups blocks the UI isolate.
+  @Deprecated('Use enqueueBackupAfterMutation; do not await backup on checkout paths')
+  void recordOrderMutation(AppDatabase db) => enqueueBackupAfterMutation(db);
+
   void startAutoBackup(AppDatabase db) {
+    _preparingExit = false;
     _periodicTimer?.cancel();
     // Purge scans every backup .db — defer so login UI is not frozen on cold start.
     Future<void>.delayed(const Duration(minutes: 3), () {
+      if (_preparingExit) return;
       unawaited(purgeExpiredBackups().catchError((Object e, StackTrace st) {
         _log('deferred purgeExpiredBackups: $e\n$st');
       }));
@@ -51,16 +73,25 @@ class BackupService {
   }
 
   Future<void> backupNow(AppDatabase db) {
+    if (_preparingExit) return Future<void>.value();
     _queue = _queue.then((_) => _doBackup(db));
     return _queue;
   }
 
+  /// Stops timers and rejects new backup jobs — avoids `wal_checkpoint` + bulk copy competing with SQLite close on exit.
+  void prepareForExit() {
+    _preparingExit = true;
+    _periodicTimer?.cancel();
+    _periodicTimer = null;
+  }
+
   Future<void> _doBackup(AppDatabase db) async {
+    if (_preparingExit) return;
     try {
       final localDir = await AppDirectories.local();
       final dbFile = File(p.join(localDir.path, 'pos.sqlite'));
       if (!await dbFile.exists()) return;
-      if (!SqliteFileBackup.quickCheckOk(dbFile)) {
+      if (!await SqliteFileBackupAsync.quickCheckOk(dbFile)) {
         _log('Skipped backup: live database failed integrity check');
         return;
       }
@@ -73,13 +104,13 @@ class BackupService {
         targetFile: target,
       );
 
-      if (!SqliteFileBackup.quickCheckOk(target)) {
+      if (!await SqliteFileBackupAsync.quickCheckOk(target)) {
         await _deleteIfExists(target);
         _log('Discarded backup: integrity check failed after copy (${target.path})');
         return;
       }
 
-      final newCount = SqliteFileBackup.countOrders(target);
+      final newCount = await SqliteFileBackupAsync.countOrders(target);
       final bestKnown = await _maxOrderCountInBackups(exclude: target.path);
       if (BackupRestorePolicy.shouldRejectNewBackup(
         newOrderCount: newCount,
@@ -94,7 +125,13 @@ class BackupService {
 
       _pendingOrderMutations = 0;
       _lastBackupAt = DateTime.now();
-      await purgeExpiredBackups();
+      // Purge opens every backup file — defer so checkout/KOT UI can paint first.
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (_preparingExit) return;
+        unawaited(purgeExpiredBackups().catchError((Object e, StackTrace st) {
+          _log('deferred purgeExpiredBackups: $e\n$st');
+        }));
+      });
     } catch (e, st) {
       _log('Backup failed: $e\n$st');
     }
@@ -379,10 +416,10 @@ class BackupService {
       out.add(
         BackupSnapshotInfo(
           path: file.path,
-          orderCount: SqliteFileBackup.countOrders(file),
+          orderCount: await SqliteFileBackupAsync.countOrders(file),
           fileBytes: stat.size,
           modifiedMs: stat.modified.millisecondsSinceEpoch,
-          integrityOk: SqliteFileBackup.quickCheckOk(file),
+          integrityOk: await SqliteFileBackupAsync.quickCheckOk(file),
         ),
       );
     }
@@ -393,11 +430,12 @@ class BackupService {
     final backupDir = await _backupDir();
     if (!await backupDir.exists()) return 0;
     final files = await _listBackupDbFiles(backupDir);
+    files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
     var max = 0;
-    for (final file in files) {
+    for (final file in files.take(_maxBackupsForOrderCountScan)) {
       if (exclude != null && file.path == exclude) continue;
-      if (!SqliteFileBackup.quickCheckOk(file)) continue;
-      final n = SqliteFileBackup.countOrders(file);
+      if (!await SqliteFileBackupAsync.quickCheckOk(file)) continue;
+      final n = await SqliteFileBackupAsync.countOrders(file);
       if (n > max) max = n;
     }
     return max;

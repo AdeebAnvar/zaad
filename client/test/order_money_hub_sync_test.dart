@@ -197,8 +197,8 @@ void main() {
   });
 
   group('OrderPushStatus (MAIN / SUB status mapping)', () {
-    test('take_away always pushes pending to remote', () {
-      expect(OrderPushStatus.toRemote(orderType: 'take_away', localStatus: 'completed'), 'pending');
+    test('take_away completed maps to delivered on remote', () {
+      expect(OrderPushStatus.toRemote(orderType: 'take_away', localStatus: 'completed'), 'delivered');
     });
 
     test('delivery completed maps to delivered', () {

@@ -5,6 +5,7 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/core/utils/image_utils.dart';
+import 'package:pos/core/utils/invoice_suffix_max_sql.dart';
 import 'package:pos/domain/models/branch_model.dart';
 import 'package:pos/domain/models/settings_model.dart';
 import 'package:pos/domain/models/user_model.dart';

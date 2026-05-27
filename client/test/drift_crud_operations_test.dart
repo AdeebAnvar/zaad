@@ -54,6 +54,25 @@ void main() {
     });
   });
 
+  group('CustomersDao', () {
+    test('getCustomersMapByServerIds and markAsSyncedBatch', () async {
+      await db.customersDao.insertCustomer(
+        CustomersCompanion.insert(
+          name: 'BatchTest',
+          serverId: const Value('srv-batch-1'),
+          isSynced: const Value(false),
+        ),
+      );
+      final map = await db.customersDao.getCustomersMapByServerIds({'srv-batch-1', 'missing'});
+      expect(map['srv-batch-1'], isNotNull);
+      expect(map.containsKey('missing'), isFalse);
+
+      final id = map['srv-batch-1']!.id;
+      await db.customersDao.markAsSyncedBatch([id]);
+      expect((await db.customersDao.getCustomerById(id))?.isSynced, isTrue);
+    });
+  });
+
   group('CartsDao', () {
     test('insert get update delete cart', () async {
       final cartId = await db.cartsDao.createCart(
@@ -322,6 +341,64 @@ void main() {
       );
       expect(listed, hasLength(1));
       expect(listed.single.hubMetadata, isNull);
+    });
+
+    test('onlyRecentSaleSettled includes paid placed, excludes kot and unpaid placed', () async {
+      await db.ordersDao.createOrder(
+        OrdersCompanion.insert(
+          cartId: cartId,
+          invoiceNumber: 'INV-RS-PAID',
+          totalAmount: 100,
+          finalAmount: 100,
+          cashAmount: const Value(100),
+          creditAmount: const Value(0),
+          cardAmount: const Value(0),
+          onlineAmount: const Value(0),
+          createdAt: DateTime.utc(2026, 5, 18, 12),
+          status: const Value('placed'),
+          branchId: const Value(2),
+        ),
+      );
+      await db.ordersDao.createOrder(
+        OrdersCompanion.insert(
+          cartId: cartId,
+          invoiceNumber: 'INV-RS-UP',
+          totalAmount: 100,
+          finalAmount: 100,
+          cashAmount: const Value(0),
+          createdAt: DateTime.utc(2026, 5, 18, 13),
+          status: const Value('placed'),
+          branchId: const Value(2),
+        ),
+      );
+      await db.ordersDao.createOrder(
+        OrdersCompanion.insert(
+          cartId: cartId,
+          invoiceNumber: 'INV-RS-KOT',
+          totalAmount: 50,
+          finalAmount: 50,
+          createdAt: DateTime.utc(2026, 5, 18, 14),
+          status: const Value('kot'),
+          branchId: const Value(2),
+        ),
+      );
+
+      final rows = await db.ordersDao.filterOrdersForList(
+        branchId: 2,
+        onlyRecentSaleSettled: true,
+        invoiceNumber: 'INV-RS',
+      );
+      final invs = rows.map((e) => e.invoiceNumber).toSet();
+      expect(invs.contains('INV-RS-PAID'), isTrue);
+      expect(invs.contains('INV-RS-KOT'), isFalse);
+      expect(invs.contains('INV-RS-UP'), isFalse);
+
+      final cnt = await db.ordersDao.countOrdersForList(
+        branchId: 2,
+        onlyRecentSaleSettled: true,
+        invoiceNumber: 'INV-RS',
+      );
+      expect(cnt, rows.length);
     });
 
     test('setHubCorrelationIfUnset writes serverOrderId once', () async {

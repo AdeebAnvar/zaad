@@ -85,6 +85,12 @@ class UsersDao extends DatabaseAccessor<AppDatabase> with _$UsersDaoMixin {
     return _toModel(result);
   }
 
+  Future<List<UserModel>> findUsersByIds(List<int> ids) async {
+    if (ids.isEmpty) return const [];
+    final data = await (select(users)..where((u) => u.id.isIn(ids))).get();
+    return data.map(_toModel).toList();
+  }
+
   /// =========================
   /// DELETE USERS (SYNC)
   /// =========================

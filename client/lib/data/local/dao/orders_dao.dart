@@ -126,11 +126,33 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   }) async {
     final key = correlationId.trim();
     if (key.isEmpty) return;
-    final row = await getOrderById(orderId);
-    if (row == null) return;
-    if ((row.serverOrderId ?? '').trim().isNotEmpty) return;
-    await (update(orders)..where((o) => o.id.equals(orderId))).write(
-      OrdersCompanion(serverOrderId: Value(key)),
+    await (update(orders)
+          ..where((o) => o.id.equals(orderId))
+          ..where(
+            (o) =>
+                o.serverOrderId.isNull() |
+                o.serverOrderId.equals(''),
+          ))
+        .write(OrdersCompanion(serverOrderId: Value(key)));
+  }
+
+  /// Open KOT qty edits — totals only; skips hub freeze / order_logs / cloud enqueue.
+  Future<void> updateKotOrderTotals({
+    required int orderId,
+    required double totalAmount,
+    required double finalAmount,
+    required int cartId,
+    Value<String?> referenceNumber = const Value.absent(),
+    Value<String?> hubMetadata = const Value.absent(),
+  }) {
+    return (update(orders)..where((o) => o.id.equals(orderId))).write(
+      OrdersCompanion(
+        totalAmount: Value(totalAmount),
+        finalAmount: Value(finalAmount),
+        cartId: Value(cartId),
+        referenceNumber: referenceNumber,
+        hubMetadata: hubMetadata,
+      ),
     );
   }
 
@@ -275,6 +297,32 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     orders.hubSyncPending,
   ];
 
+  /// Mirrors [orderCountsAsRecentSale] (Recent Sales default list) — keep SQL in sync with that helper.
+  static final Expression<bool> _recentSaleSettledSql = CustomExpression(
+    '(NOT (LOWER(TRIM(status)) IN (\'cancelled\', \'kot\')) AND '
+    '(LOWER(TRIM(status)) IN (\'completed\', \'delivered\') OR '
+    '((CASE WHEN final_amount > 0.009 THEN final_amount ELSE total_amount END) > 0.009 '
+    'AND (cash_amount + card_amount + credit_amount + online_amount + 0.02) >= '
+    '(CASE WHEN final_amount > 0.009 THEN final_amount ELSE total_amount END))))',
+  );
+
+  Expression<bool>? _listPaymentPredicate(String? raw) {
+    if (raw == null) return null;
+    final k = raw.trim().toLowerCase();
+    switch (k) {
+      case 'cash':
+        return orders.cashAmount.isBiggerThanValue(0.004);
+      case 'card':
+        return orders.cardAmount.isBiggerThanValue(0.004);
+      case 'credit':
+        return orders.creditAmount.isBiggerThanValue(0.004);
+      case 'online':
+        return orders.onlineAmount.isBiggerThanValue(0.004);
+      default:
+        return null;
+    }
+  }
+
   Order _orderFromListRow(TypedResult row) {
     return Order(
       id: row.read(orders.id)!,
@@ -336,16 +384,17 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
 
   /// Unsynced log whose JSON payload includes `order_id` (push_records snapshot).
   Future<OrderLog?> findUnsyncedLogByLocalOrderId(int localOrderId) async {
-    final logs = await getUnsyncedOrderLogs();
-    for (final log in logs) {
-      try {
-        final decoded = jsonDecode(log.orderJson);
-        if (decoded is Map && decoded['order_id'] == localOrderId) {
-          return log;
-        }
-      } catch (_) {}
+    try {
+      final jsonHit = await _findOrderLogByJsonExtract(
+        localOrderId: localOrderId,
+        syncedClause: 'synced = 0 AND ',
+        orderDir: 'ASC',
+      );
+      if (jsonHit != null) return jsonHit;
+    } on SqliteException {
+      return _findUnsyncedLogByLocalOrderIdScan(localOrderId);
     }
-    return null;
+    return _findUnsyncedLogByLocalOrderIdScan(localOrderId);
   }
 
   Future<void> updateOrderLogPayload(int logId, String orderJson) {
@@ -359,19 +408,17 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   }
 
   Future<OrderLog?> findLatestOrderLogByLocalOrderId(int localOrderId) async {
-    final logs =
-        await (select(orderLogs)..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).get();
-    for (final log in logs) {
-      try {
-        final decoded = jsonDecode(log.orderJson);
-        if (decoded is Map && decoded['order_id'] == localOrderId) {
-          return log;
-        }
-      } catch (_) {
-        /* ignore */
-      }
+    try {
+      final jsonHit = await _findOrderLogByJsonExtract(
+        localOrderId: localOrderId,
+        syncedClause: '',
+        orderDir: 'DESC',
+      );
+      if (jsonHit != null) return jsonHit;
+    } on SqliteException {
+      return _findLatestOrderLogByLocalOrderIdScan(localOrderId);
     }
-    return null;
+    return _findLatestOrderLogByLocalOrderIdScan(localOrderId);
   }
 
   Future<void> setOrderLogsSyncedState(List<int> ids, {required bool synced}) async {
@@ -381,17 +428,73 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     );
   }
 
+  Future<OrderLog?> _findOrderLogByJsonExtract({
+    required int localOrderId,
+    required String syncedClause,
+    required String orderDir,
+  }) async {
+    final rows = await customSelect(
+      'SELECT id, order_json, created_at, synced FROM order_logs WHERE '
+          "${syncedClause}CAST(json_extract(order_json, '\$.order_id') AS INTEGER) = ? "
+          'ORDER BY created_at $orderDir LIMIT 1',
+      variables: [Variable.withInt(localOrderId)],
+      readsFrom: {orderLogs},
+    ).get();
+    if (rows.isEmpty) return null;
+    final r = rows.single;
+    return OrderLog(
+      id: r.read<int>('id'),
+      orderJson: r.read<String>('order_json'),
+      createdAt: r.read<DateTime>('created_at'),
+      synced: r.read<bool>('synced'),
+    );
+  }
+
+  Future<OrderLog?> _findUnsyncedLogByLocalOrderIdScan(int localOrderId) async {
+    final logs = await getUnsyncedOrderLogs();
+    for (final log in logs) {
+      if (_orderLogMapsToLocalOrderId(log, localOrderId)) return log;
+    }
+    return null;
+  }
+
+  Future<OrderLog?> _findLatestOrderLogByLocalOrderIdScan(int localOrderId) async {
+    final logs =
+        await (select(orderLogs)..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).get();
+    for (final log in logs) {
+      if (_orderLogMapsToLocalOrderId(log, localOrderId)) return log;
+    }
+    return null;
+  }
+
+  bool _orderLogMapsToLocalOrderId(OrderLog log, int localOrderId) {
+    try {
+      final decoded = jsonDecode(log.orderJson);
+      if (decoded is! Map) return false;
+      final oid = decoded['order_id'];
+      return oid == localOrderId || oid?.toString() == localOrderId.toString();
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> deleteOrderLogsForLocalOrderId(int localOrderId) async {
+    try {
+      await customStatement(
+        "DELETE FROM order_logs WHERE CAST(json_extract(order_json, '\$.order_id') AS INTEGER) = ?",
+        [localOrderId],
+      );
+    } on SqliteException {
+      await _deleteOrderLogsForLocalOrderIdScan(localOrderId);
+    }
+  }
+
+  Future<void> _deleteOrderLogsForLocalOrderIdScan(int localOrderId) async {
     final logs = await select(orderLogs).get();
     final toDelete = <int>[];
     for (final log in logs) {
-      try {
-        final decoded = jsonDecode(log.orderJson);
-        if (decoded is Map && decoded['order_id'] == localOrderId) {
-          toDelete.add(log.id);
-        }
-      } catch (_) {
-        /* ignore */
+      if (_orderLogMapsToLocalOrderId(log, localOrderId)) {
+        toDelete.add(log.id);
       }
     }
     if (toDelete.isEmpty) return;
@@ -428,6 +531,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     int? userId,
     int? branchId,
     int? limit,
+    List<String>? excludeStatusAnyOf,
   }) {
     var query = select(orders);
 
@@ -447,6 +551,10 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       query = query..where((o) => o.status.isIn(statusAnyOf));
     } else if (status != null && status.isNotEmpty) {
       query = query..where((o) => o.status.equals(status));
+    }
+
+    if (excludeStatusAnyOf != null && excludeStatusAnyOf.isNotEmpty) {
+      query = query..where((o) => o.status.isNotIn(excludeStatusAnyOf));
     }
 
     if (orderType != null && orderType.isNotEmpty) {
@@ -510,11 +618,27 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     int? branchId,
     int? limit,
     int offset = 0,
+    bool onlyRecentSaleSettled = false,
+    String? paymentMethodKey,
+    bool excludeKotStatus = false,
   }) {
     var query = selectOnly(orders)..addColumns(_listOrderColumns);
 
     if (branchId != null) {
       query = query..where(orders.branchId.equals(branchId));
+    }
+
+    if (excludeKotStatus) {
+      query = query..where(orders.status.equals('kot').not());
+    }
+
+    if (onlyRecentSaleSettled) {
+      query = query..where(_recentSaleSettledSql);
+    }
+
+    final payPred = _listPaymentPredicate(paymentMethodKey);
+    if (payPred != null) {
+      query = query..where(payPred);
     }
 
     if (invoiceNumber != null && invoiceNumber.isNotEmpty) {
@@ -589,12 +713,28 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     int? driverId,
     int? userId,
     int? branchId,
+    bool onlyRecentSaleSettled = false,
+    String? paymentMethodKey,
+    bool excludeKotStatus = false,
   }) async {
     final countExp = orders.id.count();
     var query = selectOnly(orders)..addColumns([countExp]);
 
     if (branchId != null) {
       query = query..where(orders.branchId.equals(branchId));
+    }
+
+    if (excludeKotStatus) {
+      query = query..where(orders.status.equals('kot').not());
+    }
+
+    if (onlyRecentSaleSettled) {
+      query = query..where(_recentSaleSettledSql);
+    }
+
+    final payPred = _listPaymentPredicate(paymentMethodKey);
+    if (payPred != null) {
+      query = query..where(payPred);
     }
 
     if (invoiceNumber != null && invoiceNumber.isNotEmpty) {
@@ -677,32 +817,13 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   /// Supports:
   /// - Current format: `PREFIX-branchId-###` (e.g. `INV-1-002`)
   /// - Legacy format: `PREFIX##` (e.g. `INV02`)
-  Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) async {
-    // Invoice number only — avoids deserializing created_at on legacy/bad rows.
-    final rows = await (selectOnly(orders)
-          ..addColumns([orders.invoiceNumber])
-          ..where(orders.invoiceNumber.like('$prefix%'))
-          ..where(orders.branchId.equals(branchId)))
-        .get();
-    var max = 0;
-    final escapedPrefix = RegExp.escape(prefix);
-    final currentFormat = RegExp('^$escapedPrefix-$branchId-(\\d+)\$');
-    final legacyFormat = RegExp('^$escapedPrefix(\\d+)\$');
-
-    for (final row in rows) {
-      final inv = row.read(orders.invoiceNumber)!;
-      int? v;
-      final currentMatch = currentFormat.firstMatch(inv);
-      if (currentMatch != null) {
-        v = int.tryParse(currentMatch.group(1)!);
-      } else {
-        final legacyMatch = legacyFormat.firstMatch(inv);
-        if (legacyMatch != null) {
-          v = int.tryParse(legacyMatch.group(1)!);
-        }
-      }
-      if (v != null && v > max) max = v;
-    }
-    return max;
+  Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) {
+    return maxInvoiceNumericSuffixForPrefixOnTable(
+      accessor: this,
+      tableName: 'orders',
+      invoiceColumn: 'invoice_number',
+      prefix: prefix,
+      branchId: branchId,
+    );
   }
 }

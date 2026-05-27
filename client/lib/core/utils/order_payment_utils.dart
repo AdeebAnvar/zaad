@@ -21,6 +21,9 @@ double orderBalanceDue(Order o) {
 }
 
 /// Paid or formally closed — Recent Sales default list (aligned with day-close settled rows).
+///
+/// **Keep in sync** with the `onlyRecentSaleSettled` SQL predicate in [OrdersDao] (`filterOrdersForList` /
+/// `countOrdersForList`): both must use the same rules for SQL vs Dart filtering.
 bool orderCountsAsRecentSale(Order o) {
   final s = o.status.toLowerCase();
   if (s == 'cancelled' || s == 'kot') return false;

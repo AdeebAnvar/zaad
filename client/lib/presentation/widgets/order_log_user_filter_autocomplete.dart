@@ -52,9 +52,10 @@ class _OrderLogUserFilterAutocompleteState
       var users = await db.usersDao.getUsersForBranch(branchId);
       if (users.isEmpty) {
         final ids = await db.ordersDao.getDistinctCashierUserIdsForBranch(branchId);
-        for (final id in ids) {
-          final u = await db.usersDao.findUserById(id);
-          if (u != null && u.branchId == branchId) users.add(u);
+        if (ids.isNotEmpty) {
+          final fetched = await db.usersDao.findUsersByIds(ids);
+          users =
+              fetched.where((u) => u.branchId == branchId).toList(growable: false);
         }
       }
       if (users.isEmpty) {

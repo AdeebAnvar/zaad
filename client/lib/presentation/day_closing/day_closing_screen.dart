@@ -12,6 +12,7 @@ import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/core/sync/outbound_push_coordinator.dart';
 import 'package:pos/data/repository/push_records_repository.dart';
 import 'package:pos/data/repository_impl/settle_sale_push_mapper.dart';
 import 'package:pos/features/day_closing/data/day_closing_live_sync.dart';
@@ -212,24 +213,23 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         settledAt: settledAt,
       );
 
-      PushRecordsOutcome? pushOut;
       final canPushToCloud = hub == null || !hub.blocksTenantCloudRest;
-      if (canPushToCloud && locator.isRegistered<PushRecordsRepository>()) {
-        pushOut = await locator<PushRecordsRepository>().pushSalesAndCreditSalesFromLocal();
-      }
-
       if (!mounted) return;
-      if (pushOut != null && !pushOut.ok) {
-        CustomSnackBar.showWarning(
-          message:
-              'Day closed locally. Could not sync to server: ${_formatPushOutcomeMessage(pushOut)}',
+      CustomSnackBar.showSuccess(message: 'Day closed successfully.');
+      if (canPushToCloud && locator.isRegistered<OutboundPushCoordinator>()) {
+        locator<OutboundPushCoordinator>().scheduleFlush();
+      } else if (canPushToCloud && locator.isRegistered<PushRecordsRepository>()) {
+        unawaited(
+          locator<PushRecordsRepository>().pushSalesAndCreditSalesFromLocal().then((pushOut) {
+            if (!mounted) return;
+            if (!pushOut.ok) {
+              CustomSnackBar.showWarning(
+                message:
+                    'Day closed locally. Could not sync to server: ${_formatPushOutcomeMessage(pushOut)}',
+              );
+            }
+          }),
         );
-      } else if (pushOut != null) {
-        CustomSnackBar.showSuccess(
-          message: 'Day closed successfully. Synced ${_formatPushOutcomeMessage(pushOut)}.',
-        );
-      } else {
-        CustomSnackBar.showSuccess(message: 'Day closed successfully.');
       }
       await _load();
     } catch (e) {
