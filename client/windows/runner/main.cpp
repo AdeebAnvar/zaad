@@ -9,6 +9,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
   // One POS window per user session — extra clicks focus the running app instead
   // of starting a second process that blocks on the SQLite file.
+  //
+  // In Debug builds, do NOT exit early here: `flutter run` starts a second
+  // process that must stay alive for the VM Service. If another pos.exe holds
+  // the mutex and we return EXIT_SUCCESS immediately, the tool shows
+  // "The log reader stopped unexpectedly, or never started."
+#if !defined(_DEBUG)
   HANDLE single_instance_mutex = ::CreateMutexW(
       nullptr, TRUE, L"Global\\ZaadPOS_SingleInstance_v1");
   if (single_instance_mutex != nullptr &&
@@ -25,6 +31,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       single_instance_mutex = nullptr;
     }
   }
+#endif  // !_DEBUG
 
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.

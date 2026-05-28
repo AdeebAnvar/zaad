@@ -155,12 +155,14 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
     }).toList();
 
     if (seatHandling) {
+      final branchId = await _db.sessionDao.requireActiveBranchId();
       final used = await DineInRefParser.occupiedPaxOnTableExcluding(
         floorId: fid,
         tableCodeUpper: DineInRefParser.tableKey(table.code),
         excludeOrderId: widget.order.id,
         db: _db,
         activeDineInOrders: activeList,
+        branchId: branchId,
       );
 
       if (used + pax > table.chairs) {

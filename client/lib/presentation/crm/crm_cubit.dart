@@ -73,8 +73,12 @@ class CrmCubit extends Cubit<CrmState> {
   Future<void> loadCustomers() async {
     emit(CrmLoading());
     try {
-      final customers = await _customerRepo.getAllLocalCustomers();
-      final allOrders = await _ordersForActiveBranch();
+      final pair = await Future.wait([
+        _customerRepo.getAllLocalCustomers(),
+        _ordersForActiveBranch(),
+      ]);
+      final customers = pair[0] as List<PosCustomer>;
+      final allOrders = pair[1] as List<Order>;
       final customersWithOrders = await compute(
         _buildCustomerWithOrders,
         _MatchPayload(customers: customers, orders: allOrders),
@@ -92,8 +96,12 @@ class CrmCubit extends Cubit<CrmState> {
     }
     emit(CrmLoading());
     try {
-      final customers = await _customerRepo.searchCustomers(query);
-      final allOrders = await _ordersForActiveBranch();
+      final pair = await Future.wait([
+        _customerRepo.searchCustomers(query),
+        _ordersForActiveBranch(),
+      ]);
+      final customers = pair[0] as List<PosCustomer>;
+      final allOrders = pair[1] as List<Order>;
       final customersWithOrders = await compute(
         _buildCustomerWithOrders,
         _MatchPayload(customers: customers, orders: allOrders),
@@ -111,20 +119,23 @@ class CrmCubit extends Cubit<CrmState> {
   }) async {
     emit(CrmLoading());
     try {
-      final List<PosCustomer> customers;
+      late Future<List<PosCustomer>> customersFuture;
       if (name != null && name.isNotEmpty) {
-        customers = await _customerRepo.getCustomersByName(name);
+        customersFuture = _customerRepo.getCustomersByName(name);
       } else if (phone != null && phone.isNotEmpty) {
-        customers = await _customerRepo.getCustomersByPhone(phone);
+        customersFuture = _customerRepo.getCustomersByPhone(phone);
       } else if (email != null && email.isNotEmpty) {
-        customers = await _customerRepo.getCustomersByEmail(email);
+        customersFuture = _customerRepo.getCustomersByEmail(email);
       } else {
-        customers = await _customerRepo.getAllLocalCustomers();
+        customersFuture = _customerRepo.getAllLocalCustomers();
       }
 
-      final session = await _db.sessionDao.getActiveSession();
-      final branchId = session?.branchId ?? 1;
-      final allOrders = await _db.ordersDao.getAllOrders(branchId: branchId);
+      final pair = await Future.wait([
+        customersFuture,
+        _ordersForActiveBranch(),
+      ]);
+      final customers = pair[0] as List<PosCustomer>;
+      final allOrders = pair[1] as List<Order>;
       final customersWithOrders = await compute(
         _buildCustomerWithOrders,
         _MatchPayload(customers: customers, orders: allOrders),
@@ -136,9 +147,13 @@ class CrmCubit extends Cubit<CrmState> {
   }
 
   Future<List<Order>> getCustomerOrders(int customerId) async {
-    final customer = await _customerRepo.getCustomerById(customerId);
+    final pair = await Future.wait([
+      _customerRepo.getCustomerById(customerId),
+      _ordersForActiveBranch(),
+    ]);
+    final customer = pair[0] as PosCustomer?;
+    final allOrders = pair[1] as List<Order>;
     if (customer == null) return [];
-    final allOrders = await _ordersForActiveBranch();
     final list = await compute(
       _matchOrdersForCustomer,
       _SingleCustomerPayload(customer: customer, orders: allOrders),

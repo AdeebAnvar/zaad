@@ -72,8 +72,11 @@ class AppIsolateService {
   }
 
   /// Stops any lingering [FlutterIsolate] workers (call on logout).
+  ///
+  /// Desktop uses [compute]/short-lived isolates only — [FlutterIsolate.killAll]
+  /// touches a missing/unstable plugin channel and can stall the UI on exit.
   Future<void> shutdown() async {
-    if (kIsWeb || _isUnitTest) return;
+    if (kIsWeb || _isUnitTest || !_platformSupportsFlutterIsolatePlugin) return;
     try {
       await FlutterIsolate.killAll();
     } catch (e) {

@@ -13,8 +13,7 @@ import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/enums.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
-import 'package:pos/core/utils/dine_in_sale_navigation.dart';
-import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
+import 'package:pos/core/utils/kot_reference_recents.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -28,11 +27,15 @@ import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/domain/models/customer_model.dart';
 import 'package:pos/domain/models/offer_model.dart';
 import 'package:pos/presentation/sale/cart_cubit/cart_cubit.dart';
+import 'package:pos/presentation/sale/cart_cubit/payment_save_result.dart';
+import 'package:pos/presentation/sale/kot_save_ui.dart';
+import 'package:pos/presentation/sale/payment_save_ui.dart';
 import 'package:pos/presentation/sale/desktop/cart_preview_dialog.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_item_tile.dart';
 import 'package:pos/presentation/widgets/auto_complete_textfield.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 
 /// Rebuild the cart [SliverList] only when lines are added/removed/reordered — not on qty/total edits.
@@ -211,34 +214,10 @@ class _AppliedOffer {
   });
 }
 
-/// After pay from Delivery Sale Log: pending/placed/kot + full payment → Delivered (`completed`).
-String _statusAfterOrderLogPayment(
-  Order order,
-  double finalAmount,
-  Map<String, dynamic> payments, {
-  required bool fromDeliveryLog,
-}) {
-  final type = (order.orderType ?? '').trim().toLowerCase();
-  if (type != 'delivery') return 'completed';
-  if (!fromDeliveryLog) return order.status;
-  final s = order.status.toLowerCase();
-  if (s != 'pending' && s != 'placed' && s != 'kot') return order.status;
-  final paid = (payments['cash'] as num? ?? 0).toDouble() +
-      (payments['credit'] as num? ?? 0).toDouble() +
-      (payments['card'] as num? ?? 0).toDouble() +
-      (payments['online'] as num? ?? 0).toDouble() +
-      (payments['other'] as num? ?? 0).toDouble();
-  if (paid + 0.02 < finalAmount) return order.status;
-  return 'completed';
-}
-
 Future<void> showCartStylePaymentDialogForOrder(
   BuildContext context, {
   required Order order,
   VoidCallback? onPaymentRecorded,
-
-  /// When true, a fully paid pre-dispatch delivery order becomes Delivered (`completed`).
-  bool fromDeliveryLog = false,
 }) async {
   Map<String, dynamic>? appliedOffer;
   try {
@@ -256,8 +235,7 @@ Future<void> showCartStylePaymentDialogForOrder(
     'phone': order.customerPhone,
     'email': order.customerEmail,
     'gender': order.customerGender,
-    'address': order.customerAddress,
-    'onlineOrderNumber': order.orderType == 'dine_in' ? null : order.referenceNumber,
+    'onlineOrderNumber': order.referenceNumber,
     'discountAmount': order.discountAmount,
     'discountType': order.discountType,
     if (appliedOffer != null) 'appliedOffer': appliedOffer,
@@ -311,11 +289,7 @@ Future<void> showCartStylePaymentDialogForOrder(
           final totalDiscount = (manualDiscountAmount + offerDiscountAmount).clamp(0.0, freshOrder.totalAmount).toDouble();
           final finalAmount = (freshOrder.totalAmount - totalDiscount).clamp(0.0, double.infinity);
           final onlineOrderNumber = customerDetails['onlineOrderNumber'] as String?;
-          final isDineIn = (freshOrder.orderType ?? '').trim().toLowerCase() == 'dine_in';
-          final updatedRef =
-              isDineIn ? null : (freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : freshOrder.referenceNumber);
-          final addrRaw = customerDetails['address'];
-          final customerAddr = addrRaw is String && addrRaw.trim().isNotEmpty ? addrRaw.trim() : null;
+          final updatedRef = freshOrder.orderType == 'delivery' && onlineOrderNumber != null && onlineOrderNumber.isNotEmpty ? onlineOrderNumber : freshOrder.referenceNumber;
           String? hubMetadataWithOffer = freshOrder.hubMetadata;
           if (offer != null) {
             final cleanedOffer = <String, dynamic>{
@@ -339,6 +313,8 @@ Future<void> showCartStylePaymentDialogForOrder(
             }
           }
 
+          final deliveryStatus = freshOrder.orderType == 'delivery' ? freshOrder.status : 'completed';
+
           final updatedOrder = freshOrder.copyWith(
             referenceNumber: Value(updatedRef),
             discountAmount: totalDiscount,
@@ -348,21 +324,15 @@ Future<void> showCartStylePaymentDialogForOrder(
             customerEmail: Value(customerDetails['email'] as String?),
             customerPhone: Value(customerDetails['phone'] as String?),
             customerGender: Value(customerDetails['gender'] as String?),
-            customerAddress: Value(customerAddr),
             cashAmount: payments['cash'] ?? 0.0,
             creditAmount: payments['credit'] ?? 0.0,
             cardAmount: payments['card'] ?? 0.0,
             onlineAmount: (payments['online'] ?? 0.0) + (payments['other'] ?? 0.0),
-            status: _statusAfterOrderLogPayment(
-              freshOrder,
-              finalAmount,
-              payments,
-              fromDeliveryLog: fromDeliveryLog,
-            ),
+            status: deliveryStatus,
             hubMetadata: Value(hubMetadataWithOffer),
           );
 
-          await repo.updateOrder(updatedOrder);
+          await repo.updatePaidOrder(updatedOrder, cartLines: cartLines);
           // #region agent log
           agentDebugLog(
             hypothesisId: 'H1',
@@ -381,56 +351,53 @@ Future<void> showCartStylePaymentDialogForOrder(
           if (dialogContext.mounted) {
             Navigator.of(dialogContext, rootNavigator: true).pop(true);
           }
-          onPaymentRecorded?.call();
 
-          final printFailed = <String>[];
-          try {
-            final db = locator<AppDatabase>();
-            final printSvc = locator<PrintService>();
-            final cartItems = await OrderLogCartFallback.resolve(
-              order: updatedOrder,
-              db: db,
-              cartRepo: cartRepo,
+          final printFuture = Future<List<String>>.delayed(
+            const Duration(milliseconds: 80),
+            () async {
+              final printFailed = <String>[];
+              try {
+                final printSvc = locator<PrintService>();
+                final ref = updatedOrder.referenceNumber?.trim().isNotEmpty == true ? updatedOrder.referenceNumber! : updatedOrder.invoiceNumber;
+                if (printKot && cartLines.isNotEmpty) {
+                  printFailed.addAll(
+                    await printSvc.printKOTPerKitchen(
+                      cartItems: cartLines,
+                      order: updatedOrder,
+                      referenceNumber: ref,
+                      invoiceNumber: updatedOrder.invoiceNumber,
+                      branchId: updatedOrder.branchId,
+                      orderedAt: updatedOrder.createdAt,
+                    ),
+                  );
+                }
+                if (printInvoice) {
+                  printFailed.addAll(
+                    await printSvc.printFinalBill(
+                      order: updatedOrder,
+                      cartItems: cartLines,
+                      asTaxInvoice: printInvoice,
+                    ),
+                  );
+                }
+                printFailed.addAll(
+                  await openCashDrawerForCashPayment(
+                    resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
+                  ),
+                );
+              } catch (e) {
+                printFailed.add('Print failed: $e');
+              }
+              return printFailed;
+            },
+          );
+
+          if (logContext.mounted) {
+            completePaymentSaveUi(
+              parentContext: logContext,
+              result: PaymentSaveResult(printFuture: printFuture),
+              onPaymentRecorded: onPaymentRecorded,
             );
-            final ref = DineInRefParser.printableRoutingLabel(updatedOrder);
-            // Cash drawer: any cash tender — independent of Invoice/KOT print toggles.
-            printFailed.addAll(
-              await openCashDrawerForCashPayment(
-                resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
-              ),
-            );
-            if (printKot && cartItems.isNotEmpty) {
-              printFailed.addAll(
-                await printSvc.printKOTPerKitchen(
-                  cartItems: cartItems,
-                  order: updatedOrder,
-                  referenceNumber: ref,
-                  invoiceNumber: updatedOrder.invoiceNumber,
-                  branchId: updatedOrder.branchId,
-                  orderedAt: updatedOrder.createdAt,
-                ),
-              );
-            }
-            if (printInvoice) {
-              printFailed.addAll(
-                await printSvc.printFinalBill(
-                  order: updatedOrder,
-                  cartItems: cartItems,
-                  asTaxInvoice: printInvoice,
-                ),
-              );
-            }
-            // Receipt before drawer pulse — same USB printer often fails if drawer runs first.
-            printFailed.addAll(
-              await openCashDrawerForCashPayment(
-                resolveCashTenderForDrawer(payments, orderCashAmount: updatedOrder.cashAmount),
-              ),
-            );
-          } catch (e) {
-            printFailed.add('Print failed: $e');
-          }
-          if (printFailed.isNotEmpty && logContext.mounted) {
-            showPrintFailedDialog(logContext, printFailed);
           }
         } catch (e) {
           if (dialogContext.mounted) {
@@ -675,22 +642,25 @@ class CartPanel extends StatelessWidget {
                                 onPressed: state.items.isEmpty
                                     ? null
                                     : () async {
-                                        try {
-                                          final printFailed = await cartCubit.saveKOT('');
-                                          if (context.mounted) {
-                                            CustomSnackBar.showKotSaved(context: context);
-                                            if (printFailed.isNotEmpty) {
-                                              showPrintFailedDialog(context, printFailed);
+                                        final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
+                                        final skipKotReferenceDialog = hasRef && isOpenedForEdit;
+                                        if (skipKotReferenceDialog) {
+                                          try {
+                                            final result = await cartCubit.saveKOTWithExistingReference();
+                                            if (context.mounted) {
+                                              completeKotSaveUi(
+                                                parentContext: context,
+                                                result: result,
+                                                isModalBottomSheet: isModalBottomSheet,
+                                                closeOnComplete: closeOnComplete,
+                                                onCloseCart: onCloseCart,
+                                              );
                                             }
-                                            if (isModalBottomSheet) {
-                                              onCloseCart?.call(true);
-                                            } else if (closeOnComplete) {
-                                              Navigator.maybePop(context);
-                                            }
-                                            schedulePopSaleScreenToDineIn(context);
+                                          } catch (e) {
+                                            if (context.mounted) showErrorDialog(context, e);
                                           }
-                                        } catch (e) {
-                                          if (context.mounted) showErrorDialog(context, e);
+                                        } else {
+                                          showKOTDialog(context);
                                         }
                                       },
                               ),
@@ -709,6 +679,65 @@ class CartPanel extends StatelessWidget {
                               ),
                             ],
                           );
+                          // }
+
+                          // Narrow screens: stack buttons to avoid overflow.
+                          // return Column(
+                          //   crossAxisAlignment: CrossAxisAlignment.stretch,
+                          //   children: [
+                          //     Align(
+                          //       alignment: Alignment.centerRight,
+                          //       child: IconButton(
+                          //         tooltip: 'View cart',
+                          //         icon: Icon(
+                          //           Icons.visibility_outlined,
+                          //           color: state.items.isNotEmpty ? AppColors.primaryColor : Colors.grey,
+                          //         ),
+                          //         onPressed: state.items.isNotEmpty ? () => showCartPreviewDialog(context) : null,
+                          //       ),
+                          //     ),
+                          //     const SizedBox(height: 4),
+                          //     _KitchenOrderIconButton(
+                          //       width: constraints.maxWidth,
+                          //       onPressed: state.items.isEmpty
+                          //           ? null
+                          //           : () async {
+                          //               final hasRef = cartCubit.currentKOTReference != null && cartCubit.currentKOTReference!.trim().isNotEmpty;
+                          //               final skipKotReferenceDialog = hasRef && (isOpenedForEdit || cartCubit.orderType == 'dine_in');
+                          //               if (skipKotReferenceDialog) {
+                          //                 try {
+                          //                   final printFailed = await cartCubit.saveKOTWithExistingReference();
+                          //                   if (context.mounted) {
+                          //                     CustomSnackBar.showKotSaved(context: context);
+                          //                     if (printFailed.isNotEmpty) {
+                          //                       showPrintFailedDialog(context, printFailed);
+                          //                     }
+                          //                     if (closeOnComplete) {
+                          //                       Navigator.maybePop(context);
+                          //                     }
+                          //                     schedulePopSaleScreenToDineIn(context);
+                          //                   }
+                          //                 } catch (e) {
+                          //                   if (context.mounted) showErrorDialog(context, e);
+                          //                 }
+                          //               } else {
+                          //                 showKOTDialog(context);
+                          //               }
+                          //             },
+                          //     ),
+                          //     const SizedBox(height: 10),
+                          //     CustomButton(
+                          //       width: 80,
+                          //       onPressed: state.items.isEmpty
+                          //           ? () {}
+                          //           : () async {
+                          //               await _showPaymentDialog(context, totalAmount, isEditing: isOpenedForEdit);
+                          //               onCloseCart?.call(true);
+                          //             },
+                          //       text: "Pay",
+                          //     ),
+                          //   ],
+                          // );
                         },
                       );
 
@@ -745,6 +774,144 @@ class CartPanel extends StatelessWidget {
     );
   }
 
+  void showKOTDialog(BuildContext context) {
+    final parentContext = context;
+    final cartCubit = context.read<CartCubit>();
+    final currentReference = cartCubit.currentKOTReference;
+    final referenceController = TextEditingController(text: currentReference ?? '');
+
+    final suggestionsRef = <String>[
+      if (locator.isRegistered<SharedPreferences>()) ...KotReferenceRecents.loadSync(locator<SharedPreferences>()),
+    ];
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          insetPadding: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = MediaQuery.of(context).size.width;
+
+              return ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: width > 600 ? 420 : width * 0.95,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: StatefulBuilder(
+                    builder: (context, setDialogState) {
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          /// Header
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  currentReference == null ? 'Add reference' : 'Edit reference',
+                                  style: AppStyles.getBoldTextStyle(fontSize: 20),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close),
+                                onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          /// Input (saved refs only; use "Save to dropdown" to add the current text)
+                          _KotReferenceAutocompleteField(
+                            controller: referenceController,
+                            suggestions: List<String>.from(suggestionsRef),
+                          ),
+                          const SizedBox(height: 6),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                final t = referenceController.text.trim();
+                                if (t.isEmpty) {
+                                  CustomSnackBar.showWarning(
+                                    context: context,
+                                    message: 'Enter a reference first, then save it to the list.',
+                                  );
+                                  return;
+                                }
+                                KotReferenceRecents.savePinnedReference(t);
+                                if (locator.isRegistered<SharedPreferences>()) {
+                                  suggestionsRef
+                                    ..clear()
+                                    ..addAll(KotReferenceRecents.loadSync(locator<SharedPreferences>()));
+                                }
+                                setDialogState(() {});
+                                CustomSnackBar.showSuccess(
+                                  context: context,
+                                  message: 'Saved to reference list',
+                                  duration: const Duration(milliseconds: 1600),
+                                );
+                              },
+                              icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+                              label: Text('Save to dropdown', style: AppStyles.getMediumTextStyle(fontSize: 13)),
+                            ),
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          /// Actions
+                          Row(
+                            children: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+                                child: const Text('Cancel'),
+                              ),
+                              const Spacer(),
+                              CustomButton(
+                                width: 80,
+                                text: 'Save',
+                                onPressed: () async {
+                                  final value = referenceController.text.trim();
+                                  try {
+                                    final result = await cartCubit.saveKOT(value);
+                                    if (!parentContext.mounted) return;
+                                    completeKotSaveUi(
+                                      parentContext: parentContext,
+                                      result: result,
+                                      dialogContext: context,
+                                      isModalBottomSheet: isModalBottomSheet,
+                                      closeOnComplete: closeOnComplete,
+                                      onCloseCart: onCloseCart,
+                                    );
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      showErrorDialog(context, e);
+                                    }
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    ).whenComplete(referenceController.dispose);
+  }
+
   Future<bool> _showPaymentDialog(
     BuildContext context,
     double totalAmount, {
@@ -757,9 +924,7 @@ class CartPanel extends StatelessWidget {
     final prefill = await cartCubit.getPaymentPrefillForEdit();
     final cartLines = cartCubit.state.items;
     // Open dialog immediately; offer lines use category 0 until [PaymentDialog] loads offers.
-    final offerLines = cartLines
-        .map((l) => PaymentOfferLine(itemId: l.itemId, categoryId: 0, lineTotal: l.total))
-        .toList();
+    final offerLines = cartLines.map((l) => PaymentOfferLine(itemId: l.itemId, categoryId: 0, lineTotal: l.total)).toList();
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => PaymentDialog(
@@ -772,9 +937,9 @@ class CartPanel extends StatelessWidget {
         prefill: prefill,
         onSave: (customerDetails, discount, payments, {required printInvoice, required printKot}) async {
           try {
-            List<String> printFailed;
+            final PaymentSaveResult payResult;
             if (isEditing) {
-              printFailed = await cartCubit.updateOrderWithPayment(
+              payResult = await cartCubit.updateOrderWithPayment(
                 customerDetails: customerDetails,
                 discount: discount,
                 payments: payments,
@@ -783,7 +948,7 @@ class CartPanel extends StatelessWidget {
                 printKot: printKot,
               );
             } else {
-              printFailed = await cartCubit.placeOrderWithPayment(
+              payResult = await cartCubit.placeOrderWithPayment(
                 customerDetails: customerDetails,
                 discount: discount,
                 payments: payments,
@@ -797,18 +962,16 @@ class CartPanel extends StatelessWidget {
               Navigator.of(dialogContext, rootNavigator: true).pop(true);
             }
 
-            // Show printer warning after closing payment dialog so the route stays valid.
-            if (printFailed.isNotEmpty && context.mounted) {
-              showPrintFailedDialog(context, printFailed);
-            }
-
-            if (isModalBottomSheet) {
-              onCloseCart?.call(true);
-            } else if (context.mounted && closeOnComplete) {
-              Navigator.of(context).pop(); // close embedded / legacy sheet
-            }
             if (context.mounted) {
-              schedulePopSaleScreenToDineIn(context);
+              completePaymentSaveUi(
+                parentContext: context,
+                result: payResult,
+              );
+              if (isModalBottomSheet) {
+                onCloseCart?.call(true);
+              } else if (closeOnComplete) {
+                Navigator.of(context).pop();
+              }
             }
           } catch (e) {
             if (dialogContext.mounted) {
@@ -900,7 +1063,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   bool _loadingCustomers = true;
   bool _isSubmitting = false;
   bool _showOtherPaymentField = false;
-  bool _printInvoice = false;
+  bool _printInvoice = true;
 
   /// Off by default: KOT is usually sent earlier via the KOT button; enable when settling should re-print kitchen.
   bool _printKot = false;
@@ -917,7 +1080,6 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
     if (prefill != null) {
       _applyCustomerPrefill(prefill);
-      _addressController.text = (prefill['address'] as String?)?.trim() ?? '';
       _onlineOrderNumberController.text = (prefill['onlineOrderNumber'] as String?)?.trim() ?? '';
     }
 
@@ -1247,15 +1409,14 @@ class _PaymentDialogState extends State<PaymentDialog> {
     }
   }
 
-  /// Standard customer popup: name / phone / address for counter sales (Kappuchai).
-  /// Email and gender only when admin grants those permissions explicitly.
+  /// Standard customer popup shows all fields when [showCustomerSection] (take-away / delivery / dine-in).
   bool get _fillCustomerName => _access.showCustomerSection || _access.canCustomerName;
 
   bool get _fillCustomerPhone => _access.showCustomerSection || _access.canCustomerNumber;
 
-  bool get _fillCustomerEmail => _access.canCustomerEmail;
+  bool get _fillCustomerEmail => _access.showCustomerSection || _access.canCustomerEmail;
 
-  bool get _fillCustomerGender => _access.canCustomerGender;
+  bool get _fillCustomerGender => _access.showCustomerSection || _access.canCustomerGender;
 
   bool get _fillCustomerAddress => _access.showCustomerSection || _access.canCustomerAddress;
 
@@ -1342,12 +1503,16 @@ class _PaymentDialogState extends State<PaymentDialog> {
     final gender = _genderController.text.trim();
     final address = _addressController.text.trim();
 
-    if (name.isEmpty && phone.isEmpty) return;
+    if (name.isEmpty && phone.isEmpty && email.isEmpty) return;
 
     bool customerExists = false;
     if (phone.isNotEmpty) {
       final existingByPhone = await _customerRepo.getCustomersByPhone(phone);
       customerExists = existingByPhone.isNotEmpty;
+    }
+    if (!customerExists && email.isNotEmpty) {
+      final existingByEmail = await _customerRepo.getCustomersByEmail(email);
+      customerExists = existingByEmail.isNotEmpty;
     }
 
     if (!customerExists) {
@@ -1690,52 +1855,52 @@ class _PaymentDialogState extends State<PaymentDialog> {
               if (_showCustomerGender)
                 Expanded(
                   child: DropdownButtonFormField<String>(
-            key: ValueKey<String>('payment_gender_${_genderController.text}'),
-            value: _genderOptions.contains(_genderController.text) ? _genderController.text : null,
-            decoration: InputDecoration(
-              labelStyle: TextStyle(
-                color: AppColors.hintFontColor,
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-              ),
-              filled: false,
-              hintText: 'Choose Gender',
-              fillColor: Colors.white,
-              hintStyle: TextStyle(
-                color: AppColors.hintFontColor,
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-              ),
-              isDense: true,
-              isCollapsed: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 11,
-              ),
-              errorStyle: const TextStyle(
-                fontSize: 10,
-                height: 1,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: Theme.of(context).dividerColor.withOpacity(0.5),
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: Theme.of(context).dividerColor.withOpacity(0.5),
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: Theme.of(context).dividerColor.withOpacity(0.5),
-                ),
-              ),
-            ),
-            items: _genderOptions.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                    key: ValueKey<String>('payment_gender_${_genderController.text}'),
+                    value: _genderOptions.contains(_genderController.text) ? _genderController.text : null,
+                    decoration: InputDecoration(
+                      labelStyle: TextStyle(
+                        color: AppColors.hintFontColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                      ),
+                      filled: false,
+                      hintText: 'Choose Gender',
+                      fillColor: Colors.white,
+                      hintStyle: TextStyle(
+                        color: AppColors.hintFontColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                      ),
+                      isDense: true,
+                      isCollapsed: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 11,
+                      ),
+                      errorStyle: const TextStyle(
+                        fontSize: 10,
+                        height: 1,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                          color: Theme.of(context).dividerColor.withOpacity(0.5),
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                          color: Theme.of(context).dividerColor.withOpacity(0.5),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                          color: Theme.of(context).dividerColor.withOpacity(0.5),
+                        ),
+                      ),
+                    ),
+                    items: _genderOptions.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
                     onChanged: (v) {
                       setState(() => _genderController.text = v ?? '');
                     },
@@ -2318,6 +2483,58 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _discountByAmountController.dispose();
     _discountByPercentController.dispose();
     super.dispose();
+  }
+}
+
+class _KotReferenceAutocompleteField extends StatefulWidget {
+  const _KotReferenceAutocompleteField({
+    required this.controller,
+    required this.suggestions,
+  });
+
+  final TextEditingController controller;
+  final List<String> suggestions;
+
+  @override
+  State<_KotReferenceAutocompleteField> createState() => _KotReferenceAutocompleteFieldState();
+}
+
+class _KotReferenceAutocompleteFieldState extends State<_KotReferenceAutocompleteField> {
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AutoCompleteTextField<String>(
+      items: widget.suggestions,
+      displayStringFunction: (s) => s,
+      defaultText: '',
+      labelText: 'Reference Number',
+      filterType: FilterType.contains,
+      controller: widget.controller,
+      focusNode: _focusNode,
+      maxHeight: MediaQuery.sizeOf(context).height / 3,
+      onSelected: (s) {
+        widget.controller.value = TextEditingValue(
+          text: s,
+          selection: TextSelection.collapsed(offset: s.length),
+        );
+      },
+      onChanged: (_) {},
+    );
   }
 }
 

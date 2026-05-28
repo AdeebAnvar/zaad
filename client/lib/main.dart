@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:pos/app/desktop_exit_hooks.dart';
 import 'package:pos/app/pos_bootstrap.dart';
 
 class MyHttpOverrides extends HttpOverrides {
@@ -14,6 +15,7 @@ void main() {
   HttpOverrides.global = MyHttpOverrides();
 
   WidgetsFlutterBinding.ensureInitialized();
+  installDesktopExitGracefulShutdown();
 
   // Cap decoded catalog bitmap RAM (full sale snapshots stay in SQLite, not image cache).
   PaintingBinding.instance.imageCache

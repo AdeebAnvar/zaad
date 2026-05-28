@@ -2,7 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/models/pos_customer.dart';
 import 'package:pos/data/repository/customer_repository.dart';
-import 'package:pos/domain/models/customer_model.dart';
+import 'package:pos/domain/models/customer_model.dart' show CustomerCreatedUpdated, CustomerModel;
 
 class CustomerRepositoryImpl implements CustomerRepository {
   final AppDatabase db;
@@ -27,12 +27,22 @@ class CustomerRepositoryImpl implements CustomerRepository {
   // ---------------- SAVE TO LOCAL ----------------
 
   @override
-  Future<void> saveCustomersToLocal(List<CustomerModel> customers) async {
-    for (final page in customers) {
-      for (final c in page.createdUpdated) {
+  Future<void> saveCustomersToLocal(List<CustomerModel> pages) async {
+    final entries = <CustomerCreatedUpdated>[];
+    for (final page in pages) {
+      entries.addAll(page.createdUpdated);
+    }
+    if (entries.isEmpty) return;
+
+    final keys = entries.map((c) => c.id.toString()).toSet();
+    final existingByServer = await db.customersDao.getCustomersMapByServerIds(keys);
+
+    await db.transaction(() async {
+      final seen = {...existingByServer};
+      for (final c in entries) {
         final serverKey = c.id.toString();
-        final existing = await db.customersDao.getCustomerByServerId(serverKey);
         final phone = c.customerNumber.isNotEmpty ? c.customerNumber : null;
+        var existing = seen[serverKey];
         if (existing == null) {
           await db.customersDao.insertOrUpdateCustomer(
             CustomersCompanion.insert(
@@ -51,6 +61,10 @@ class CustomerRepositoryImpl implements CustomerRepository {
               isSynced: const Value(true),
             ),
           );
+          final inserted = await db.customersDao.getCustomerByServerId(serverKey);
+          if (inserted != null) {
+            seen[serverKey] = inserted;
+          }
         } else {
           await db.customersDao.updateCustomer(
             CustomersCompanion(
@@ -71,7 +85,7 @@ class CustomerRepositoryImpl implements CustomerRepository {
           );
         }
       }
-    }
+    });
   }
 
   // ---------------- LOCAL OPERATIONS ----------------

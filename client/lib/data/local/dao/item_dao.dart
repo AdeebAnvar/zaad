@@ -184,6 +184,25 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
     return (select(items)..where((v) => v.id.equals(itemId))).getSingleOrNull();
   }
 
+  Future<List<Item>> getItemsByIds(List<int> itemIds) async {
+    if (itemIds.isEmpty) return const [];
+    return (select(items)..where((i) => i.id.isIn(itemIds))).get();
+  }
+
+  /// Catalog rows restricted to ids in [itemIds] and categories visible at [branchId]
+  /// (same rule as POS item visibility — used for thermal print routing without N+1 lookups).
+  Future<List<Item>> getVisibleItemsForIds({
+    required int branchId,
+    required List<int> itemIds,
+  }) async {
+    if (itemIds.isEmpty) return const [];
+    final catRows =
+        await (select(categories)..where((c) => c.branchId.equals(branchId) | c.branchId.isNull())).get();
+    if (catRows.isEmpty) return const [];
+    final catIds = catRows.map((c) => c.id).toList();
+    return (select(items)..where((i) => i.id.isIn(itemIds) & i.categoryId.isIn(catIds))).get();
+  }
+
   /// ───────────── VARIANTS ─────────────
 
   Future<void> upsertVariant(ItemVariantsCompanion data) async {
@@ -264,6 +283,11 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
     return (select(itemVariants)..where((v) => v.id.equals(variantId))).getSingleOrNull();
   }
 
+  Future<List<ItemVariant>> getVariantsByIds(List<int> variantIds) async {
+    if (variantIds.isEmpty) return const [];
+    return (select(itemVariants)..where((v) => v.id.isIn(variantIds))).get();
+  }
+
   Future<List<ItemVariant>> getVariants() {
     return (select(itemVariants)).get();
   }
@@ -305,6 +329,11 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
 
   Future<ItemTopping?> getToppingById(int toppingId) {
     return (select(itemToppings)..where((t) => t.id.equals(toppingId))).getSingleOrNull();
+  }
+
+  Future<List<ItemTopping>> getToppingsByIds(List<int> toppingIds) async {
+    if (toppingIds.isEmpty) return const [];
+    return (select(itemToppings)..where((t) => t.id.isIn(toppingIds))).get();
   }
 
   /// ───────────── TOPPING GROUPS ─────────────

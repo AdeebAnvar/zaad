@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -84,6 +85,63 @@ Future<LanHubWsHealthSummary?> fetchLanHubWsHealthSummary(
 
 /// When MAIN has no cashier SUB listening, skipping catalog / COMPANY_SNAPSHOT avoids useless
 /// outbound WS (and timeouts) while [LocalHubPrimaryInbound] stays connected (counts as 1).
+Future<bool> _hubHealthOk(String wsUrl, {Duration timeout = const Duration(seconds: 2)}) async {
+  final healthUri = lanHubHealthUriFromStoredWsUrl(wsUrl);
+  if (healthUri == null) return false;
+  final summary = await fetchLanHubWsHealthSummary(healthUri, timeout: timeout);
+  return summary != null;
+}
+
+/// Cached hub reachability so a dead LAN IP does not trigger a 5s WebSocket timeout per outbox row.
+class LanHubReachability {
+  LanHubReachability._();
+
+  static String? _cachedPrimary;
+  static String? _cachedResolved;
+  static DateTime? _cachedAt;
+  static const _ttl = Duration(seconds: 20);
+
+  static void invalidate() {
+    _cachedPrimary = null;
+    _cachedResolved = null;
+    _cachedAt = null;
+  }
+
+  /// Returns a `ws://…` URL whose `/health` responds, or `null` when none is reachable.
+  static Future<String?> resolvePublishWsUrl(LocalHubSettings hub) async {
+    final primary = hub.publishHubWsUrlOrLoopback.trim();
+    if (primary.isEmpty) return null;
+
+    final now = DateTime.now();
+    if (_cachedPrimary == primary &&
+        _cachedAt != null &&
+        now.difference(_cachedAt!) < _ttl) {
+      return _cachedResolved;
+    }
+
+    String? resolved;
+    if (await _hubHealthOk(primary)) {
+      resolved = primary;
+    } else if (!hub.isHubSub &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      final loopback = LocalHubSettings.defaultMainPublishHubLoopback;
+      if (loopback != primary && await _hubHealthOk(loopback)) {
+        if (kDebugMode) {
+          debugPrint(
+            '[LanHubReachability] $primary unreachable — using $loopback for MAIN publish',
+          );
+        }
+        resolved = loopback;
+      }
+    }
+
+    _cachedPrimary = primary;
+    _cachedResolved = resolved;
+    _cachedAt = now;
+    return resolved;
+  }
+}
+
 class LanHeavyMirrorGate {
   LanHeavyMirrorGate._();
 

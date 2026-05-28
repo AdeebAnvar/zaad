@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:get_it/get_it.dart';
 import 'package:pos/core/services/backup_service.dart';
 import 'package:synchronized/synchronized.dart';
@@ -29,15 +31,19 @@ class OrderRepositoryImpl implements OrderRepository {
 
   /// Shared across instances so parallel UI flows cannot read the same max suffix before another inserts a cart.
   static final Lock _invoiceAllocLock = Lock();
-  static final Lock _pickupTokenLock = Lock();
 
   Future<int> _activeBranchId() => db.sessionDao.requireActiveBranchId();
 
-  Future<void> _afterMutation() async {
+  void _afterMutation() {
     // Full XLSX export is debounced — never block checkout on workbook build.
     SalesCsvBackup.scheduleDebouncedRefresh(db);
-    await BackupService.instance.recordOrderMutation(db);
+    BackupService.instance.enqueueBackupAfterMutation(db);
     _notifyOrderLogsRefresh();
+  }
+
+  /// Runs backup/XLSX/hub refresh after the current frame so snackbars and navigation paint first.
+  void _scheduleAfterMutation() {
+    SchedulerBinding.instance.scheduleFrameCallback((_) => _afterMutation());
   }
 
   void _notifyOrderLogsRefresh() {
@@ -68,7 +74,9 @@ class OrderRepositoryImpl implements OrderRepository {
       final n = u?.name.trim() ?? '';
       if (n.isNotEmpty) cashierName = n;
     }
-    final orderType = (order.orderType?.trim().isNotEmpty == true) ? order.orderType!.trim() : (flutter['order_type']?.toString() ?? 'take_away');
+    final orderType = (order.orderType?.trim().isNotEmpty == true)
+        ? order.orderType!.trim()
+        : (flutter['order_type']?.toString() ?? 'take_away');
     return <String, dynamic>{
       'order_id': order.id,
       'cart_id': order.cartId,
@@ -76,7 +84,6 @@ class OrderRepositoryImpl implements OrderRepository {
       'invoice_number': order.invoiceNumber,
       'created_at': order.createdAt.toIso8601String(),
       'status': order.status,
-      if (order.pickupToken != null) 'pickup_token': order.pickupToken,
       'delivery_partner': order.deliveryPartner,
       ...flutter,
       'order_type': orderType,
@@ -85,12 +92,14 @@ class OrderRepositoryImpl implements OrderRepository {
     };
   }
 
-  Future<String> _orderSnapshotJson(Order order, List<CartItem> cartItems) async => jsonEncode(await _orderSnapshotMap(order, cartItems));
-
   /// Freeze line items on the order row so Recent Sales / day close never read another sale's cart lines.
-  Future<void> _persistFrozenLineSnapshotOnOrder(Order order, List<CartItem> cartItems) async {
-    final snapshot = await _orderSnapshotMap(order, cartItems);
-    final anchor = DineInRefParser.dineInAnchorFromHubMetadata(order.hubMetadata) ?? _dineInRoutingRefFromOrderRow(order);
+  Future<Order> _persistFrozenLineSnapshotOnOrder(
+    Order order,
+    List<CartItem> cartItems,
+    Map<String, dynamic> snapshot,
+  ) async {
+    final anchor = DineInRefParser.dineInAnchorFromHubMetadata(order.hubMetadata) ??
+        _dineInRoutingRefFromOrderRow(order);
     final creditPayments = creditPaymentsFromHubMetadata(order.hubMetadata);
     dynamic appliedOffer;
     if (order.hubMetadata != null && order.hubMetadata!.trim().isNotEmpty) {
@@ -106,31 +115,91 @@ class OrderRepositoryImpl implements OrderRepository {
       'snapshot': snapshot,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
       if (anchor != null && anchor.isNotEmpty) DineInRefParser.hubMetadataAnchorKey: anchor,
-      if (creditPayments != null && creditPayments.isNotEmpty) 'creditPayments': creditPayments,
+      if (creditPayments != null && creditPayments.isNotEmpty)
+        'creditPayments': creditPayments,
       if (appliedOffer != null) 'applied_offer': appliedOffer,
     });
     await (db.update(db.orders)..where((o) => o.id.equals(order.id))).write(
       OrdersCompanion(hubMetadata: Value(hubMeta)),
     );
+    return order.copyWith(hubMetadata: Value(hubMeta));
   }
 
-  Future<void> _enqueueOutboundOrderSnapshot(Order order) async {
-    final cartItems = await OrderLogCartFallback.resolveWithDb(order: order, db: db);
+  Future<void> _enqueueOutboundOrderSnapshot(
+    Order order, {
+    required List<CartItem> cartItems,
+    required Map<String, dynamic> snapshotPayload,
+  }) async {
     await enqueueOrderLogSnapshotForCloudPush(
       db: db,
       order: order,
-      snapshotPayload: await _orderSnapshotMap(order, cartItems),
+      snapshotPayload: snapshotPayload,
     );
+  }
+
+  Future<List<CartItem>> _cartLinesForOrder(Order order, {List<CartItem>? cartLines}) async {
+    if (cartLines != null && cartLines.isNotEmpty) return cartLines;
+    final fromDb = await db.cartsDao.getItemsByCart(order.cartId);
+    if (fromDb.isNotEmpty) return fromDb;
+    return OrderLogCartFallback.resolveWithDb(order: order, db: db);
+  }
+
+  Order _withHubCorrelationIfUnset(Order row) {
+    if ((row.serverOrderId ?? '').trim().isNotEmpty) return row;
+    final key = HubOrderLanPublisher.hubOrderCorrelationId(row, row.id);
+    return row.copyWith(serverOrderId: Value(key));
+  }
+
+  void _deferOrderFinalize({
+    required Order row,
+    required List<CartItem> cartLines,
+    required bool isCreate,
+  }) {
+    unawaited(
+      Future.microtask(() async {
+        try {
+          await _finalizePersistedOrder(
+            row: row,
+            cartLines: cartLines,
+            isCreate: isCreate,
+          );
+          _scheduleAfterMutation();
+        } catch (e, st) {
+          debugPrint('[OrderRepo] deferred order finalize failed: $e\n$st');
+        }
+      }),
+    );
+  }
+
+  /// One re-read after write: hub freeze, cloud log, LAN mirror.
+  Future<Order> _finalizePersistedOrder({
+    required Order row,
+    List<CartItem>? cartLines,
+    required bool isCreate,
+  }) async {
+    final lines = await _cartLinesForOrder(row, cartLines: cartLines);
+    final correlated = _withHubCorrelationIfUnset(row);
+    await db.ordersDao.setHubCorrelationIfUnset(
+      orderId: correlated.id,
+      correlationId: HubOrderLanPublisher.hubOrderCorrelationId(correlated, correlated.id),
+    );
+    final snapshot = await _orderSnapshotMap(correlated, lines);
+    final frozen = await _persistFrozenLineSnapshotOnOrder(correlated, lines, snapshot);
+    if (frozen.status.toLowerCase() == 'kot') {
+      unawaited(
+        _enqueueOutboundOrderSnapshot(frozen, cartItems: lines, snapshotPayload: snapshot),
+      );
+    } else {
+      await _enqueueOutboundOrderSnapshot(frozen, cartItems: lines, snapshotPayload: snapshot);
+      scheduleOutboundPushAfterLocalOrder();
+    }
+    HubOrderLanPublisher.scheduleOrderUpsert(order: frozen, cartItems: lines, isCreate: isCreate);
+    return frozen;
   }
 
   @override
   Future<int> createOrder(Order order, {List<CartItem>? cartLines}) async {
     final branchId = await _activeBranchId();
-    final nextToken = await _pickupTokenLock.synchronized(() async {
-      final after = await db.dayClosingCheckpointDao.lastSettledAtForBranch(branchId);
-      final maxTok = await db.ordersDao.maxPickupTokenForBranchSince(branchId, after);
-      return (maxTok ?? 0) + 1;
-    });
     final newId = await db.ordersDao.createOrder(
       OrdersCompanion.insert(
         cartId: order.cartId,
@@ -145,7 +214,6 @@ class OrderRepositoryImpl implements OrderRepository {
         customerEmail: Value(order.customerEmail),
         customerPhone: Value(order.customerPhone),
         customerGender: Value(order.customerGender),
-        customerAddress: Value(order.customerAddress),
         cashAmount: Value(order.cashAmount),
         creditAmount: Value(order.creditAmount),
         cardAmount: Value(order.cardAmount),
@@ -157,29 +225,20 @@ class OrderRepositoryImpl implements OrderRepository {
         driverId: Value(order.driverId),
         driverName: Value(order.driverName),
         userId: Value(order.userId),
-        hubSyncPending: const Value(false),
-        pickupToken: Value(nextToken),
         hubMetadata: Value(order.hubMetadata),
+        hubSyncPending: const Value(false),
       ),
     );
     final saved = await db.ordersDao.getOrderById(newId);
     if (saved == null) {
       throw StateError('createOrder failed to read row $newId');
     }
-    var cartItems = await db.cartsDao.getItemsByCart(saved.cartId);
-    if (cartItems.isEmpty && cartLines != null && cartLines.isNotEmpty) {
-      cartItems = cartLines;
-    }
-    await _persistFrozenLineSnapshotOnOrder(saved, cartItems);
-    final frozen = await db.ordersDao.getOrderById(newId) ?? saved;
-    await db.ordersDao.insertOrderLog(await _orderSnapshotJson(frozen, cartItems));
-    await _afterMutation();
-    scheduleOutboundPushAfterLocalOrder();
-    await db.ordersDao.setHubCorrelationIfUnset(
-      orderId: newId,
-      correlationId: HubOrderLanPublisher.hubOrderCorrelationId(frozen, frozen.id),
+    await _finalizePersistedOrder(
+      row: saved,
+      cartLines: cartLines,
+      isCreate: true,
     );
-    HubOrderLanPublisher.scheduleOrderUpsert(order: frozen, cartItems: cartItems, isCreate: true);
+    _scheduleAfterMutation();
     return newId;
   }
 
@@ -211,16 +270,7 @@ class OrderRepositoryImpl implements OrderRepository {
     await db.ordersDao.updateOrderStatus(orderId, status);
     final row = await db.ordersDao.getOrderById(orderId);
     if (row != null) {
-      await db.ordersDao.setHubCorrelationIfUnset(
-        orderId: row.id,
-        correlationId: HubOrderLanPublisher.hubOrderCorrelationId(row, row.id),
-      );
-      final patched = await db.ordersDao.getOrderById(row.id) ?? row;
-      final cartItems = await db.cartsDao.getItemsByCart(patched.cartId);
-      await _persistFrozenLineSnapshotOnOrder(patched, cartItems);
-      final frozen = await db.ordersDao.getOrderById(row.id) ?? patched;
-      await _enqueueOutboundOrderSnapshot(frozen);
-      HubOrderLanPublisher.scheduleOrderUpsert(order: frozen, cartItems: cartItems, isCreate: false);
+      final frozen = await _finalizePersistedOrder(row: row, isCreate: false);
       // #region agent log
       agentDebugLog(
         hypothesisId: 'H2-H5',
@@ -235,7 +285,7 @@ class OrderRepositoryImpl implements OrderRepository {
       );
       // #endregion
     }
-    await _afterMutation();
+    _scheduleAfterMutation();
   }
 
   @override
@@ -244,8 +294,8 @@ class OrderRepositoryImpl implements OrderRepository {
     final hubOid = HubOrderLanPublisher.hubOrderCorrelationId(existing, orderId);
     await db.ordersDao.deleteOrderLogsForLocalOrderId(orderId);
     await db.ordersDao.deleteOrder(orderId);
-    await _afterMutation();
     HubOrderLanPublisher.scheduleDelete(hubOrderId: hubOid);
+    _scheduleAfterMutation();
   }
 
   @override
@@ -255,40 +305,102 @@ class OrderRepositoryImpl implements OrderRepository {
   }
 
   @override
-  Future<void> updateOrder(Order order, {bool publishToHub = true}) async {
+  Future<void> updateOrder(Order order) async {
     await db.ordersDao.updateOrder(order.toCompanion(false));
     final row = await db.ordersDao.getOrderById(order.id);
     if (row != null) {
-      await db.ordersDao.setHubCorrelationIfUnset(
-        orderId: row.id,
-        correlationId: HubOrderLanPublisher.hubOrderCorrelationId(row, row.id),
-      );
-      final patched = await db.ordersDao.getOrderById(row.id) ?? row;
-      final cartItems = await db.cartsDao.getItemsByCart(patched.cartId);
-      await _persistFrozenLineSnapshotOnOrder(patched, cartItems);
-      final frozen = await db.ordersDao.getOrderById(row.id) ?? patched;
-      if (publishToHub) {
-        await _enqueueOutboundOrderSnapshot(frozen);
-        HubOrderLanPublisher.scheduleOrderUpsert(order: frozen, cartItems: cartItems, isCreate: false);
-        // #region agent log
-        if ((frozen.orderType ?? '').contains('delivery') || frozen.orderType == 'take_away') {
-          agentDebugLog(
-            hypothesisId: 'H1-H2',
-            location: 'order_repository_impl.dart:updateOrder',
-            message: 'order_update_persisted',
-            data: <String, Object?>{
-              'orderId': frozen.id,
-              'status': frozen.status,
-              'orderType': frozen.orderType,
-              'invoice': frozen.invoiceNumber,
-              'paid': frozen.cashAmount + frozen.cardAmount + frozen.creditAmount + frozen.onlineAmount,
-            },
-          );
-        }
-        // #endregion
+      final frozen = await _finalizePersistedOrder(row: row, isCreate: false);
+      // #region agent log
+      if ((frozen.orderType ?? '').contains('delivery') || frozen.orderType == 'take_away') {
+        agentDebugLog(
+          hypothesisId: 'H1-H2',
+          location: 'order_repository_impl.dart:updateOrder',
+          message: 'order_update_persisted',
+          data: <String, Object?>{
+            'orderId': frozen.id,
+            'status': frozen.status,
+            'orderType': frozen.orderType,
+            'invoice': frozen.invoiceNumber,
+            'paid': frozen.cashAmount + frozen.cardAmount + frozen.creditAmount + frozen.onlineAmount,
+          },
+        );
       }
+      // #endregion
     }
-    await _afterMutation();
+    _scheduleAfterMutation();
+  }
+
+  @override
+  Future<int> saveKotOrder(Order order, {required List<CartItem> cartLines}) async {
+    final branchId = await _activeBranchId();
+    final newId = await db.ordersDao.createOrder(
+      OrdersCompanion.insert(
+        cartId: order.cartId,
+        invoiceNumber: order.invoiceNumber,
+        branchId: Value(branchId),
+        referenceNumber: Value(order.referenceNumber),
+        totalAmount: order.totalAmount,
+        discountAmount: Value(order.discountAmount),
+        discountType: Value(order.discountType),
+        finalAmount: order.finalAmount,
+        customerName: Value(order.customerName),
+        customerEmail: Value(order.customerEmail),
+        customerPhone: Value(order.customerPhone),
+        customerGender: Value(order.customerGender),
+        cashAmount: Value(order.cashAmount),
+        creditAmount: Value(order.creditAmount),
+        cardAmount: Value(order.cardAmount),
+        onlineAmount: Value(order.onlineAmount),
+        createdAt: order.createdAt,
+        status: Value(order.status),
+        orderType: Value(order.orderType),
+        deliveryPartner: Value(order.deliveryPartner),
+        driverId: Value(order.driverId),
+        driverName: Value(order.driverName),
+        userId: Value(order.userId),
+        hubMetadata: Value(order.hubMetadata),
+        hubSyncPending: const Value(false),
+      ),
+    );
+    final saved = await db.ordersDao.getOrderById(newId);
+    if (saved == null) {
+      throw StateError('saveKotOrder failed to read row $newId');
+    }
+    _notifyOrderLogsRefresh();
+    _deferOrderFinalize(row: saved, cartLines: cartLines, isCreate: true);
+    return newId;
+  }
+
+  @override
+  Future<void> updateKotOrder(Order order, {required List<CartItem> cartLines}) async {
+    await db.ordersDao.updateOrder(order.toCompanion(false));
+    _notifyOrderLogsRefresh();
+    _deferOrderFinalize(row: order, cartLines: cartLines, isCreate: false);
+  }
+
+  @override
+  Future<int> savePaidOrder(Order order, {required List<CartItem> cartLines}) =>
+      saveKotOrder(order, cartLines: cartLines);
+
+  @override
+  Future<void> updatePaidOrder(Order order, {required List<CartItem> cartLines}) =>
+      updateKotOrder(order, cartLines: cartLines);
+
+  @override
+  Future<void> updateKotTotalsLight(Order order) async {
+    await db.ordersDao.updateKotOrderTotals(
+      orderId: order.id,
+      totalAmount: order.totalAmount,
+      finalAmount: order.finalAmount,
+      cartId: order.cartId,
+      referenceNumber: order.referenceNumber != null
+          ? Value(order.referenceNumber)
+          : const Value.absent(),
+      hubMetadata: order.hubMetadata != null
+          ? Value(order.hubMetadata)
+          : const Value.absent(),
+    );
+    _notifyOrderLogsRefresh();
   }
 
   @override
@@ -304,8 +416,8 @@ class OrderRepositoryImpl implements OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
-    int? pickupToken,
     int? limit,
+    List<String>? excludeStatusAnyOf,
   }) async {
     final bid = await _activeBranchId();
     return db.ordersDao.filterOrders(
@@ -320,9 +432,9 @@ class OrderRepositoryImpl implements OrderRepository {
       endDate: endDate,
       driverId: driverId,
       userId: userId,
-      pickupToken: pickupToken,
       branchId: bid,
       limit: limit,
+      excludeStatusAnyOf: excludeStatusAnyOf,
     );
   }
 
@@ -339,9 +451,11 @@ class OrderRepositoryImpl implements OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
-    int? pickupToken,
     int? limit,
     int offset = 0,
+    bool onlyRecentSaleSettled = false,
+    String? paymentMethodKey,
+    bool excludeKotStatus = false,
   }) async {
     final bid = await _activeBranchId();
     return db.ordersDao.filterOrdersForList(
@@ -356,10 +470,12 @@ class OrderRepositoryImpl implements OrderRepository {
       endDate: endDate,
       driverId: driverId,
       userId: userId,
-      pickupToken: pickupToken,
       branchId: bid,
       limit: limit,
       offset: offset,
+      onlyRecentSaleSettled: onlyRecentSaleSettled,
+      paymentMethodKey: paymentMethodKey,
+      excludeKotStatus: excludeKotStatus,
     );
   }
 
@@ -376,7 +492,9 @@ class OrderRepositoryImpl implements OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
-    int? pickupToken,
+    bool onlyRecentSaleSettled = false,
+    String? paymentMethodKey,
+    bool excludeKotStatus = false,
   }) async {
     final bid = await _activeBranchId();
     return db.ordersDao.countOrdersForList(
@@ -391,8 +509,10 @@ class OrderRepositoryImpl implements OrderRepository {
       endDate: endDate,
       driverId: driverId,
       userId: userId,
-      pickupToken: pickupToken,
       branchId: bid,
+      onlyRecentSaleSettled: onlyRecentSaleSettled,
+      paymentMethodKey: paymentMethodKey,
+      excludeKotStatus: excludeKotStatus,
     );
   }
 
@@ -418,7 +538,8 @@ class OrderRepositoryImpl implements OrderRepository {
     final bid = branchIdOverride ?? await db.sessionDao.requireActiveBranchId();
     final branch = await db.branchesDao.getBranchById(bid);
     final branchPrefix = branch?.prefixInv.trim();
-    final prefix = (branchPrefix != null && branchPrefix.isNotEmpty) ? branchPrefix : invoicePrefixForOrderType(orderType);
+    final prefix =
+        (branchPrefix != null && branchPrefix.isNotEmpty) ? branchPrefix : invoicePrefixForOrderType(orderType);
     final oMax = await db.ordersDao.maxInvoiceNumericSuffixForPrefix(prefix, branchId: bid);
     final cMax = await db.cartsDao.maxInvoiceNumericSuffixForPrefix(prefix, branchId: bid);
     final next = (oMax > cMax ? oMax : cMax) + 1;

@@ -8,18 +8,17 @@ import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/diagnostics/day_closing_reconcile_log.dart';
-import 'package:pos/core/services/backup_service.dart';
-import 'package:pos/core/utils/sales_csv_backup.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/error_dialog_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/core/sync/outbound_push_coordinator.dart';
 import 'package:pos/data/repository/push_records_repository.dart';
 import 'package:pos/data/repository_impl/settle_sale_push_mapper.dart';
 import 'package:pos/features/day_closing/data/day_closing_live_sync.dart';
-import 'package:pos/presentation/day_closing/day_closing_reconciliation_dialog.dart';
 import 'package:pos/presentation/day_closing/day_closing_settlement.dart';
 import 'package:pos/presentation/day_closing/day_closing_summary.dart';
+import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:uuid/uuid.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
@@ -36,8 +35,6 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
   bool _loading = true;
   bool _submitting = false;
   DayClosingSummary _summary = DayClosingSummary.empty();
-  /// Last successful close reconciliation (for re-print until next close).
-  DayClosingCloseReconciliation? _lastCloseCashReconciliation;
   DayClosingLiveSync? _dayClosingLive;
   void Function()? _detachDayClosingLive;
 
@@ -111,7 +108,6 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       final failed = await printService.printDayClosingReport(
         summary: _summary,
         counterAccess: _counterAccess,
-        closeReconciliation: _lastCloseCashReconciliation,
       );
       if (!mounted) return;
       if (failed.isEmpty) {
@@ -123,6 +119,17 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       if (!mounted) return;
       showErrorDialog(context, e);
     }
+  }
+
+  Future<bool> _confirmSubmitDayClosing() async {
+    final result = await showAppConfirmDialog(
+      context,
+      title: 'Close day?',
+      message: 'Are you sure you want to close the day?',
+      cancelText: 'Cancel',
+      confirmText: 'Yes, close day',
+    );
+    return result == true;
   }
 
   Future<int?> _displayCashierScope() async {
@@ -161,11 +168,8 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
       );
       return;
     }
-    final recon = await showDayClosingReconciliationDialog(
-      context,
-      summary: _summary,
-    );
-    if (!mounted || recon == null) return;
+    final ok = await _confirmSubmitDayClosing();
+    if (!mounted || !ok) return;
     setState(() => _submitting = true);
     try {
       final hub = locator.isRegistered<LocalHubSettings>() ? locator<LocalHubSettings>() : null;
@@ -193,7 +197,6 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         branchId: branchId,
         userId: userId,
         at: at,
-        closeReconciliation: recon,
       );
 
       await db.settleSalesOutboxDao.insertPending(
@@ -209,41 +212,24 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         branchId: branchId,
         settledAt: settledAt,
       );
-      await BackupService.instance.maintainDatabase(db, vacuum: true);
-      await SalesCsvBackup.refreshNow(db);
-      await BackupService.instance.backupNow(db, force: true);
 
-      PushRecordsOutcome? pushOut;
       final canPushToCloud = hub == null || !hub.blocksTenantCloudRest;
-      if (canPushToCloud && locator.isRegistered<PushRecordsRepository>()) {
-        pushOut = await locator<PushRecordsRepository>().pushSalesAndCreditSalesFromLocal();
-      }
-
       if (!mounted) return;
-      setState(() => _lastCloseCashReconciliation = recon);
-
-      final printFailed = await locator<PrintService>().printDayClosingReport(
-        summary: summary,
-        counterAccess: _counterAccess,
-        closeReconciliation: recon,
-      );
-      if (!mounted) return;
-      if (pushOut != null && !pushOut.ok) {
-        CustomSnackBar.showWarning(
-          message:
-              'Day closed locally. Could not sync to server: ${_formatPushOutcomeMessage(pushOut)}',
+      CustomSnackBar.showSuccess(message: 'Day closed successfully.');
+      if (canPushToCloud && locator.isRegistered<OutboundPushCoordinator>()) {
+        locator<OutboundPushCoordinator>().scheduleFlush();
+      } else if (canPushToCloud && locator.isRegistered<PushRecordsRepository>()) {
+        unawaited(
+          locator<PushRecordsRepository>().pushSalesAndCreditSalesFromLocal().then((pushOut) {
+            if (!mounted) return;
+            if (!pushOut.ok) {
+              CustomSnackBar.showWarning(
+                message:
+                    'Day closed locally. Could not sync to server: ${_formatPushOutcomeMessage(pushOut)}',
+              );
+            }
+          }),
         );
-        if (printFailed.isNotEmpty) showPrintFailedDialog(context, printFailed);
-      } else if (printFailed.isNotEmpty) {
-        CustomSnackBar.showWarning(message: 'Day closed but print failed for some printers.');
-        showPrintFailedDialog(context, printFailed);
-      } else if (pushOut != null) {
-        CustomSnackBar.showSuccess(
-          message:
-              'Day closed successfully. Synced ${_formatPushOutcomeMessage(pushOut)}. Receipt sent to printer.',
-        );
-      } else {
-        CustomSnackBar.showSuccess(message: 'Day closed and receipt sent to printer.');
       }
       await _load();
     } catch (e) {
@@ -252,51 +238,6 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
-  }
-
-  DayClosingCloseReconciliation? get _activeRecon => _lastCloseCashReconciliation;
-
-  double get _displayCashSale =>
-      _activeRecon?.actualCash ?? _summary.cashSaleAfterDiscount;
-  double get _displayCardSale => _activeRecon?.actualCard ?? _summary.cardSale;
-  double get _displayCreditSale => _activeRecon?.actualCredit ?? _summary.creditSale;
-  double get _displayOnlineSale => _activeRecon?.actualOnline ?? _summary.onlineSale;
-  double get _displayCashIn =>
-      effectiveDayClosingCashIn(_summary, closeReconciliation: _activeRecon);
-  double get _displayCashDrawer =>
-      effectiveDayClosingCashDrawer(_summary, closeReconciliation: _activeRecon);
-  double get _displayDifference =>
-      effectiveDayClosingDifference(_summary, closeReconciliation: _activeRecon);
-
-  List<List<String>> _paymentVarianceTableRows() {
-    final rows = <List<String>>[];
-    for (final v in orderedDayClosingPaymentVariances(
-      _summary,
-      closeReconciliation: _activeRecon,
-    )) {
-      if (v.excess > kDayCloseAmountTolerance) {
-        rows.add(
-          _highlightRow(
-            '${v.channel} EXCESS',
-            RuntimeAppSettings.money(v.excess),
-            isPositive: true,
-          ),
-        );
-      }
-      if (v.short > kDayCloseAmountTolerance) {
-        rows.add(
-          _highlightRow(
-            '${v.channel} SHORT',
-            RuntimeAppSettings.money(v.short),
-            isPositive: false,
-          ),
-        );
-      }
-    }
-    if (rows.isEmpty) {
-      rows.add(_row('PAYMENT VARIANCE', 'None'));
-    }
-    return rows;
   }
 
   @override
@@ -336,12 +277,12 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                             color: Colors.deepOrange.shade800,
                           ),
                           _row('NET SALES (completed)', RuntimeAppSettings.money(_summary.netTotal)),
-                          _row('CASH SALE', RuntimeAppSettings.money(_displayCashSale)),
-                          _row('CARD SALE', RuntimeAppSettings.money(_displayCardSale)),
-                          _row('CREDIT SALE', RuntimeAppSettings.money(_displayCreditSale)),
-                          _row('ONLINE SALE', RuntimeAppSettings.money(_displayOnlineSale)),
+                          _row('CASH SALE', RuntimeAppSettings.money(_summary.cashSale)),
+                          _row('CARD SALE', RuntimeAppSettings.money(_summary.cardSale)),
+                          _row('CREDIT SALE', RuntimeAppSettings.money(_summary.creditSale)),
+                          _row('ONLINE SALE', RuntimeAppSettings.money(_summary.onlineSale)),
                           _row('DELIVERY SALE', RuntimeAppSettings.money(_summary.deliverySale)),
-                          _row('CASH DRAWER BALANCE', RuntimeAppSettings.money(_displayCashDrawer)),
+                          _row('CASH DRAWER BALANCE', RuntimeAppSettings.money(_summary.cashDrawer)),
                         ],
                       ),
                       const SizedBox(height: 14),
@@ -355,7 +296,8 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                                 RuntimeAppSettings.money(r.discount),
                                 RuntimeAppSettings.money(r.amount),
                               ]),
-                          ..._paymentVarianceTableRows(),
+                          _highlightRow('EXCESS AMOUNT', RuntimeAppSettings.money(_summary.excessAmount), isPositive: true),
+                          _highlightRow('SHORT AMOUNT', RuntimeAppSettings.money(_summary.shortAmount), isPositive: false),
                         ],
                       ),
                       const SizedBox(height: 14),
@@ -374,42 +316,11 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                           ),
                           _row(
                             'DIFFERENCE (SECTION 3 TOTAL − MODELED DRAWER)',
-                            RuntimeAppSettings.money(_displayDifference.abs()),
+                            RuntimeAppSettings.money(_summary.difference.abs()),
                             color: Colors.cyan.shade700,
                             emphasize: true,
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 14),
-                      _sectionCard(
-                        title: '3c. Other Income Summary',
-                        headers: _summary.otherIncomeRows.isEmpty
-                            ? const ['SOURCE', 'AMOUNT']
-                            : const ['DESCRIPTION', 'PAYMENT', 'AMOUNT'],
-                        rows: _summary.otherIncomeRows.isEmpty
-                            ? [
-                                _row(
-                                  'OTHER INCOME (RECORDED)',
-                                  RuntimeAppSettings.money(_summary.otherIncome),
-                                  color: Colors.green.shade700,
-                                  emphasize: true,
-                                ),
-                              ]
-                            : [
-                                ..._summary.otherIncomeRows.map(
-                                  (r) => [
-                                    r.description,
-                                    r.payment.toUpperCase(),
-                                    RuntimeAppSettings.money(r.amount),
-                                  ],
-                                ),
-                                _row(
-                                  'TOTAL OTHER INCOME (+)',
-                                  RuntimeAppSettings.money(_summary.otherIncome),
-                                  color: Colors.green.shade700,
-                                  emphasize: true,
-                                ),
-                              ],
                       ),
                       if (_summary.openBills.isNotEmpty) ...[
                         const SizedBox(height: 14),
@@ -440,21 +351,12 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                           _row('DINE-IN SALES', RuntimeAppSettings.money(_summary.dineInSales)),
                           _row('DELIVERY SALES', RuntimeAppSettings.money(_summary.deliverySale)),
                           _row('TAKEAWAY SALES', RuntimeAppSettings.money(_summary.takeAwaySales)),
-                          _row(
-                            'OTHER INCOME (+)',
-                            RuntimeAppSettings.money(_summary.otherIncome),
-                            color: Colors.green.shade700,
-                          ),
-                          _row(
-                            'CASH IN (OPENING + CASH SALE + OTHER INCOME)',
-                            RuntimeAppSettings.money(_displayCashIn),
-                            emphasize: true,
-                          ),
+                          _row('CASH IN (OPENING + CASH SALE AFTER DISCOUNT)', RuntimeAppSettings.money(_summary.cashIn), emphasize: true),
                           _row('CASH OUT (EXPENSES FROM CASH)', RuntimeAppSettings.money(_summary.cashOut), emphasize: true),
                         ],
                         footerLabel: 'TOTAL CASH DRAWER',
-                        footerValue: RuntimeAppSettings.money(_displayCashDrawer),
-                        footerNote: _cashDrawerVarianceHint(_displayDifference),
+                        footerValue: RuntimeAppSettings.money(_summary.cashDrawer),
+                        footerNote: _cashDrawerVarianceHint(_summary.difference),
                       ),
                       const SizedBox(height: 14),
                       _sectionCard(
@@ -472,7 +374,21 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                       ),
                       const SizedBox(height: 14),
                       _sectionCard(
-                        title: '6. Cancelled Bills Summary',
+                        title: '6. Item Wise Product List',
+                        headers: const ['ITEM', 'QTY', 'AMOUNT'],
+                        rows: [
+                          ..._summary.itemRows.map((r) => [
+                                r.item,
+                                r.qty.toString(),
+                                RuntimeAppSettings.money(r.amount),
+                              ]),
+                        ],
+                        footerLabel: 'GRAND TOTAL',
+                        footerValue: RuntimeAppSettings.money(_summary.netTotal),
+                      ),
+                      const SizedBox(height: 14),
+                      _sectionCard(
+                        title: '7. Cancelled Bills Summary',
                         headers: const ['RECEIPT ID', 'REASON', 'BY', 'AMOUNT'],
                         rows: _summary.cancelledRows.isEmpty
                             ? [

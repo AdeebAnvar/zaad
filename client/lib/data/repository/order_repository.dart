@@ -10,9 +10,21 @@ abstract class OrderRepository {
   Future<void> updateOrderStatus(int orderId, String status);
   Future<void> deleteOrder(int orderId);
   Future<Order?> getKOTByReference(String referenceNumber);
+  Future<void> updateOrder(Order order);
 
-  /// Persists locally. When [publishToHub] is false, skips LAN/cloud fan-out (draft cart edits).
-  Future<void> updateOrder(Order order, {bool publishToHub = true});
+  /// Persists KOT header totals while the cart is edited — no hub freeze / cloud push.
+  Future<void> updateKotTotalsLight(Order order);
+
+  /// Save KOT: writes the order row immediately; hub freeze / cloud / LAN run after return.
+  Future<int> saveKotOrder(Order order, {required List<CartItem> cartLines});
+
+  /// Update existing KOT the same way as [saveKotOrder].
+  Future<void> updateKotOrder(Order order, {required List<CartItem> cartLines});
+
+  /// Pay / Submit — same fast path as KOT; finalize runs after the UI returns.
+  Future<int> savePaidOrder(Order order, {required List<CartItem> cartLines});
+
+  Future<void> updatePaidOrder(Order order, {required List<CartItem> cartLines});
   Future<List<Order>> filterOrders({
     String? invoiceNumber,
     String? referenceNumber,
@@ -25,8 +37,8 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
-    int? pickupToken,
     int? limit,
+    List<String>? excludeStatusAnyOf,
   });
 
   /// Log screens: same filters as [filterOrders] but skips [Order.hubMetadata] in RAM.
@@ -42,9 +54,12 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
-    int? pickupToken,
     int? limit,
     int offset = 0,
+    /// Exclude KOT/unsettled mirrors [orderCountsAsRecentSale].
+    bool onlyRecentSaleSettled = false,
+    String? paymentMethodKey,
+    bool excludeKotStatus = false,
   });
 
   /// Row count for the same filters as [filterOrdersForList] (pagination UI).
@@ -60,7 +75,9 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
-    int? pickupToken,
+    bool onlyRecentSaleSettled = false,
+    String? paymentMethodKey,
+    bool excludeKotStatus = false,
   });
 
   Future<List<Order>> getDeliveryOrdersWithDriver();

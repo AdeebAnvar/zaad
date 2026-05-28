@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' hide Category;
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/utils/credit_payment_metadata.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
@@ -791,16 +791,23 @@ Future<DayClosingSummary> computeDayClosingSummary(
 }) async {
   final session = await db.sessionDao.getActiveSession();
   final branchId = session?.branchId ?? 1;
+  final base = await Future.wait([
+    db.ordersDao.getAllOrders(branchId: branchId),
+    db.dayClosingCheckpointDao.lastSettledAtForBranch(branchId),
+    db.branchesDao.getBranchById(branchId),
+    db.usersDao.getAllUsers(),
+    db.itemDao.getVisibleForBranch(branchId),
+    db.categoryDao.getVisibleForBranch(branchId),
+  ]);
   final rawOrders = _ordersForCashierScope(
-    await db.ordersDao.getAllOrders(branchId: branchId),
+    base[0] as List<Order>,
     scopedCashierUserId,
   );
-  final cutoff =
-      await db.dayClosingCheckpointDao.lastSettledAtForBranch(branchId);
-  final branch = await db.branchesDao.getBranchById(branchId);
-  final users = await db.usersDao.getAllUsers();
-  final visibleItems = await db.itemDao.getVisibleForBranch(branchId);
-  final branchCategories = await db.categoryDao.getVisibleForBranch(branchId);
+  final cutoff = base[1] as DateTime?;
+  final branch = base[2] as BranchModel?;
+  final users = base[3] as List<UserModel>;
+  final visibleItems = base[4] as List<Item>;
+  final branchCategories = base[5] as List<Category>;
   final categoryNameByCatId = {
     for (final c in branchCategories) c.id: (c.name).trim(),
   };

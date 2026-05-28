@@ -65,8 +65,8 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
   /// One credit row per sale; stable whenever the sale uuid is stable.
   String _deterministicCreditUuid(String saleUuid) => _uuid.v5(_v5NsDns, 'pos_credit|$saleUuid');
 
-  /// Snapshot JSON carries `order_id` (Drift orders.id). Only sync logs for orders on [branchId].
-  Future<bool> _orderLogMatchesBranch(OrderLog log, int branchId) async {
+  /// Snapshot JSON carries `branch_id` and `order_id`. Prefer JSON filter — no per-log order read.
+  bool _orderLogMatchesBranch(OrderLog log, int branchId) {
     Map<String, dynamic>? snap;
     try {
       final decoded = jsonDecode(log.orderJson);
@@ -75,11 +75,12 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       return false;
     }
     if (snap == null) return false;
-    final oid = snap['order_id'];
-    final localId = oid is int ? oid : int.tryParse(oid?.toString() ?? '');
-    if (localId == null) return false;
-    final row = await _db.ordersDao.getOrderById(localId);
-    return row != null && row.branchId == branchId;
+    final bidRaw = snap['branch_id'];
+    if (bidRaw is int) return bidRaw == branchId;
+    final bidParsed = int.tryParse(bidRaw?.toString() ?? '');
+    if (bidParsed != null) return bidParsed == branchId;
+    // Legacy snapshots without branch_id — do not drop; server dedupes by sale uuid.
+    return snap['order_id'] != null;
   }
 
   @override
@@ -105,7 +106,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
     final allLogs = await _db.ordersDao.getUnsyncedOrderLogs();
     final logs = <OrderLog>[];
     for (final log in allLogs) {
-      if (await _orderLogMatchesBranch(log, branchId)) logs.add(log);
+      if (_orderLogMatchesBranch(log, branchId)) logs.add(log);
     }
 
     if (logs.isEmpty) {
@@ -258,8 +259,9 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       }
       if (ok) {
         await _db.ordersDao.markOrderLogsSynced(logs.map((e) => e.id).toList());
-        for (final c in unsyncedCustomers) {
-          await _db.customersDao.markAsSynced(c.id);
+        final syncedCustomerIds = unsyncedCustomers.map((c) => c.id).toList();
+        if (syncedCustomerIds.isNotEmpty) {
+          await _db.customersDao.markAsSyncedBatch(syncedCustomerIds);
         }
         await _db.settleSalesOutboxDao.markSynced(settleIds);
         await _db.financialRecordsDao.markSynced(expenseBundle.ids);
@@ -325,16 +327,12 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
     List<Customer> rows,
   ) async {
     final out = <Map<String, dynamic>>[];
+    final uuidFixes = <int, String>{};
     for (final c in rows) {
       var uuid = c.recordUuid?.trim();
       if (uuid == null || uuid.isEmpty) {
         uuid = _uuid.v4();
-        await _db.customersDao.updateCustomer(
-          CustomersCompanion(
-            id: Value(c.id),
-            recordUuid: Value(uuid),
-          ),
-        );
+        uuidFixes[c.id] = uuid;
       }
 
       out.add(<String, dynamic>{
@@ -346,6 +344,18 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         'gender': (c.gender ?? '').trim(),
         'branch_id': (c.branchId ?? 1).toString(),
         'created_at': PushLocalToPushRecordsMapper.formatApiDateTime(c.createdAt),
+      });
+    }
+    if (uuidFixes.isNotEmpty) {
+      await _db.transaction(() async {
+        for (final e in uuidFixes.entries) {
+          await _db.customersDao.updateCustomer(
+            CustomersCompanion(
+              id: Value(e.key),
+              recordUuid: Value(e.value),
+            ),
+          );
+        }
       });
     }
     return out;

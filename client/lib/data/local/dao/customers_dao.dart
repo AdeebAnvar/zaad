@@ -44,6 +44,18 @@ class CustomersDao extends DatabaseAccessor<AppDatabase> with _$CustomersDaoMixi
     return (select(customers)..where((c) => c.serverId.equals(serverId))).getSingleOrNull();
   }
 
+  /// One round-trip before bulk upserts (CRM pull / sync pages).
+  Future<Map<String, Customer>> getCustomersMapByServerIds(Set<String> serverIds) async {
+    if (serverIds.isEmpty) return {};
+    final list = await (select(customers)..where((c) => c.serverId.isIn(serverIds))).get();
+    final map = <String, Customer>{};
+    for (final row in list) {
+      final sid = row.serverId;
+      if (sid != null) map[sid] = row;
+    }
+    return map;
+  }
+
   Future<List<Customer>> searchCustomers(String query) {
     final lowerQuery = query.toLowerCase();
     return (select(customers)
@@ -89,6 +101,14 @@ class CustomersDao extends DatabaseAccessor<AppDatabase> with _$CustomersDaoMixi
 
   Future<void> markAsSynced(int id) {
     return (update(customers)..where((c) => c.id.equals(id))).write(CustomersCompanion(
+      isSynced: const Value(true),
+      updatedAt: Value(DateTime.now()),
+    ));
+  }
+
+  Future<void> markAsSyncedBatch(List<int> ids) async {
+    if (ids.isEmpty) return;
+    await (update(customers)..where((c) => c.id.isIn(ids))).write(CustomersCompanion(
       isSynced: const Value(true),
       updatedAt: Value(DateTime.now()),
     ));

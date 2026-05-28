@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:drift/drift.dart' show Value;
@@ -8,6 +9,7 @@ import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/print/cash_drawer_on_payment.dart';
 import 'package:pos/core/utils/credit_payment_metadata.dart';
+import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -130,13 +132,20 @@ class _PayCreditBillDialogState extends State<_PayCreditBillDialog> {
           ),
         ),
       );
-      await repo.updateOrder(updated);
-      if (type == 'cash') {
-        await openCashDrawerForCashPayment(pay);
-      }
+      final db = locator<AppDatabase>();
+      final cartLines = await OrderLogCartFallback.resolveWithDb(order: fresh, db: db);
+      await repo.updatePaidOrder(updated, cartLines: cartLines);
 
       if (!mounted) return;
       Navigator.of(context).pop();
+      if (type == 'cash') {
+        unawaited(
+          Future<void>.delayed(
+            const Duration(milliseconds: 80),
+            () => openCashDrawerForCashPayment(pay),
+          ),
+        );
+      }
       widget.onPaymentRecorded?.call();
       CustomSnackBar.showSuccess(
         message: 'Recorded ${RuntimeAppSettings.money(pay)} (${_labelForType(type)})',

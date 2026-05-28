@@ -115,6 +115,33 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
     return (delete(cartItems)..where((c) => c.id.equals(id))).go();
   }
 
+  /// Replace all lines on a cart in one transaction (edit-order load path).
+  Future<void> replaceCartItems(int cartId, List<CartItem> lines) async {
+    await transaction(() async {
+      await (delete(cartItems)..where((c) => c.cartId.equals(cartId))).go();
+      if (lines.isEmpty) return;
+      await batch((b) {
+        for (final line in lines) {
+          b.insert(
+            cartItems,
+            CartItemsCompanion.insert(
+              cartId: cartId,
+              itemId: line.itemId,
+              itemName: Value(line.itemName),
+              itemVariantId: Value(line.itemVariantId),
+              itemToppingId: Value(line.itemToppingId),
+              quantity: line.quantity,
+              discount: Value(line.discount),
+              discountType: Value(line.discountType),
+              notes: Value(line.notes),
+              total: Value(line.total),
+            ),
+          );
+        }
+      });
+    });
+  }
+
   /// Move existing lines to another cart (split / merge bills).
   Future<void> reassignCartItemsToCart(List<int> cartItemIds, int targetCartId) async {
     if (cartItemIds.isEmpty) return;
@@ -145,32 +172,13 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
   /// Supports:
   /// - Current format: `PREFIX-branchId-###` (e.g. `INV-1-002`)
   /// - Legacy format: `PREFIX##` (e.g. `INV02`)
-  Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) async {
-    // Invoice number only — avoids deserializing created_at (bad TEXT seeds crash Drift).
-    final rows = await (selectOnly(carts)
-          ..addColumns([carts.invoiceNumber])
-          ..where(carts.invoiceNumber.like('$prefix%'))
-          ..where(carts.branchId.equals(branchId)))
-        .get();
-    var max = 0;
-    final escapedPrefix = RegExp.escape(prefix);
-    final currentFormat = RegExp('^$escapedPrefix-$branchId-(\\d+)\$');
-    final legacyFormat = RegExp('^$escapedPrefix(\\d+)\$');
-
-    for (final row in rows) {
-      final inv = row.read(carts.invoiceNumber)!;
-      int? v;
-      final currentMatch = currentFormat.firstMatch(inv);
-      if (currentMatch != null) {
-        v = int.tryParse(currentMatch.group(1)!);
-      } else {
-        final legacyMatch = legacyFormat.firstMatch(inv);
-        if (legacyMatch != null) {
-          v = int.tryParse(legacyMatch.group(1)!);
-        }
-      }
-      if (v != null && v > max) max = v;
-    }
-    return max;
+  Future<int> maxInvoiceNumericSuffixForPrefix(String prefix, {required int branchId}) {
+    return maxInvoiceNumericSuffixForPrefixOnTable(
+      accessor: this,
+      tableName: 'carts',
+      invoiceColumn: 'invoice_number',
+      prefix: prefix,
+      branchId: branchId,
+    );
   }
 }
