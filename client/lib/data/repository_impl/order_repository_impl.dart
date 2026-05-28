@@ -225,6 +225,7 @@ class OrderRepositoryImpl implements OrderRepository {
         driverId: Value(order.driverId),
         driverName: Value(order.driverName),
         userId: Value(order.userId),
+        hubMetadata: Value(order.hubMetadata),
         hubSyncPending: const Value(false),
       ),
     );
@@ -357,6 +358,7 @@ class OrderRepositoryImpl implements OrderRepository {
         driverId: Value(order.driverId),
         driverName: Value(order.driverName),
         userId: Value(order.userId),
+        hubMetadata: Value(order.hubMetadata),
         hubSyncPending: const Value(false),
       ),
     );

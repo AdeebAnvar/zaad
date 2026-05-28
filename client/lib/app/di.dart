@@ -10,6 +10,7 @@ import 'package:pos/core/sync/local_hub_primary_inbound_coordinator.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/core/services/backup_service.dart';
+import 'package:pos/core/utils/pos_sqlite_open.dart';
 import 'package:pos/core/update/updater_manager.dart';
 import 'package:pos/data/repository/branch_repository.dart';
 import 'package:pos/data/repository/cart_repository.dart';
@@ -76,25 +77,7 @@ class ZaadDI {
     }
 
     if (!locator.isRegistered<AppDatabase>()) {
-      final db = AppDatabase();
-      try {
-        await db.customSelect('SELECT 1').get().timeout(
-          const Duration(seconds: 25),
-          onTimeout: () {
-            throw StateError(
-              'Database is busy. Close any other Zaad POS windows in Task Manager, '
-              'wait a few seconds, and try again.',
-            );
-          },
-        );
-      } on StateError {
-        rethrow;
-      } catch (e) {
-        throw StateError(
-          'Could not open local database ($e). '
-          'Close other Zaad POS copies and try again.',
-        );
-      }
+      final db = await PosSqliteOpen.openAppDatabase();
       locator.registerSingleton<AppDatabase>(db);
     }
     if (!locator.isRegistered<UpdaterManager>()) {

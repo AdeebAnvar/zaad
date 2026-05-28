@@ -362,8 +362,8 @@ QueryExecutor _openBackgroundExecutor(File file) {
     setup: (rawDb) {
       rawDb.execute('PRAGMA journal_mode = WAL;');
       rawDb.execute('PRAGMA synchronous = NORMAL;');
-      // Avoid hanging forever when a zombie pos.exe still holds the DB lock.
-      rawDb.execute('PRAGMA busy_timeout = 10000;');
+      // Match [PosSqliteOpen] probe window — slow OneDrive paths need longer waits.
+      rawDb.execute('PRAGMA busy_timeout = 30000;');
     },
   );
 }

@@ -114,6 +114,7 @@ class HubCatalogLanPublisher {
             'pullCategoryJson': _categoryMirrorToApiJson(row),
             'updatedAt': row.updatedAt.millisecondsSinceEpoch,
           },
+          awaitFlush: false,
         );
       }
 
@@ -123,8 +124,11 @@ class HubCatalogLanPublisher {
         await HubOrderLanPublisher.enqueueMainEventWithQueue(
           type: PosSyncEventTypes.itemUpsert,
           payload: payload,
+          awaitFlush: false,
         );
       }
+
+      await HubOrderLanPublisher.retryUnsyncedNow();
 
       if (kDebugMode) {
         debugPrint(

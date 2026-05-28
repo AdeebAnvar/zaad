@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:get_it/get_it.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
@@ -14,21 +16,6 @@ class HubApiMirrorPublisher {
 
   static const _maxApproxBytes = 10 * 1024 * 1024;
 
-  static Future<void>? _mirrorTail;
-
-  static LocalHubSettings? _eligibleHubOrNull() {
-    try {
-      final g = GetIt.instance;
-      if (!g.isRegistered<LocalHubSettings>()) return null;
-      final hub = g<LocalHubSettings>();
-      if (hub.blocksTenantCloudRest) return null;
-      if (hub.publishHubWsUrlOrLoopback.isEmpty) return null;
-      return hub;
-    } catch (_) {
-      return null;
-    }
-  }
-
   static void scheduleMirror({
     required String path,
     required String method,
@@ -37,7 +24,9 @@ class HubApiMirrorPublisher {
   }) {
     if (body == null || (body is! Map && body is! List)) return;
 
-    Future.microtask(() {
+    // After the current frame — avoids blocking taps/KOT with jsonEncode + outbox I/O
+    // chained from a Dio interceptor microtask on the UI isolate.
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
       final hub = _eligibleHubOrNull();
       if (hub == null) return;
 
@@ -74,21 +63,35 @@ class HubApiMirrorPublisher {
         return;
       }
 
-      final h = hub;
-      _mirrorTail = (_mirrorTail ?? Future<void>.value())
-          .then((_) => _publishOne(h, envelopePayload))
-          .catchError((Object? _, StackTrace __) {});
+      unawaited(_enqueueMirror(hub, envelopePayload));
     });
   }
 
-  static Future<void> _publishOne(LocalHubSettings hub, Map<String, dynamic> mirrorPayload) async {
+  static Future<void> _enqueueMirror(
+    LocalHubSettings hub,
+    Map<String, dynamic> mirrorPayload,
+  ) async {
     try {
       await HubOrderLanPublisher.enqueueMainEventWithQueue(
         type: PosSyncEventTypes.apiMirror,
         payload: mirrorPayload,
+        awaitFlush: false,
       );
     } catch (e, st) {
       if (kDebugMode) debugPrint('[HubApiMirrorPublisher] send failed: $e\n$st');
+    }
+  }
+
+  static LocalHubSettings? _eligibleHubOrNull() {
+    try {
+      final g = GetIt.instance;
+      if (!g.isRegistered<LocalHubSettings>()) return null;
+      final hub = g<LocalHubSettings>();
+      if (hub.blocksTenantCloudRest) return null;
+      if (hub.publishHubWsUrlOrLoopback.isEmpty) return null;
+      return hub;
+    } catch (_) {
+      return null;
     }
   }
 }

@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
+import 'package:pos/core/network/lan_hub_health.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
 import 'package:pos/core/sync/ws_detach_done_errors.dart';
@@ -24,6 +26,9 @@ class HubOrderLanPublisher {
   static const _maxApproxBytes = 12 * 1024 * 1024;
 
   static Future<void>? _serial;
+
+  /// Serializes background flushes when [enqueueMainEventWithQueue] uses `awaitFlush: false`.
+  static Future<void>? _deferredMainOutboxFlushTail;
 
   static Future<Map<String, dynamic>> _snapshotMap(Order order, List<CartItem> cartItems) async {
     final flutter = HubOrdersPayloadBuilder.flutterBlockFromDraft(order);
@@ -173,6 +178,7 @@ class HubOrderLanPublisher {
     required LocalHubSettings hub,
     required String type,
     required Map<String, dynamic> payload,
+    bool awaitFlush = true,
   }) async {
     final db = _dbOrNull();
     if (db == null) return;
@@ -184,7 +190,23 @@ class HubOrderLanPublisher {
         payload: jsonEncode(payload),
       ),
     );
-    await _flushMainOutboxBestEffort(hub: hub, db: db);
+    if (awaitFlush) {
+      await _flushMainOutboxBestEffort(hub: hub, db: db);
+    } else {
+      _scheduleDeferredMainOutboxFlush(hub: hub, db: db);
+    }
+  }
+
+  static void _scheduleDeferredMainOutboxFlush({
+    required LocalHubSettings hub,
+    required AppDatabase db,
+  }) {
+    _deferredMainOutboxFlushTail =
+        (_deferredMainOutboxFlushTail ?? Future<void>.value()).then((_) async {
+      try {
+        await _flushMainOutboxBestEffort(hub: hub, db: db);
+      } catch (_) {}
+    });
   }
 
   static Future<int> retryUnsyncedNow() async {
@@ -195,24 +217,52 @@ class HubOrderLanPublisher {
   }
 
   /// Queue any MAIN-originated WS sync event with ACK-backed outbox semantics.
+  ///
+  /// When [awaitFlush] is false, the outbox row is written on the current async
+  /// context but WebSocket flush runs on a serialized background chain so large
+  /// API mirror payloads do not block the UI isolate for ACK round-trips.
   static Future<void> enqueueMainEventWithQueue({
     required String type,
     required Map<String, dynamic> payload,
+    bool awaitFlush = true,
   }) async {
     final hub = _eligibleHubOrNull();
     if (hub == null || hub.isHubSub) return;
-    await _enqueueAndFlushMain(hub: hub, type: type, payload: payload);
+    await _enqueueAndFlushMain(
+      hub: hub,
+      type: type,
+      payload: payload,
+      awaitFlush: awaitFlush,
+    );
   }
 
   static Future<int> _flushMainOutboxBestEffort({
     required LocalHubSettings hub,
     required AppDatabase db,
   }) async {
+    final publishUrl = await LanHubReachability.resolvePublishWsUrl(hub);
+    if (publishUrl == null) {
+      if (kDebugMode) {
+        final rows = await db.syncQueueDao.outboxWorkQueue(DateTime.now());
+        if (rows.isNotEmpty) {
+          debugPrint(
+            '[HubOrderLanPublisher] LAN hub unreachable (${hub.publishHubWsUrlOrLoopback}) — '
+            'deferring ${rows.length} outbox row(s)',
+          );
+        }
+      }
+      return 0;
+    }
+
     final now = DateTime.now();
     final rows = await db.syncQueueDao.outboxWorkQueue(now);
     var acked = 0;
     for (final r in rows) {
-      final ok = await _sendMainOutboxRowWithAck(hub: hub, row: r);
+      final ok = await _sendMainOutboxRowWithAck(
+        hub: hub,
+        publishUrl: publishUrl,
+        row: r,
+      );
       if (ok) {
         acked++;
         await db.syncQueueDao.patchOutbox(
@@ -240,17 +290,43 @@ class HubOrderLanPublisher {
 
   static Future<bool> _sendMainOutboxRowWithAck({
     required LocalHubSettings hub,
+    required String publishUrl,
     required SyncOutboxData row,
   }) async {
     WebSocketChannel? ch;
+    StreamSubscription<dynamic>? ackSub;
     try {
       final decoded = jsonDecode(row.payload);
       final payload = Map<String, dynamic>.from(decoded as Map);
       await hub.resolveOrAllocateDeviceId(() => const Uuid().v4());
       final deviceId = hub.requireDeviceId();
-      final uri = Uri.parse(hub.publishHubWsUrlOrLoopback.trim());
+      final uri = Uri.parse(publishUrl);
       ch = WebSocketChannel.connect(uri);
       detachWebSocketSinkDone(ch);
+
+      final ackCompleter = Completer<bool>();
+      ackSub = ch.stream.listen(
+        (dynamic raw) {
+          if (ackCompleter.isCompleted) return;
+          try {
+            final text = raw is String ? raw : utf8.decode(raw as List<int>);
+            final ack = PosSyncEnvelope.tryDecode(text);
+            if (ack == null || ack.type != PosSyncEventTypes.ack) return;
+            if (ack.payload['forEventId']?.toString() != row.id) return;
+            final ok = ack.payload['ok'] == true || ack.payload['duplicate'] == true;
+            ackCompleter.complete(ok);
+          } catch (_) {
+            /* wait for another frame */
+          }
+        },
+        onError: (_, __) {
+          if (!ackCompleter.isCompleted) ackCompleter.complete(false);
+        },
+        onDone: () {
+          if (!ackCompleter.isCompleted) ackCompleter.complete(false);
+        },
+        cancelOnError: false,
+      );
 
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       final connect = PosSyncEnvelope(
@@ -274,27 +350,18 @@ class HubOrderLanPublisher {
       );
       ch.sink.add(env.encode());
 
-      final rawAck = await ch.stream.firstWhere((dynamic raw) {
-        try {
-          final text = raw is String ? raw : utf8.decode(raw as List<int>);
-          final ack = PosSyncEnvelope.tryDecode(text);
-          if (ack == null || ack.type != PosSyncEventTypes.ack) return false;
-          return ack.payload['forEventId']?.toString() == row.id;
-        } catch (_) {
-          return false;
-        }
-      }).timeout(const Duration(seconds: 5));
-
-      final text = rawAck is String ? rawAck : utf8.decode(rawAck as List<int>);
-      final ack = PosSyncEnvelope.tryDecode(text);
-      final ok = ack != null && (ack.payload['ok'] == true || ack.payload['duplicate'] == true);
-      return ok;
+      return await ackCompleter.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => false,
+      );
     } catch (e, st) {
       if (kDebugMode) {
         debugPrint('[HubOrderLanPublisher] MAIN send failed id=${row.id}: $e\n$st');
       }
+      LanHubReachability.invalidate();
       return false;
     } finally {
+      await ackSub?.cancel();
       try {
         await ch?.sink.close();
       } catch (_) {

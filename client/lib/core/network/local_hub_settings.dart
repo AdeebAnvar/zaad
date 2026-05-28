@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:pos/core/network/lan_hub_health.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// LAN MAIN WebSocket hub (SUB terminals only; MAIN runs Node.js + SQLite).
@@ -100,6 +101,7 @@ class LocalHubSettings {
   }
 
   Future<void> setHubWsUrl(String? url) async {
+    LanHubReachability.invalidate();
     if (url == null || url.trim().isEmpty) {
       await _prefs.remove(wsUrlKey);
     } else {
