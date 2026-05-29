@@ -25,14 +25,6 @@ class KotKitchenUpdateDiff {
     return from.total * (deltaQty / q);
   }
 
-  /// Kitchen-visible line content (notes, variant, item) — excludes qty/discount/totals.
-  static bool kitchenLineContentChanged(CartItem baseline, CartItem current) {
-    if (baseline.itemId != current.itemId) return true;
-    if (baseline.itemVariantId != current.itemVariantId) return true;
-    if ((baseline.notes ?? '').trim() != (current.notes ?? '').trim()) return true;
-    return false;
-  }
-
   /// Non-empty deltas only; matched by stable [CartItem.id].
   static List<KotKitchenUpdateRow> compute(List<CartItem> kitchenBaseline, List<CartItem> current) {
     final currentById = {for (final c in current) c.id: c};
@@ -58,11 +50,6 @@ class KotKitchenUpdateDiff {
         final dq = a.quantity - b.quantity;
         out.add(KotKitchenUpdateRow(
           lineForKitchen: a.copyWith(quantity: dq, total: _scaledTotal(a, dq)),
-          isCancelled: false,
-        ));
-      } else if (kitchenLineContentChanged(b, a)) {
-        out.add(KotKitchenUpdateRow(
-          lineForKitchen: a,
           isCancelled: false,
         ));
       }

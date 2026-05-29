@@ -7,7 +7,6 @@ import 'package:pos/core/constants/order_log_list_limits.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/utils/hub_log_order_user_scope.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
-import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/delivery_partner_repository.dart';
 import 'package:pos/data/repository/driver_repository.dart';
@@ -20,34 +19,26 @@ part 'delivery_log_state.dart';
 
 /// Delivery Sale Log: only the "Pending" phase (not yet dispatched / not closed).
 /// Delivered, cancelled, and out-for-delivery rows belong in Driver Log or order history.
-const List<String> _kDeliverySaleLogPendingStatuses = [
-  'placed',
-  'pending',
-  'kot'
-];
+const List<String> _kDeliverySaleLogPendingStatuses = ['placed', 'pending', 'kot'];
 
 /// Sale-log phase only (placed / pending / KOT), including fully paid rows awaiting dispatch.
-bool deliveryLogOrderVisible(Order o) =>
-    isDeliverySaleLogPendingStatus(o.status);
+bool deliveryLogOrderVisible(Order o) => isDeliverySaleLogPendingStatus(o.status);
 
 /// True while the order is still in the sale-log phase (not dispatched / closed).
 bool isDeliverySaleLogPendingStatus(String status) =>
     _kDeliverySaleLogPendingStatuses.contains(status.toLowerCase());
 
-/// Delivery log is a pending-stage screen; always allow opening Pay popup on these rows.
+/// Pay is not offered in sale log while status is still Pending (use counter Save or Driver Log).
 bool deliveryLogShowPayAction(Order order) =>
-    isDeliverySaleLogPendingStatus(order.status) ||
-    orderHasOutstandingBalance(order);
+    !isDeliverySaleLogPendingStatus(order.status);
 
 List<Order> _filterDeliveryLogList(List<Order> orders) {
   return orders.where(deliveryLogOrderVisible).toList();
 }
 
-bool _isNormalOrder(Order o) =>
-    o.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
+bool _isNormalOrder(Order o) => o.deliveryPartner?.trim().toUpperCase() == 'NORMAL';
 
-bool _hasDriver(Order o) =>
-    o.driverId != null && (o.driverName?.trim().isNotEmpty ?? false);
+bool _hasDriver(Order o) => o.driverId != null && (o.driverName?.trim().isNotEmpty ?? false);
 
 class DeliveryLogCubit extends Cubit<DeliveryLogState> {
   DeliveryLogCubit(
@@ -83,8 +74,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     _detachHubLive = () => h.revision.removeListener(onRev);
   }
 
-  int? _scopedUserId({int? uiUserId}) =>
-      HubLogOrderUserScope.effectiveFilterUserId(
+  int? _scopedUserId({int? uiUserId}) => HubLogOrderUserScope.effectiveFilterUserId(
         hub: hubSettings,
         sessionUser: counterSession.user,
         uiSelectedUserId: uiUserId,
@@ -156,7 +146,6 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
-    int? pickupToken,
   }) async {
     if (deliveryPartner != null && deliveryPartner.trim().isNotEmpty) {
       _selectedPartner = deliveryPartner.trim();
@@ -169,7 +158,6 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
       startDate: startDate,
       endDate: endDate,
       userId: _scopedUserId(uiUserId: userId),
-      pickupToken: pickupToken,
     );
   }
 
@@ -181,7 +169,6 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
-    int? pickupToken,
   }) async {
     final prior = state;
     try {
@@ -192,21 +179,17 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
         orderType: 'delivery',
-        deliveryPartner: partnerForQuery != null && partnerForQuery.isNotEmpty
-            ? partnerForQuery
-            : null,
+        deliveryPartner: partnerForQuery != null && partnerForQuery.isNotEmpty ? partnerForQuery : null,
         customerPhone: customerPhone,
         status: status,
         statusAnyOf: _kDeliverySaleLogPendingStatuses,
         startDate: startDate,
         endDate: endDate,
         userId: userId,
-        pickupToken: pickupToken,
         limit: orderLogDefaultQueryLimit(
           invoiceNumber: invoiceNumber,
           referenceNumber: referenceNumber,
           customerPhone: customerPhone,
-          pickupToken: pickupToken,
           startDate: startDate,
           endDate: endDate,
         ),
@@ -228,10 +211,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
                   'id': o.id,
                   'invoice': o.invoiceNumber,
                   'status': o.status,
-                  'paid': o.cashAmount +
-                      o.cardAmount +
-                      o.creditAmount +
-                      o.onlineAmount,
+                  'paid': o.cashAmount + o.cardAmount + o.creditAmount + o.onlineAmount,
                   'finalAmount': o.finalAmount,
                 },
               )
@@ -311,8 +291,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
   }
 
   /// Assign driver and set status to [out_of_delivery] for Normal delivery orders. Returns error message or null.
-  Future<String?> assignDriverToOrders(
-      List<int> orderIds, int driverId, String driverName) async {
+  Future<String?> assignDriverToOrders(List<int> orderIds, int driverId, String driverName) async {
     if (orderIds.isEmpty) return 'Select at least one order.';
     try {
       for (final id in orderIds) {
@@ -337,8 +316,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     }
   }
 
-  Future<void> updateOrderPaymentType(
-      int orderId, String paymentType, double finalAmount) async {
+  Future<void> updateOrderPaymentType(int orderId, String paymentType, double finalAmount) async {
     try {
       final order = await orderRepo.getOrderById(orderId);
       if (order == null) return;
@@ -368,10 +346,7 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
           'dbStatusAfter': after?.status,
           'paid': after == null
               ? null
-              : after.cashAmount +
-                  after.cardAmount +
-                  after.creditAmount +
-                  after.onlineAmount,
+              : after.cashAmount + after.cardAmount + after.creditAmount + after.onlineAmount,
           'finalAmount': after?.finalAmount,
         },
       );

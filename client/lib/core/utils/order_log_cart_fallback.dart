@@ -31,27 +31,12 @@ class OrderLogCartFallback {
       resolve(order: order, db: db, cartRepo: CartRepositoryImpl(db));
 
   /// Prefer hub snapshot JSON, then [`OrderLog`] snapshot, then live cart (never shadow cart alone).
-  ///
-  /// When the order uses a dedicated cart (not the LAN shadow cart) and live lines disagree
-  /// with the frozen hub line count — e.g. KOT edited locally before hub finalize — live cart wins.
   static Future<List<CartItem>> resolve({
     required Order order,
     required AppDatabase db,
     required CartRepository cartRepo,
   }) async {
     final hm = order.hubMetadata?.trim();
-    List<CartItem>? liveCart;
-    if (!isLanHubShadowCart(order.cartId)) {
-      final fromDb = await cartRepo.getCartItemsByCartId(order.cartId);
-      liveCart = fromDb ?? [];
-      if (liveCart.isNotEmpty && hm != null && hm.isNotEmpty) {
-        final fromHub = decodeCartItemsFromPayloadJson(hm, order.cartId);
-        if (fromHub.isNotEmpty && fromHub.length != liveCart.length) {
-          return liveCart;
-        }
-      }
-    }
-
     if (hm != null && hm.isNotEmpty) {
       final fromHub = decodeCartItemsFromPayloadJson(hm, order.cartId);
       if (fromHub.isNotEmpty) return fromHub;
@@ -60,7 +45,11 @@ class OrderLogCartFallback {
     final fromLog = await _linesFromOrderLog(db, order);
     if (fromLog.isNotEmpty) return fromLog;
 
-    if (liveCart != null && liveCart.isNotEmpty) return liveCart;
+    if (!isLanHubShadowCart(order.cartId)) {
+      final fromDb = await cartRepo.getCartItemsByCartId(order.cartId);
+      final list = fromDb ?? [];
+      if (list.isNotEmpty) return list;
+    }
 
     return [];
   }

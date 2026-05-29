@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
@@ -8,7 +9,6 @@ import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
-import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/presentation/credit_sales/credit_sales_cubit.dart';
 import 'package:pos/presentation/credit_sales/pay_credit_bill_dialog.dart';
 import 'package:pos/presentation/recent_sales/recent_sales_actions.dart';
@@ -202,6 +202,7 @@ class _DesktopCreditTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dateFmt = DateFormat('dd MMM yyyy · HH:mm');
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: Material(
@@ -222,31 +223,24 @@ class _DesktopCreditTable extends StatelessWidget {
                 showCheckboxColumn: false,
                 columns: const [
                   DataColumn(label: Text('#')),
-                  DataColumn(label: Text('RECEIPT')),
                   DataColumn(label: Text('CUSTOMER')),
-                  DataColumn(label: Text('TOTAL'), numeric: true),
+                  DataColumn(label: Text('DEBIT'), numeric: true),
                   DataColumn(label: Text('CREDIT'), numeric: true),
                   DataColumn(label: Text('BALANCE'), numeric: true),
                   DataColumn(label: Text('ACTIONS')),
                 ],
                 rows: List.generate(orders.length, (index) {
                   final order = orders[index];
-                  final total = orderPayableAmount(order);
-                  final credit = orderCreditSaleAmount(order);
-                  final balance = orderOutstandingCredit(order);
+                  final debit = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
+                  final credit = paidAtSale(order);
+                  final balance = order.creditAmount;
                   return DataRow(
                     cells: [
                       DataCell(Text('${index + 1}')),
                       DataCell(
-                        Text(
-                          order.invoiceNumber,
-                          style: AppStyles.getSemiBoldTextStyle(fontSize: 13),
-                        ),
+                        _CustomerCell(order: order, dateFmt: dateFmt),
                       ),
-                      DataCell(
-                        _CustomerCell(order: order),
-                      ),
-                      DataCell(Text(RuntimeAppSettings.money(total))),
+                      DataCell(Text(RuntimeAppSettings.money(debit))),
                       DataCell(Text(RuntimeAppSettings.money(credit))),
                       DataCell(
                         Text(
@@ -297,25 +291,33 @@ class _DesktopCreditTable extends StatelessWidget {
 }
 
 class _CustomerCell extends StatelessWidget {
-  const _CustomerCell({required this.order});
+  const _CustomerCell({required this.order, required this.dateFmt});
 
   final Order order;
+  final DateFormat dateFmt;
 
   @override
   Widget build(BuildContext context) {
+    final name = order.customerName?.trim();
+    final phone = order.customerPhone?.trim();
+    final line = <String>[];
+    if (name != null && name.isNotEmpty) line.add(name);
+    if (phone != null && phone.isNotEmpty) line.add(phone);
+    final title = line.isEmpty ? '—' : line.join(' · ');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
-          customerDisplayLine(order),
+          title,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: AppStyles.getRegularTextStyle(fontSize: 13),
+          style: AppStyles.getSemiBoldTextStyle(fontSize: 14),
         ),
         const SizedBox(height: 4),
-        RelativeTimeText(
-          at: order.createdAt,
+        Text(
+          '${order.invoiceNumber} · ${dateFmt.format(order.createdAt)}',
           style: AppStyles.getRegularTextStyle(fontSize: 11, color: Colors.grey.shade600),
         ),
       ],
@@ -351,9 +353,9 @@ class _CreditSaleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = orderPayableAmount(order);
-    final credit = orderCreditSaleAmount(order);
-    final balance = orderOutstandingCredit(order);
+    final debit = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
+    final credit = paidAtSale(order);
+    final balance = order.creditAmount;
 
     return Material(
       color: Colors.white,
@@ -417,8 +419,8 @@ class _CreditSaleCard extends StatelessWidget {
                   return Row(
                     children: [
                       _AmountChip(
-                        label: 'Total',
-                        value: RuntimeAppSettings.money(total),
+                        label: 'Debit',
+                        value: RuntimeAppSettings.money(debit),
                         valueColor: AppColors.textColor,
                         narrow: narrow,
                       ),
@@ -527,6 +529,8 @@ class _AmountChip extends StatelessWidget {
     );
   }
 }
+
+double paidAtSale(Order o) => o.cashAmount + o.cardAmount + o.onlineAmount;
 
 String customerDisplayLine(Order o) {
   final name = o.customerName?.trim();

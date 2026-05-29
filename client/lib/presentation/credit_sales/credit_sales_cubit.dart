@@ -26,12 +26,10 @@ class CreditSalesCubit extends Cubit<CreditSalesState> {
   Future<void> load() async {
     emit(CreditSalesLoading());
     try {
-      // Branch receivables — all staff with Credit Sales access see the same list.
       _all = await orderRepo.getCreditSales(
-        userId: HubLogOrderUserScope.effectiveFilterUserId(
+        userId: HubLogOrderUserScope.cashierReportUserId(
           hub: hubSettings,
           sessionUser: counterSession.user,
-          sharedBranchLogsOnSub: true,
         ),
       );
       _emitLoaded();

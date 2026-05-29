@@ -87,34 +87,6 @@ void main() {
       expect(lines.single.itemName, 'From Log');
     });
 
-    test('live cart wins when hub snapshot line count is stale', () async {
-      final cartId = await db.cartsDao.createCart('c-stale-hub', branchId: 2);
-      for (var i = 0; i < 2; i++) {
-        await db.into(db.cartItems).insert(
-              CartItemsCompanion.insert(
-                cartId: cartId,
-                itemId: 10 + i,
-                quantity: 1,
-                total: const Value(10),
-                itemName: Value('Live $i'),
-              ),
-            );
-      }
-      final o = await orderWith(
-        cartId: cartId,
-        hubMetadata: hubMetadataItemsJson([
-          lineSnapshot(itemId: 1, name: 'Hub A'),
-          lineSnapshot(itemId: 2, name: 'Hub B'),
-          lineSnapshot(itemId: 3, name: 'Hub C'),
-          lineSnapshot(itemId: 4, name: 'Hub D'),
-        ]),
-      );
-
-      final lines = await OrderLogCartFallback.resolve(order: o, db: db, cartRepo: cartRepo);
-      expect(lines, hasLength(2));
-      expect(lines.every((l) => l.itemName.startsWith('Live')), isTrue);
-    });
-
     test('unique cart uses live lines when no snapshot', () async {
       final cartId = await db.cartsDao.createCart('c3', branchId: 2);
       await db.into(db.cartItems).insert(
