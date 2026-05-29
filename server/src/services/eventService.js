@@ -301,6 +301,7 @@ function handleEnvelope(db, ws, wss, data, rawStr) {
 module.exports = {
   handleEnvelope,
   send,
+  broadcast,
   ackEnvelope,
   connectWelcome,
   validateInbound,

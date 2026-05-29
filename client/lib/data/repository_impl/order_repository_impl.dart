@@ -15,6 +15,7 @@ import 'package:pos/core/utils/credit_payment_metadata.dart';
 import 'package:pos/core/utils/invoice_number_utils.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
+import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/core/utils/sales_csv_backup.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -31,6 +32,7 @@ class OrderRepositoryImpl implements OrderRepository {
 
   /// Shared across instances so parallel UI flows cannot read the same max suffix before another inserts a cart.
   static final Lock _invoiceAllocLock = Lock();
+  static final Lock _pickupTokenAllocLock = Lock();
 
   Future<int> _activeBranchId() => db.sessionDao.requireActiveBranchId();
 
@@ -150,27 +152,6 @@ class OrderRepositoryImpl implements OrderRepository {
     return row.copyWith(serverOrderId: Value(key));
   }
 
-  void _deferOrderFinalize({
-    required Order row,
-    required List<CartItem> cartLines,
-    required bool isCreate,
-  }) {
-    unawaited(
-      Future.microtask(() async {
-        try {
-          await _finalizePersistedOrder(
-            row: row,
-            cartLines: cartLines,
-            isCreate: isCreate,
-          );
-          _scheduleAfterMutation();
-        } catch (e, st) {
-          debugPrint('[OrderRepo] deferred order finalize failed: $e\n$st');
-        }
-      }),
-    );
-  }
-
   /// One re-read after write: hub freeze, cloud log, LAN mirror.
   Future<Order> _finalizePersistedOrder({
     required Order row,
@@ -197,14 +178,46 @@ class OrderRepositoryImpl implements OrderRepository {
     return frozen;
   }
 
+  Future<int> _allocateNextPickupToken({int? branchIdOverride}) async {
+    final bid = branchIdOverride ?? await _activeBranchId();
+    final cutoff = await db.dayClosingCheckpointDao.lastSettledAtForBranch(bid);
+    final max =
+        await db.ordersDao.maxPickupTokenForBranchSince(bid, cutoff) ?? 0;
+    return max + 1;
+  }
+
+  @override
+  Future<int> allocateNextPickupToken({int? branchId}) {
+    return _pickupTokenAllocLock.synchronized(
+      () => _allocateNextPickupToken(branchIdOverride: branchId),
+    );
+  }
+
+  Future<Value<int?>> _pickupTokenCompanionForNewOrder(
+    Order order,
+    int branchId,
+  ) async {
+    final existing = order.pickupToken;
+    if (existing != null) {
+      return Value(existing);
+    }
+    if (!orderTypeUsesPickupToken(order.orderType)) {
+      return const Value.absent();
+    }
+    final token = await allocateNextPickupToken(branchId: branchId);
+    return Value(token);
+  }
+
   @override
   Future<int> createOrder(Order order, {List<CartItem>? cartLines}) async {
     final branchId = await _activeBranchId();
+    final pickupToken = await _pickupTokenCompanionForNewOrder(order, branchId);
     final newId = await db.ordersDao.createOrder(
       OrdersCompanion.insert(
         cartId: order.cartId,
         invoiceNumber: order.invoiceNumber,
         branchId: Value(branchId),
+        pickupToken: pickupToken,
         referenceNumber: Value(order.referenceNumber),
         totalAmount: order.totalAmount,
         discountAmount: Value(order.discountAmount),
@@ -213,6 +226,7 @@ class OrderRepositoryImpl implements OrderRepository {
         customerName: Value(order.customerName),
         customerEmail: Value(order.customerEmail),
         customerPhone: Value(order.customerPhone),
+        customerAddress: Value(order.customerAddress),
         customerGender: Value(order.customerGender),
         cashAmount: Value(order.cashAmount),
         creditAmount: Value(order.creditAmount),
@@ -333,11 +347,13 @@ class OrderRepositoryImpl implements OrderRepository {
   @override
   Future<int> saveKotOrder(Order order, {required List<CartItem> cartLines}) async {
     final branchId = await _activeBranchId();
+    final pickupToken = await _pickupTokenCompanionForNewOrder(order, branchId);
     final newId = await db.ordersDao.createOrder(
       OrdersCompanion.insert(
         cartId: order.cartId,
         invoiceNumber: order.invoiceNumber,
         branchId: Value(branchId),
+        pickupToken: pickupToken,
         referenceNumber: Value(order.referenceNumber),
         totalAmount: order.totalAmount,
         discountAmount: Value(order.discountAmount),
@@ -346,6 +362,7 @@ class OrderRepositoryImpl implements OrderRepository {
         customerName: Value(order.customerName),
         customerEmail: Value(order.customerEmail),
         customerPhone: Value(order.customerPhone),
+        customerAddress: Value(order.customerAddress),
         customerGender: Value(order.customerGender),
         cashAmount: Value(order.cashAmount),
         creditAmount: Value(order.creditAmount),
@@ -367,7 +384,8 @@ class OrderRepositoryImpl implements OrderRepository {
       throw StateError('saveKotOrder failed to read row $newId');
     }
     _notifyOrderLogsRefresh();
-    _deferOrderFinalize(row: saved, cartLines: cartLines, isCreate: true);
+    await _finalizePersistedOrder(row: saved, cartLines: cartLines, isCreate: true);
+    _scheduleAfterMutation();
     return newId;
   }
 
@@ -375,7 +393,8 @@ class OrderRepositoryImpl implements OrderRepository {
   Future<void> updateKotOrder(Order order, {required List<CartItem> cartLines}) async {
     await db.ordersDao.updateOrder(order.toCompanion(false));
     _notifyOrderLogsRefresh();
-    _deferOrderFinalize(row: order, cartLines: cartLines, isCreate: false);
+    await _finalizePersistedOrder(row: order, cartLines: cartLines, isCreate: false);
+    _scheduleAfterMutation();
   }
 
   @override
@@ -451,6 +470,7 @@ class OrderRepositoryImpl implements OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     int? limit,
     int offset = 0,
     bool onlyRecentSaleSettled = false,
@@ -470,6 +490,7 @@ class OrderRepositoryImpl implements OrderRepository {
       endDate: endDate,
       driverId: driverId,
       userId: userId,
+      pickupToken: pickupToken,
       branchId: bid,
       limit: limit,
       offset: offset,
@@ -492,6 +513,7 @@ class OrderRepositoryImpl implements OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     bool onlyRecentSaleSettled = false,
     String? paymentMethodKey,
     bool excludeKotStatus = false,
@@ -509,6 +531,7 @@ class OrderRepositoryImpl implements OrderRepository {
       endDate: endDate,
       driverId: driverId,
       userId: userId,
+      pickupToken: pickupToken,
       branchId: bid,
       onlyRecentSaleSettled: onlyRecentSaleSettled,
       paymentMethodKey: paymentMethodKey,
@@ -529,6 +552,9 @@ class OrderRepositoryImpl implements OrderRepository {
       branchId: bid,
       userId: userId,
       limit: kOrderLogDefaultListLimit,
+    );
+    list.retainWhere(
+      (o) => orderOutstandingCredit(o) > 0.004 || orderCreditSaleAmount(o) > 0.004,
     );
     sortOrdersNewestFirst(list);
     return list;
@@ -567,6 +593,22 @@ class OrderRepositoryImpl implements OrderRepository {
         branchId: cartBranchId,
       );
       return (invoice: invoice, cartId: cartId);
+    });
+  }
+
+  @override
+  Future<String> reserveInvoiceForCart({
+    required int cartId,
+    required String orderType,
+    int? branchId,
+  }) {
+    return _invoiceAllocLock.synchronized(() async {
+      final existingCart = await db.cartsDao.getCartByCartId(cartId);
+      final existingInvoice = existingCart?.invoiceNumber.trim() ?? '';
+      if (existingInvoice.isNotEmpty) return existingInvoice;
+      final invoice = await _allocateNextInvoiceNumber(orderType, branchIdOverride: branchId);
+      await db.cartsDao.updateCartInvoiceNumber(cartId, invoice);
+      return invoice;
     });
   }
 }

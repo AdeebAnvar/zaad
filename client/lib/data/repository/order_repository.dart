@@ -54,6 +54,7 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     int? limit,
     int offset = 0,
     /// Exclude KOT/unsettled mirrors [orderCountsAsRecentSale].
@@ -75,6 +76,7 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     bool onlyRecentSaleSettled = false,
     String? paymentMethodKey,
     bool excludeKotStatus = false,
@@ -96,4 +98,14 @@ abstract class OrderRepository {
     String? deliveryPartner,
     int? branchId,
   });
+
+  /// Atomically allocates and persists an invoice on an existing cart row.
+  Future<String> reserveInvoiceForCart({
+    required int cartId,
+    required String orderType,
+    int? branchId,
+  });
+
+  /// Next pickup / queue token for take-away and delivery (daily sequence; resets after day close).
+  Future<int> allocateNextPickupToken({int? branchId});
 }

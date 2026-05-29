@@ -5,6 +5,7 @@ import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/config/pos_app_runtime_config.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/network/pos_server_settings.dart';
+import 'package:pos/core/sync/lan_hub_connection_notifier.dart';
 import 'package:pos/core/sync/lan_hub_reconnect_service.dart';
 import 'package:pos/core/sync/local_hub_primary_inbound_coordinator.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
@@ -247,6 +248,9 @@ class ZaadDI {
       );
     }
 
+    if (!locator.isRegistered<LanHubConnectionNotifier>()) {
+      locator.registerLazySingleton<LanHubConnectionNotifier>(LanHubConnectionNotifier.new);
+    }
   }
 
   /// Backup restore, SQL repairs, auto-backup timer, hub WebSockets, cloud push.

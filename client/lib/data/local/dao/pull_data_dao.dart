@@ -170,6 +170,40 @@ class PullDataDao extends DatabaseAccessor<AppDatabase> with _$PullDataDaoMixin 
     }();
   }
 
+  /// Rows from `pull_records.expenseCategory` (cloud sync payload).
+  Future<List<PullCategoryRow>> getExpenseCategoriesForBranch(int branchId) async {
+    final scoped = await ((select(pullCategoryRows)
+          ..where((t) => t.resourceKey.equals('expenseCategory'))
+          ..where((t) => t.branchId.equals(branchId))
+          ..where((t) => t.deletedAt.isNull()))
+        ..orderBy([(t) => OrderingTerm.asc(t.categoryName)]))
+        .get();
+    if (scoped.isNotEmpty) return scoped;
+
+    return ((select(pullCategoryRows)
+          ..where((t) => t.resourceKey.equals('expenseCategory'))
+          ..where((t) => t.deletedAt.isNull()))
+        ..orderBy([(t) => OrderingTerm.asc(t.categoryName)]))
+        .get();
+  }
+
+  /// Rows from `pull_records.paymentMethods` (cloud sync payload).
+  Future<List<PullFloorRow>> getPaymentMethodsForBranch(int branchId) async {
+    final scoped = await ((select(pullFloorRows)
+          ..where((t) => t.resourceKey.equals('paymentMethods'))
+          ..where((t) => t.branchId.equals(branchId))
+          ..where((t) => t.deletedAt.isNull()))
+        ..orderBy([(t) => OrderingTerm.asc(t.paymentMethodName)]))
+        .get();
+    if (scoped.isNotEmpty) return scoped;
+
+    return ((select(pullFloorRows)
+          ..where((t) => t.resourceKey.equals('paymentMethods'))
+          ..where((t) => t.deletedAt.isNull()))
+        ..orderBy([(t) => OrderingTerm.asc(t.paymentMethodName)]))
+        .get();
+  }
+
   /// Last saved pagination row for a resource (for resume / UI).
   Future<SyncPaginationState?> getPaginationState(String resourceKey) {
     return (select(syncPaginationStates)..where((s) => s.resourceKey.equals(resourceKey)))

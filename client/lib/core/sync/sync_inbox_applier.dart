@@ -79,6 +79,7 @@ OrdersCompanion _mirroredCustomerPaymentCompanion(Map<String, dynamic> snap, Map
     customerEmail: _mirrorOptStr(snap, xf, 'customer_email', 'customerEmail'),
     customerPhone: _mirrorOptStr(snap, xf, 'customer_phone', 'customerPhone'),
     customerGender: _mirrorOptStr(snap, xf, 'customer_gender', 'customerGender'),
+    customerAddress: _mirrorOptStr(snap, xf, 'customer_address', 'customerAddress'),
     discountAmount: _mirrorOptDouble(snap, xf, 'discount_amount', 'discountAmount'),
     discountType: _mirrorOptStr(snap, xf, 'discount_type', 'discountType'),
     cashAmount: _mirrorOptDouble(snap, xf, 'cash_amount', 'cashAmount'),
@@ -88,6 +89,7 @@ OrdersCompanion _mirroredCustomerPaymentCompanion(Map<String, dynamic> snap, Map
     deliveryPartner: _mirrorOptStr(snap, xf, 'delivery_partner', 'deliveryPartner'),
     driverId: _mirrorOptInt(snap, xf, 'driver_id', 'driverId'),
     driverName: _mirrorOptStr(snap, xf, 'driver_name', 'driverName'),
+    pickupToken: _mirrorOptInt(snap, xf, 'pickup_token', 'pickupToken'),
   );
 }
 
@@ -136,6 +138,10 @@ class SyncInboxApplier {
           break;
         case PosSyncEventTypes.companySnapshot:
           await _applyCompanySnapshot(env.payload);
+          break;
+        case PosSyncEventTypes.floorPlanSnapshot:
+          await _applyFloorPlanSnapshot(env.payload);
+          ordersLiveSync.notifyHubOrdersChanged();
           break;
         case PosSyncEventTypes.apiMirror:
           await _applyApiMirror(env.payload);
@@ -268,11 +274,27 @@ class SyncInboxApplier {
       }
     }
 
+    final partnerSnapshotProvided = partnersRaw is List;
+    var partnerCatalogChanged = false;
     await db.transaction(() async {
       await _userRepo.saveUsersToLocal(users);
       await _branchRepo.saveBranchesToLocal(branches, downloadRemoteImages: false);
       await _settingsRepo.saveSettingsToLocal(settingsModel);
-      if (partnerRows.isNotEmpty) {
+      if (partnerSnapshotProvided) {
+        // Mirror MAIN exactly: remove stale local delivery partners, then insert snapshot rows.
+        final existing = await db.deliveryPartnersDao.getAll();
+        if (existing.length != partnerRows.length) {
+          partnerCatalogChanged = true;
+        } else {
+          final byId = {for (final p in existing) p.id: p.name.trim()};
+          for (final p in partnerRows) {
+            if (byId[p.id] != p.name) {
+              partnerCatalogChanged = true;
+              break;
+            }
+          }
+        }
+        await db.delete(db.deliveryPartners).go();
         for (final p in partnerRows) {
           await db.deliveryPartnersDao.upsertDeliveryPartner(
             DeliveryPartnersCompanion.insert(
@@ -284,7 +306,7 @@ class SyncInboxApplier {
       }
     });
 
-    if (partnerRows.isNotEmpty) {
+    if (partnerSnapshotProvided && partnerCatalogChanged) {
       DeliveryPartnerCatalogSignal.notifyPartnersChanged();
     }
 
@@ -349,6 +371,37 @@ class SyncInboxApplier {
         return '.jpg';
       default:
         return '.bin';
+    }
+  }
+
+  Future<void> _applyFloorPlanSnapshot(Map<String, dynamic> payload) async {
+    final branchId = coerceUserId(payload['branchId']) ?? coerceUserId(payload['branch_id']);
+    if (branchId == null || branchId <= 0) return;
+
+    final floorsRaw = payload['floors'];
+    final tablesRaw = payload['tables'];
+    final floors = floorsRaw is List
+        ? floorsRaw
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : <Map<String, dynamic>>[];
+    final tables = tablesRaw is List
+        ? tablesRaw
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : <Map<String, dynamic>>[];
+
+    await db.diningTablesDao.applyFloorPlanSnapshot(
+      branchId: branchId,
+      floors: floors,
+      tables: tables,
+    );
+    if (kDebugMode) {
+      debugPrint(
+        '[SyncInbox] FLOOR_PLAN_SNAPSHOT branch=$branchId floors=${floors.length} tables=${tables.length}',
+      );
     }
   }
 
@@ -679,8 +732,8 @@ class SyncInboxApplier {
             finalAmount: Value(finalAmt),
             status: Value(status),
             orderType: Value(orderTypeRaw),
-            referenceNumber: ref != null && ref.isNotEmpty ? Value(ref) : null,
-            userId: mirroredUserId != null ? Value(mirroredUserId) : null,
+            referenceNumber: ref != null && ref.isNotEmpty ? Value(ref) : const Value.absent(),
+            userId: mirroredUserId != null ? Value(mirroredUserId) : const Value.absent(),
             hubMetadata: Value(hubMeta),
             branchId: Value(branchBid),
           ),
@@ -726,6 +779,7 @@ class SyncInboxApplier {
               customerEmail: mirroredExtra.customerEmail,
               customerPhone: mirroredExtra.customerPhone,
               customerGender: mirroredExtra.customerGender,
+              customerAddress: mirroredExtra.customerAddress,
               discountAmount: mirroredExtra.discountAmount,
               discountType: mirroredExtra.discountType,
               cashAmount: mirroredExtra.cashAmount,
@@ -735,6 +789,7 @@ class SyncInboxApplier {
               deliveryPartner: mirroredExtra.deliveryPartner,
               driverId: mirroredExtra.driverId,
               driverName: mirroredExtra.driverName,
+              pickupToken: mirroredExtra.pickupToken,
             ),
           );
     }

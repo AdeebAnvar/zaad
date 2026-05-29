@@ -11,6 +11,7 @@ import 'package:pos/app/post_login_deferred_startup.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/enums.dart';
+import 'package:pos/core/utils/android_storage_startup_gate.dart';
 import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/data/local/drift_database.dart';
 
@@ -25,6 +26,7 @@ class PosBootstrapRoot extends StatefulWidget {
 
 class _PosBootstrapRootState extends State<PosBootstrapRoot> {
   Widget _child = const _StartupSplash(status: 'Starting Zaad POS…');
+  bool _coldStartStarted = false;
 
   void _setStartupStatus(String status) {
     if (!mounted) return;
@@ -34,9 +36,31 @@ class _PosBootstrapRootState extends State<PosBootstrapRoot> {
   @override
   void initState() {
     super.initState();
-    // Paint splash (spinner + "Starting Zaad POS…") before heavy DB work blocks the UI thread.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_runColdStart());
+      unawaited(_beginStartup());
+    });
+  }
+
+  Future<void> _beginStartup() async {
+    if (!Platform.isAndroid) {
+      await _runColdStart();
+      return;
+    }
+    // Android 6–10: system storage dialog. Android 11–16: startup gate or internal fallback.
+    await AppDirectories.requestLegacyAndroidStoragePermission();
+    if (!await AndroidStorageStartupGate.shouldShow()) {
+      await _runColdStart();
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _child = AndroidStorageStartupGate(
+        onReady: () {
+          if (_coldStartStarted) return;
+          _coldStartStarted = true;
+          unawaited(_runColdStart());
+        },
+      );
     });
   }
 
@@ -83,6 +107,18 @@ class _PosBootstrapRootState extends State<PosBootstrapRoot> {
               'If this keeps happening, restart the PC.\n\n'
               'Technical detail:\n$text';
     }
+    if (text.contains('unable to open database') ||
+        text.contains('SqliteException(14)')) {
+      return 'Zaad POS could not create or open its database file.\n\n'
+          'This often happens on Android when storage permission is not granted, '
+          'or after deleting the ZaadPOS folder.\n\n'
+          'Try:\n'
+          '1. Settings → Apps → Special app access → All files access → Zaad POS → Allow\n'
+          '   (this is NOT listed under normal app Permissions on Android 11+)\n'
+          '2. Or tap "Continue without Documents folder" on the first screen\n'
+          '3. Reopen the app\n\n'
+          'Technical detail:\n$text';
+    }
     if (text.contains('PathNotFoundException') ||
         text.contains('cannot find the file specified') ||
         text.contains('No writable folder')) {
@@ -122,7 +158,10 @@ Future<ColdStartBootstrapResult> coldStartBootstrap({
 
   void status(String s) => onStatus?.call(s);
 
-  status('Preparing data folder…');
+  status(Platform.isAndroid ? 'Checking storage access…' : 'Preparing data folder…');
+  if (Platform.isAndroid) {
+    await AppDirectories.prepareAndroidStorageBeforeDatabaseOpen();
+  }
   await AppDirectories.local();
   await yieldUi();
 

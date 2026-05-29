@@ -73,7 +73,7 @@ class OutboundPushCoordinator {
       final out = await _push.pushSalesAndCreditSalesFromLocal();
       if (kDebugMode) {
         debugPrint(
-          '[OutboundPush] ok=${out.ok} http=${out.httpStatus} posted=${out.ordersPosted} creditRows=${out.creditRowsPosted} settleRows=${out.settleRowsPosted}',
+          '[OutboundPush] ok=${out.ok} http=${out.httpStatus} sales=${out.ordersPosted} credit=${out.creditRowsPosted} expenses=${out.expensesPosted} settle=${out.settleRowsPosted}',
         );
       }
     } catch (e, st) {
@@ -82,6 +82,11 @@ class OutboundPushCoordinator {
       _flushInProgress = false;
     }
   }
+}
+
+/// Call after expense / salary / other income is saved locally.
+void scheduleOutboundPushAfterFinancialRecord() {
+  scheduleOutboundPushAfterLocalOrder();
 }
 
 /// Call after a new [OrderLog] row is written (e.g. [OrderRepository.createOrder]).

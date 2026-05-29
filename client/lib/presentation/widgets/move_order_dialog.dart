@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/order/move_order_logic.dart';
-import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/models/pos_customer.dart';
@@ -108,7 +106,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
   final _custName = TextEditingController();
   final _email = TextEditingController();
   final _onlineOrderRef = TextEditingController();
-  final _pax = TextEditingController(text: '1');
 
   String? _gender;
   String? _deliveryPartner;
@@ -119,7 +116,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
   List<DiningTable> _tables = [];
 
   bool _submitting = false;
-  bool _seatHandlingEnabled = true;
 
   static const _genderOptions = ['Male', 'Female', 'Other'];
 
@@ -151,7 +147,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
       _loadError = null;
     });
     try {
-      final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
       final floors = await _db.diningTablesDao.getFloors();
       final drivers = await _driverRepo.getAll();
       final customers = _access.showCustomerSection ? await _customerRepo.getAllLocalCustomers() : <PosCustomer>[];
@@ -164,7 +159,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
 
       if (!mounted) return;
       setState(() {
-        _seatHandlingEnabled = seatHandling;
         _floors = floors;
         _drivers = drivers;
         _allCustomers = customers;
@@ -212,10 +206,10 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
       if (_access.canCustomerNumber || _access.showCustomerSection) {
         _phone.text = customer.phone ?? '';
       }
-      if (_access.canCustomerEmail || _access.showCustomerSection) {
+      if (_access.canCustomerEmail) {
         _email.text = customer.email ?? '';
       }
-      if (_access.canCustomerGender || _access.showCustomerSection) {
+      if (_access.canCustomerGender) {
         final g = customer.gender?.trim();
         _gender = (g != null && g.isNotEmpty && _genderOptions.contains(g)) ? g : null;
       }
@@ -229,7 +223,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
     _custName.dispose();
     _email.dispose();
     _onlineOrderRef.dispose();
-    _pax.dispose();
     super.dispose();
   }
 
@@ -259,6 +252,9 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
     }
   }
 
+  bool get _showTargetDetails =>
+      _target != null && !(widget.sourceOrderType == 'dine_in' && _target == 'take_away');
+
   Future<void> _submit() async {
     if (_target == null || _submitting) return;
     setState(() => _submitting = true);
@@ -271,6 +267,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
             cartRepo: _cartRepo,
             order: widget.order,
             referenceNumber: _refTakeAway.text,
+            requireReference: widget.sourceOrderType != 'dine_in',
           );
           break;
         case 'delivery':
@@ -311,14 +308,12 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
             err = 'Invalid table';
             break;
           }
-          final pax = int.tryParse(_pax.text.trim()) ?? 0;
           err = await moveOrderToDineIn(
             orderRepo: _orderRepo,
             cartRepo: _cartRepo,
             order: widget.order,
             floorId: fid,
             table: table,
-            pax: pax,
           );
           break;
       }
@@ -384,7 +379,7 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
                 )
                 .toList(),
           ),
-          if (_target != null) ...[
+          if (_showTargetDetails) ...[
             const SizedBox(height: 16),
             const Divider(height: 1),
             const SizedBox(height: 12),
@@ -440,6 +435,9 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
   }
 
   Widget _takeAwayForm() {
+    if (widget.sourceOrderType == 'dine_in') {
+      return const SizedBox.shrink();
+    }
     return CustomTextField(
       controller: _refTakeAway,
       labelText: 'Reference No#:',
@@ -681,15 +679,6 @@ class _MoveOrderBodyState extends State<_MoveOrderBody> {
                 .toList(),
             onChanged: (v) => setState(() => _tableId = v),
           ),
-        if (_seatHandlingEnabled) ...[
-          const SizedBox(height: 12),
-          CustomTextField(
-            controller: _pax,
-            labelText: 'Pax',
-            keyBoardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          ),
-        ],
       ],
     );
   }

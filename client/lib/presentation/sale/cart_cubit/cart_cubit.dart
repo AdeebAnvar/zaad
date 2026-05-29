@@ -24,6 +24,14 @@ import 'package:pos/presentation/sale/cart_cubit/payment_save_result.dart';
 
 part 'cart_state.dart';
 
+String? _customerAddressFromDetails(Map<String, dynamic> customerDetails) {
+  final raw = customerDetails['address'];
+  if (raw == null) return null;
+  final trimmed = raw.toString().trim();
+  if (trimmed.isEmpty || trimmed.toLowerCase() == 'null') return null;
+  return trimmed;
+}
+
 class CartCubit extends Cubit<CartState> {
   CartCubit(
     this.cartRepo,
@@ -132,8 +140,6 @@ class CartCubit extends Cubit<CartState> {
     return <String, dynamic>{
       "name": order.customerName,
       "phone": order.customerPhone,
-      "email": order.customerEmail,
-      "gender": order.customerGender,
       "onlineOrderNumber": order.referenceNumber,
       "cash": order.cashAmount,
       "credit": order.creditAmount,
@@ -142,6 +148,9 @@ class CartCubit extends Cubit<CartState> {
       "discountAmount": order.discountAmount,
       "discountType": order.discountType,
       if (appliedOffer != null) "appliedOffer": appliedOffer,
+      if (order.customerAddress != null &&
+          order.customerAddress!.trim().isNotEmpty)
+        "address": order.customerAddress!.trim(),
     };
   }
 
@@ -344,12 +353,12 @@ class CartCubit extends Cubit<CartState> {
     if (_activeCartId != null) return;
 
     try {
-      final r = await orderRepo.createCartWithReservedInvoice(
+      _activeCartId = await cartRepo.createCart(
+        '',
         orderType: orderType.value,
         deliveryPartner: deliveryPartner,
       );
-      _activeCartId = r.cartId;
-      _invoiceNumber = r.invoice;
+      _invoiceNumber = null;
     } catch (e, st) {
       // #region agent log
       agentDebugLog(
@@ -366,8 +375,8 @@ class CartCubit extends Cubit<CartState> {
     }
   }
 
-  /// Single invoice sequence per cart: `_ensureCart` reserves a number on the cart row;
-  /// KOT and Pay must reuse it (no second `getNextInvoiceNumber` for the same sale).
+  /// Single invoice sequence per cart: `_ensureCart` creates a draft cart first;
+  /// KOT and Pay must reuse it (no second allocation for the same sale).
   Future<String> _invoiceNumberForPersistedCart() async {
     final memo = _invoiceNumber?.trim();
     if (memo != null && memo.isNotEmpty) return memo;
@@ -382,9 +391,15 @@ class CartCubit extends Cubit<CartState> {
       }
     }
 
-    final next = await orderRepo.getNextInvoiceNumber(orderType.value);
-    _invoiceNumber = next;
-    return next;
+    if (cartId == null || state.items.isEmpty) {
+      throw StateError('Invoice can only be generated for a non-empty cart.');
+    }
+    final generated = await orderRepo.reserveInvoiceForCart(
+      cartId: cartId,
+      orderType: orderType.value,
+    );
+    _invoiceNumber = generated;
+    return generated;
   }
 
   Future<void> _clearPersistedCartId() async {
@@ -575,7 +590,7 @@ class CartCubit extends Cubit<CartState> {
       );
       await orderRepo.updateKotOrder(updatedOrder, cartLines: sessionLines);
       _currentKOTOrderId = orderToUpdate.id;
-      kot = updatedOrder;
+      kot = await orderRepo.getOrderById(orderToUpdate.id) ?? updatedOrder;
     } else {
       // Same invoice as the active cart (reserved in _ensureCart).
       final cashierId = await _sessionUserId();
@@ -608,7 +623,7 @@ class CartCubit extends Cubit<CartState> {
       );
       final orderId = await orderRepo.saveKotOrder(order, cartLines: sessionLines);
       _currentKOTOrderId = orderId;
-      kot = order.copyWith(id: orderId);
+      kot = await orderRepo.getOrderById(orderId) ?? order.copyWith(id: orderId);
     }
 
     _currentKOTReference = refForDb;
@@ -652,32 +667,55 @@ class CartCubit extends Cubit<CartState> {
     required Set<int> kotPrintedIds,
     required String oTypeRaw,
   }) async {
+    Order? effectiveKotOrder = kotOrder;
+    if (effectiveKotOrder != null && effectiveKotOrder.pickupToken == null) {
+      effectiveKotOrder = await orderRepo.getOrderById(effectiveKotOrder.id) ?? effectiveKotOrder;
+    }
     if (openedForEdit) {
-      final inv = kotOrder?.invoiceNumber;
-      final bid = kotOrder?.branchId;
-      final ordAt = kotOrder?.createdAt;
+      final inv = effectiveKotOrder?.invoiceNumber;
+      final bid = effectiveKotOrder?.branchId;
+      final ordAt = effectiveKotOrder?.createdAt;
 
       if (kotBaseline != null) {
         final rows = await AppIsolateService.instance.run(
           kotKitchenUpdateDiffInIsolate,
           KotKitchenUpdateDiffInput(baseline: kotBaseline, current: currentSnap),
         );
-        if (rows.isEmpty) return const [];
-        return printService.printKOTUpdatePerKitchen(
-          rows: rows,
-          orderTypeRaw: oTypeRaw,
-          referenceNumber: kotRefPrint,
-          invoiceNumber: inv,
-          branchId: bid,
-          orderedAt: ordAt,
-        );
+        final failed = <String>[];
+        if (rows.isNotEmpty) {
+          failed.addAll(
+            await printService.printKOTUpdatePerKitchen(
+              rows: rows,
+              orderTypeRaw: oTypeRaw,
+              referenceNumber: kotRefPrint,
+              invoiceNumber: inv,
+              branchId: bid,
+              orderedAt: ordAt,
+              pickupToken: effectiveKotOrder?.pickupToken,
+            ),
+          );
+        }
+        // Kitchen also needs the full revised ticket (e.g. 4 items trimmed to 2), not only CANCELLED rows.
+        if (currentSnap.isNotEmpty) {
+          failed.addAll(
+            await printService.printKOTPerKitchen(
+              cartItems: currentSnap,
+              order: effectiveKotOrder,
+              referenceNumber: kotRefPrint,
+              invoiceNumber: inv,
+              branchId: bid,
+              orderedAt: ordAt,
+            ),
+          );
+        }
+        return failed;
       }
 
       final itemsToPrint = currentSnap.where((i) => !kotPrintedIds.contains(i.id)).toList();
       if (itemsToPrint.isEmpty) return const [];
       return printService.printKOTPerKitchen(
         cartItems: itemsToPrint,
-        order: kotOrder,
+        order: effectiveKotOrder,
         referenceNumber: kotRefPrint,
         invoiceNumber: inv,
         branchId: bid,
@@ -688,11 +726,11 @@ class CartCubit extends Cubit<CartState> {
     if (currentSnap.isEmpty) return const [];
     return printService.printKOTPerKitchen(
       cartItems: currentSnap,
-      order: kotOrder,
+      order: effectiveKotOrder,
       referenceNumber: kotRefPrint,
-      invoiceNumber: kotOrder?.invoiceNumber,
-      branchId: kotOrder?.branchId,
-      orderedAt: kotOrder?.createdAt,
+      invoiceNumber: effectiveKotOrder?.invoiceNumber,
+      branchId: effectiveKotOrder?.branchId,
+      orderedAt: effectiveKotOrder?.createdAt,
     );
   }
 
@@ -864,9 +902,12 @@ class CartCubit extends Cubit<CartState> {
     List<CartItem>? kotBaseline,
   }) async {
     final printFailed = <String>[];
-    final ref = order.referenceNumber?.trim().isNotEmpty == true
-        ? order.referenceNumber!
-        : order.invoiceNumber;
+    final printOrder = order.id > 0
+        ? await orderRepo.getOrderById(order.id) ?? order
+        : order;
+    final ref = printOrder.referenceNumber?.trim().isNotEmpty == true
+        ? printOrder.referenceNumber!
+        : printOrder.invoiceNumber;
     try {
       if (printKot && cartItems.isNotEmpty) {
         if (kotBaseline != null) {
@@ -879,11 +920,12 @@ class CartCubit extends Cubit<CartState> {
             printFailed.addAll(
               await printService.printKOTUpdatePerKitchen(
                 rows: rows,
-                orderTypeRaw: order.orderType,
+                orderTypeRaw: printOrder.orderType,
                 referenceNumber: ref,
-                invoiceNumber: order.invoiceNumber,
-                branchId: order.branchId,
-                orderedAt: order.createdAt,
+                invoiceNumber: printOrder.invoiceNumber,
+                branchId: printOrder.branchId,
+                orderedAt: printOrder.createdAt,
+                pickupToken: printOrder.pickupToken,
               ),
             );
           }
@@ -891,11 +933,11 @@ class CartCubit extends Cubit<CartState> {
           printFailed.addAll(
             await printService.printKOTPerKitchen(
               cartItems: cartItems,
-              order: order,
+              order: printOrder,
               referenceNumber: ref,
-              invoiceNumber: order.invoiceNumber,
-              branchId: order.branchId,
-              orderedAt: order.createdAt,
+              invoiceNumber: printOrder.invoiceNumber,
+              branchId: printOrder.branchId,
+              orderedAt: printOrder.createdAt,
             ),
           );
         }
@@ -903,7 +945,7 @@ class CartCubit extends Cubit<CartState> {
       if (printInvoice) {
         printFailed.addAll(
           await printService.printFinalBill(
-            order: order,
+            order: printOrder,
             cartItems: cartItems,
             asTaxInvoice: printInvoice,
           ),
@@ -911,7 +953,7 @@ class CartCubit extends Cubit<CartState> {
       }
       printFailed.addAll(
         await openCashDrawerForCashPayment(
-          resolveCashTenderForDrawer(payments, orderCashAmount: order.cashAmount),
+          resolveCashTenderForDrawer(payments, orderCashAmount: printOrder.cashAmount),
         ),
       );
     } catch (e) {
@@ -925,7 +967,7 @@ class CartCubit extends Cubit<CartState> {
     required Map<String, dynamic> discount,
     required Map<String, double> payments,
     String? onlineOrderNumber,
-    bool printInvoice = true,
+    bool printInvoice = false,
     bool printKot = false,
   }) async {
     if (state.items.isEmpty || _activeCartId == null) {
@@ -970,6 +1012,9 @@ class CartCubit extends Cubit<CartState> {
     final offerMeta = _withOfferMetadata(null, offer);
     final hubMeta = _hubMetadataWithDineInAnchor(offerMeta);
     final cashierId = await _sessionUserId();
+    if (cashierId == null) {
+      throw StateError('No active cashier session. Sign in again before placing an order.');
+    }
     final branchId = await _sessionBranchId();
     final order = Order(
       id: 0,
@@ -981,9 +1026,8 @@ class CartCubit extends Cubit<CartState> {
       discountType: discountAmount > 0 ? 'amount' : discountType,
       finalAmount: finalAmount,
       customerName: customerDetails['name'] as String?,
-      customerEmail: customerDetails['email'] as String?,
       customerPhone: customerDetails['phone'] as String?,
-      customerGender: customerDetails['gender'] as String?,
+      customerAddress: _customerAddressFromDetails(customerDetails),
       cashAmount: payments['cash'] ?? 0.0,
       creditAmount: payments['credit'] ?? 0.0,
       cardAmount: payments['card'] ?? 0.0,
@@ -1002,7 +1046,7 @@ class CartCubit extends Cubit<CartState> {
     try {
       final sessionItems = List<CartItem>.from(state.items);
       final newId = await orderRepo.savePaidOrder(order, cartLines: sessionItems);
-      final saved = order.copyWith(id: newId);
+      final saved = await orderRepo.getOrderById(newId) ?? order.copyWith(id: newId);
 
       await _clearCartStateOnly();
       emit(CartState([]));
@@ -1089,7 +1133,7 @@ class CartCubit extends Cubit<CartState> {
     required Map<String, dynamic> discount,
     required Map<String, double> payments,
     String? onlineOrderNumber,
-    bool printInvoice = true,
+    bool printInvoice = false,
     bool printKot = false,
   }) async {
     if (state.items.isEmpty || _activeCartId == null || _editingOrderId == null) {
@@ -1141,9 +1185,11 @@ class CartCubit extends Cubit<CartState> {
       discountType: discountAmount > 0 ? 'amount' : discountType,
       finalAmount: finalAmount,
       customerName: customerDetails['name'] as String?,
-      customerEmail: customerDetails['email'] as String?,
+      customerEmail: existingOrder.customerEmail,
       customerPhone: customerDetails['phone'] as String?,
-      customerGender: customerDetails['gender'] as String?,
+      customerAddress: _customerAddressFromDetails(customerDetails) ??
+          existingOrder.customerAddress,
+      customerGender: existingOrder.customerGender,
       cashAmount: payments['cash'] ?? 0.0,
       creditAmount: payments['credit'] ?? 0.0,
       cardAmount: payments['card'] ?? 0.0,

@@ -6,6 +6,7 @@ import 'package:get_it/get_it.dart';
 import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/lan_hub_health.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/sync/hub_floor_plan_lan_publisher.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -75,6 +76,17 @@ class HubCatalogLanPublisher {
       return;
     }
 
+    final publishUrl = await LanHubReachability.resolvePublishWsUrl(hub);
+    if (publishUrl == null) {
+      if (kDebugMode) {
+        debugPrint(
+          '[HubCatalogLanPublisher] skip: LAN hub unreachable ($resolvedUrl) — '
+          'not queueing catalog rows until hub responds',
+        );
+      }
+      return;
+    }
+
     if (await LanHeavyMirrorGate.shouldSkipForSolitaryWsHub(hub)) {
       if (kDebugMode) {
         debugPrint(
@@ -129,6 +141,7 @@ class HubCatalogLanPublisher {
       }
 
       await HubOrderLanPublisher.retryUnsyncedNow();
+      await HubFloorPlanLanPublisher.publishForActiveBranch(db);
 
       if (kDebugMode) {
         debugPrint(

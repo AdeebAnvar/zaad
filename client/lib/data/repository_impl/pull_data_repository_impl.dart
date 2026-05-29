@@ -13,6 +13,7 @@ import 'package:pos/core/network/cloud_sync_prerequisites.dart';
 import 'package:pos/core/sync/company_bootstrap_persist.dart';
 import 'package:pos/core/sync/pull_response_parse.dart';
 import 'package:pos/core/sync/hub_catalog_lan_publisher.dart';
+import 'package:pos/core/sync/hub_floor_plan_lan_publisher.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/core/utils/image_utils.dart';
 import 'package:pos/core/utils/item_order_channels.dart';
@@ -239,6 +240,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
           db: _db,
           pulledItemsSnapshot: allItemForImages,
         ).timeout(const Duration(minutes: 5));
+        await HubFloorPlanLanPublisher.publishForActiveBranch(_db);
       } on TimeoutException catch (e, st) {
         if (kDebugMode) {
           debugPrint('[pull] LAN catalog mirror timed out — continuing: $e\n$st');
@@ -284,6 +286,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
         db: _db,
         pulledItemsSnapshot: items,
       ).timeout(const Duration(minutes: 5));
+      await HubFloorPlanLanPublisher.publishForActiveBranch(_db);
     } on TimeoutException catch (e, st) {
       if (kDebugMode) {
         debugPrint('[pull] deferred LAN catalog mirror timed out — done: $e\n$st');
@@ -867,20 +870,37 @@ class PullDataRepositoryImpl implements PullDataRepository {
     required bool alsoCategoriesTable,
   }) async {
     for (final c in r.createdUpdated) {
-      final name = c.expenseCategoryName != null && c.expenseCategoryName!.trim().isNotEmpty
-          ? c.expenseCategoryName!.trim()
-          : (c.unitName != null && c.unitName!.trim().isNotEmpty
-              ? c.unitName!.trim()
-              : (c.floorName != null && c.floorName!.trim().isNotEmpty
-                  ? c.floorName!.trim()
-                  : (c.paymentMethodName?.trim().isNotEmpty == true ? c.paymentMethodName!.trim() : 'item')));
-      final slug = c.expenseCategorySlug != null && c.expenseCategorySlug!.trim().isNotEmpty
-          ? c.expenseCategorySlug!.trim()
-          : (c.unitSlug != null && c.unitSlug!.trim().isNotEmpty
-              ? c.unitSlug!.trim()
-              : (c.floorSlug != null && c.floorSlug!.trim().isNotEmpty
-                  ? c.floorSlug!.trim()
-                  : (c.paymentMethodSlug != null && c.paymentMethodSlug!.trim().isNotEmpty ? c.paymentMethodSlug!.trim() : (name.isNotEmpty ? name : 'id-${c.id}'))));
+      final String name;
+      final String slug;
+      if (resourceKey == 'expenseCategory') {
+        final rawName = (c.expenseCategoryName ?? '').trim();
+        final rawSlug = (c.expenseCategorySlug ?? '').trim();
+        if (rawName.isEmpty && rawSlug.isEmpty) continue;
+        name = rawName.isNotEmpty
+            ? rawName
+            : rawSlug.replaceAll('_', ' ').split(RegExp(r'\s+')).where((w) => w.isNotEmpty).map((w) {
+                if (w.length == 1) return w.toUpperCase();
+                return '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}';
+              }).join(' ');
+        slug = rawSlug.isNotEmpty ? rawSlug : rawName.toLowerCase().replaceAll(' ', '_');
+      } else {
+        name = c.expenseCategoryName != null && c.expenseCategoryName!.trim().isNotEmpty
+            ? c.expenseCategoryName!.trim()
+            : (c.unitName != null && c.unitName!.trim().isNotEmpty
+                ? c.unitName!.trim()
+                : (c.floorName != null && c.floorName!.trim().isNotEmpty
+                    ? c.floorName!.trim()
+                    : (c.paymentMethodName?.trim().isNotEmpty == true ? c.paymentMethodName!.trim() : 'item')));
+        slug = c.expenseCategorySlug != null && c.expenseCategorySlug!.trim().isNotEmpty
+            ? c.expenseCategorySlug!.trim()
+            : (c.unitSlug != null && c.unitSlug!.trim().isNotEmpty
+                ? c.unitSlug!.trim()
+                : (c.floorSlug != null && c.floorSlug!.trim().isNotEmpty
+                    ? c.floorSlug!.trim()
+                    : (c.paymentMethodSlug != null && c.paymentMethodSlug!.trim().isNotEmpty
+                        ? c.paymentMethodSlug!.trim()
+                        : (name.isNotEmpty ? name : 'id-${c.id}'))));
+      }
       await _db.pullDataDao.upsertPullCategory(
         PullCategoryRowsCompanion.insert(
           resourceKey: resourceKey,
@@ -992,6 +1012,11 @@ class PullDataRepositoryImpl implements PullDataRepository {
       );
       final dineName = f.floorName != null && f.floorName!.trim().isNotEmpty ? f.floorName!.trim() : f.unitName?.trim();
       if (syncDineFloors && dineName != null && dineName.isNotEmpty) {
+        if (_asDateTime(f.deletedAt) != null) {
+          await (_db.delete(_db.diningTables)..where((row) => row.floorId.equals(f.id))).go();
+          await (_db.delete(_db.diningFloors)..where((row) => row.id.equals(f.id))).go();
+          continue;
+        }
         await _db.diningTablesDao.upsertFloor(
           DiningFloorsCompanion.insert(
             id: Value(f.id),
@@ -1000,7 +1025,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
             recordUuid: Value(f.uuid),
             branchId: Value(f.branchId),
             floorSlug: Value(f.floorSlug ?? f.unitSlug),
-            deletedAt: Value(_asDateTime(f.deletedAt)),
+            deletedAt: const Value(null),
           ),
         );
       }
@@ -1394,6 +1419,10 @@ class PullDataRepositoryImpl implements PullDataRepository {
 
   Future<void> _persistTables(TablesModel r) async {
     for (final t in r.createdUpdated) {
+      if (_asDateTime(t.deletedAt) != null) {
+        await (_db.delete(_db.diningTables)..where((row) => row.id.equals(t.id))).go();
+        continue;
+      }
       final code = t.tableName.isNotEmpty ? t.tableName : t.tableSlug;
       try {
         await _db.diningTablesDao.upsertTable(

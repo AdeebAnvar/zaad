@@ -50,8 +50,8 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
   final _orderRepo = locator<OrderRepository>();
 
   bool _loading = true;
+  bool _seatHandlingEnabled = false;
   String? _error;
-  bool? _seatHandlingEnabled;
   List<DiningFloor> _floors = [];
   List<DiningTable> _tables = [];
   int? _floorId;
@@ -140,7 +140,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
     }
 
     final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInRoutingAnchorForMatching(widget.order));
-    final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
+    final seatHandling = _seatHandlingEnabled;
     final active = await _orderRepo.filterOrders(
       orderType: 'dine_in',
       userId: HubLogOrderUserScope.effectiveFilterUserId(
@@ -186,12 +186,13 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       newReferenceNumber: newRef,
     );
 
-    if (!mounted) return;
+    if (!context.mounted) return;
     if (err != null) {
       showAppSnackBar(context, err, isError: true);
       return;
     }
     nav.pop();
+    if (!context.mounted) return;
     showAppSnackBar(context, 'Order moved to selected floor / table');
   }
 
@@ -209,9 +210,6 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
       );
     }
 
-    final pax = DineInRefParser.extractPaxFromReference(DineInRefParser.dineInRoutingAnchorForMatching(widget.order));
-    final seatHandling = _seatHandlingEnabled ?? true;
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
       child: Column(
@@ -223,9 +221,7 @@ class _DineInMoveFloorTableBodyState extends State<_DineInMoveFloorTableBody> {
           ),
           const SizedBox(height: 4),
           Text(
-            seatHandling
-                ? 'Keeps $pax pax on the new table.'
-                : 'Seat allocation is off; order moves to the new table without seat limits.',
+            'Assigns this bill to the selected table (floor + table only).',
             style: AppStyles.getRegularTextStyle(fontSize: 13, color: AppColors.hintFontColor),
           ),
           const SizedBox(height: 16),

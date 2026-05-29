@@ -1,10 +1,12 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pos/app/navigation.dart';
+import 'package:pos/core/network/dio_request_flags.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 
-/// Shows a user-visible warning when tenant HTTP calls return **404** or **500**.
+/// Shows a user-visible warning when tenant **API** HTTP calls return **404** or **500**.
 ///
+/// Skips image/media downloads and any request with [kSuppressBadApiStatusToast].
 /// Throttled so burst failures (e.g. parallel sync) do not stack multiple toasts.
 class DioBadApiStatusInterceptor extends Interceptor {
   DioBadApiStatusInterceptor._();
@@ -29,7 +31,7 @@ class DioBadApiStatusInterceptor extends Interceptor {
     }
 
     final code = err.response?.statusCode;
-    if (code == 404 || code == 500) {
+    if ((code == 404 || code == 500) && isTenantApiRequest(err.requestOptions)) {
       final now = DateTime.now();
       final last = _lastToastAt;
       if (last == null || now.difference(last) >= _minGapBetweenToasts) {

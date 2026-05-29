@@ -95,6 +95,12 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
     );
   }
 
+  Future<void> updateCartInvoiceNumber(int cartId, String invoiceNumber) {
+    return (update(carts)..where((c) => c.id.equals(cartId))).write(
+      CartsCompanion(invoiceNumber: Value(invoiceNumber)),
+    );
+  }
+
   /* ───────── CART ITEMS ───────── */
 
   Future<int> addCartItem(CartItemsCompanion data) {

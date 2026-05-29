@@ -15,12 +15,18 @@
     <uses-feature android:name="android.hardware.usb.host" android:required="false"/>
     <!-- QR scanner (LOCAL setup) -->
     <uses-permission android:name="android.permission.CAMERA"/>
-    <!-- User-visible Documents/ZaadPOS (SQLite, backups, exports). Optional “All files access” on Android 11+. -->
+    <!-- Public Documents/ZaadPOS -->
+    <!-- API 23–32: runtime READ/WRITE dialog -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+    <!-- API 30+ (Android 11–16): user enables in Special app access → All files access -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage"/>
 
-    <application android:label="pos" android:name="${applicationName}" android:icon="@mipmap/ic_launcher">
+    <application
+        android:label="pos"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:taskAffinity="" android:theme="@style/LaunchTheme" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" android:hardwareAccelerated="true" android:windowSoftInputMode="adjustResize">
             <!-- Specifies an Android theme to apply to this Activity as soon as
@@ -46,6 +52,10 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Lets the app open "All files access" settings on Android 11+. -->
+        <intent>
+            <action android:name="android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION"/>
         </intent>
     </queries>
 </manifest>

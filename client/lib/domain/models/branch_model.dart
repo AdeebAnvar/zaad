@@ -1,3 +1,5 @@
+import 'package:pos/core/utils/json_int_parse.dart';
+
 class BranchModel {
   final int id;
   final String branchName;
@@ -24,6 +26,10 @@ class BranchModel {
   /// Last invoice issued on the server/admin (`/sync/bootstrap` → `last_receipt`), e.g. `INV-4-1155`.
   final String? lastReceipt;
 
+  /// Last pickup / queue token issued on the server (`/sync/bootstrap` → `last_token_no`).
+  /// Next local token is [lastTokenNo] + 1 when greater than zero.
+  final int? lastTokenNo;
+
   BranchModel({
     required this.id,
     required this.branchName,
@@ -43,6 +49,7 @@ class BranchModel {
     required this.openingCash,
     this.defaultOpeningCash,
     this.lastReceipt,
+    this.lastTokenNo,
   });
 
   BranchModel copyWith({
@@ -64,6 +71,7 @@ class BranchModel {
     int? openingCash,
     int? defaultOpeningCash,
     String? lastReceipt,
+    int? lastTokenNo,
   }) =>
       BranchModel(
         id: id ?? this.id,
@@ -84,6 +92,7 @@ class BranchModel {
         openingCash: openingCash ?? this.openingCash,
         defaultOpeningCash: defaultOpeningCash ?? this.defaultOpeningCash,
         lastReceipt: lastReceipt ?? this.lastReceipt,
+        lastTokenNo: lastTokenNo ?? this.lastTokenNo,
       );
 
   factory BranchModel.fromJson(Map<String, dynamic> json) => BranchModel(
@@ -106,6 +115,7 @@ class BranchModel {
         openingCash: (json["opening_cash"] as num?)?.toInt(),
         defaultOpeningCash: (json["opening_cash"] as num?)?.toInt(),
         lastReceipt: json["last_receipt"]?.toString(),
+        lastTokenNo: parseIntLoose(json["last_token_no"]),
       );
 
   Map<String, dynamic> toJson() => {
@@ -128,6 +138,7 @@ class BranchModel {
         "default_opening_cash": defaultOpeningCash ?? openingCash,
         if (lastReceipt != null && lastReceipt!.trim().isNotEmpty)
           "last_receipt": lastReceipt,
+        if (lastTokenNo != null && lastTokenNo! > 0) "last_token_no": lastTokenNo,
       };
 
   /// Saved default opening balance for day closing and the drawer dialog.

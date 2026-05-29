@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:pos/core/network/lan_hub_health.dart';
@@ -50,6 +51,9 @@ class LocalHubSettings {
 
   /// Stable device id persisted once (per installation).
   static const deviceIdKey = 'pos_installation_device_uuid';
+
+  /// Friendly label for LAN hub toasts / peer list (Windows PC name, hostname, etc.).
+  static const deviceDisplayNameKey = 'pos_installation_device_display_name';
 
   static const shadowCartKey = 'pos_lan_shadow_cart_id';
 
@@ -131,6 +135,43 @@ class LocalHubSettings {
     existing = allocator();
     await _prefs.setString(deviceIdKey, existing);
     return existing;
+  }
+
+  /// Human-readable name sent on hub CONNECT (shown on MAIN when SUB drops off).
+  String deviceDisplayLabel() {
+    final stored = _prefs.getString(deviceDisplayNameKey)?.trim();
+    if (stored != null && stored.isNotEmpty) return stored;
+    final detected = _detectHostDisplayName();
+    if (detected != null && detected.isNotEmpty) {
+      unawaited(_prefs.setString(deviceDisplayNameKey, detected));
+      return detected;
+    }
+    try {
+      return 'POS ${requireDeviceId().substring(0, 8)}';
+    } catch (_) {
+      return isHubSub ? 'Cashier tablet' : 'MAIN PC';
+    }
+  }
+
+  Future<void> setDeviceDisplayLabel(String name) async {
+    final t = name.trim();
+    if (t.isEmpty) {
+      await _prefs.remove(deviceDisplayNameKey);
+    } else {
+      await _prefs.setString(deviceDisplayNameKey, t);
+    }
+  }
+
+  String? _detectHostDisplayName() {
+    try {
+      final win = Platform.environment['COMPUTERNAME']?.trim();
+      if (win != null && win.isNotEmpty) return win;
+      final host = Platform.localHostname.trim();
+      if (host.isNotEmpty && host.toLowerCase() != 'localhost') return host;
+    } catch (_) {
+      /* not supported on this platform */
+    }
+    return null;
   }
 
   int? shadowCartRowIdOrNull() {

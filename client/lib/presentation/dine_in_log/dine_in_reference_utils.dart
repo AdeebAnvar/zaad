@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 
 import 'package:pos/data/local/drift_database.dart';
 
@@ -45,14 +45,98 @@ class DineInRefParser {
     return int.tryParse(m.group(1)!) ?? 1;
   }
 
-  static String buildReference(int floorId, String tableCode, int pax) => '$floorId|$tableCode | $pax pax';
+  static String buildReference(int floorId, String tableCode, int pax, {List<int>? seatIndices}) {
+    final code = tableCode.trim();
+    final base = '$floorId|$code | $pax pax';
+    if (seatIndices == null || seatIndices.isEmpty) return base;
+    final unique = seatIndices.where((i) => i > 0).toSet().toList()..sort();
+    if (unique.isEmpty) return base;
+    return '$base | seats: ${unique.join(',')}';
+  }
 
   /// Floor + table only (no pax). Used when seat handling is off: multiple orders per table without chair allocation.
   static String buildTableOnlyReference(int floorId, String tableCode) => '$floorId|${tableCode.trim()}';
 
+  static final RegExp _seatsTrailerRe = RegExp(r'\|\s*seats?\s*:\s*([\d,\s]+)', caseSensitive: false);
+
+  /// Explicit 1-based seat numbers from ref trailer (`| seats: 1,3`), else `null` (legacy pax-only rows).
+  static List<int>? extractSeatIndicesFromReference(String? referenceNumber) {
+    final v = stripLeadingFloorId(referenceNumber).trim();
+    if (v.isEmpty) return null;
+    final m = _seatsTrailerRe.firstMatch(v);
+    if (m == null) return null;
+    final raw = m.group(1) ?? '';
+    final out = <int>[];
+    for (final part in raw.split(',')) {
+      final n = int.tryParse(part.trim());
+      if (n != null && n > 0) out.add(n);
+    }
+    return out.isEmpty ? null : out;
+  }
+
+  /// `floorId|TABLE` identity for merge / same-table rules (ignores pax & seats).
+  static String? routingBaseKey(String? anchor) {
+    final ref = (anchor ?? '').trim();
+    if (ref.isEmpty) return null;
+    final floor = extractLeadingFloorId(ref);
+    final code = tableKey(extractTableCode(ref));
+    if (code.isEmpty) return null;
+    if (floor != null) return '$floor|$code';
+    return code;
+  }
+
+  static bool sameTableRouting(String? a, String? b) {
+    final ka = routingBaseKey(a);
+    final kb = routingBaseKey(b);
+    if (ka == null || kb == null) return false;
+    return ka == kb;
+  }
+
+  /// Blocked 1-based seats: explicit `seats:` from refs, then legacy pax-only orders fill lowest free seats in [id] order.
+  static Set<int> computeBlockedSeatsForTable({
+    required int chairCapacity,
+    required Iterable<Order> ordersOnTable,
+    int? excludeOrderId,
+  }) {
+    if (chairCapacity <= 0) return {};
+    final explicitTaken = <int>{};
+    final legacyOrders = <Order>[];
+    for (final o in ordersOnTable) {
+      if (excludeOrderId != null && o.id == excludeOrderId) continue;
+      final anchor = dineInAnchorForMatching(o);
+      if (anchor == null || anchor.isEmpty) continue;
+      final seats = extractSeatIndicesFromReference(anchor);
+      if (seats != null && seats.isNotEmpty) {
+        for (final s in seats) {
+          if (s >= 1 && s <= chairCapacity) explicitTaken.add(s);
+        }
+      } else {
+        legacyOrders.add(o);
+      }
+    }
+    legacyOrders.sort((a, b) => a.id.compareTo(b.id));
+    final blocked = Set<int>.from(explicitTaken);
+    for (final o in legacyOrders) {
+      final anchor = dineInAnchorForMatching(o)!;
+      var pax = extractPaxFromReference(anchor);
+      if (pax < 1) pax = 1;
+      pax = pax.clamp(1, chairCapacity);
+      var filled = 0;
+      var seat = 1;
+      while (filled < pax && seat <= chairCapacity) {
+        if (!blocked.contains(seat)) {
+          blocked.add(seat);
+          filled++;
+        }
+        seat++;
+      }
+    }
+    return blocked;
+  }
+
   static const String hubMetadataAnchorKey = 'dine_in_anchor';
 
-  /// Table/floor routing stored in [Order.hubMetadata] when the user leaves [Order.referenceNumber] empty.
+  /// Table/floor routing stored in [Order.hubMetadata] when staff ref is separate from routing.
   static String? dineInAnchorFromHubMetadata(String? hubMetadata) {
     try {
       if (hubMetadata == null || hubMetadata.trim().isEmpty) return null;
@@ -120,16 +204,30 @@ class DineInRefParser {
     }
   }
 
-  /// Staff KOT label and/or table routing for log cards (prefers visible staff ref).
+  /// Floor/table/seat routing: **`hubMetadata.dine_in_anchor` first**, then legacy `referenceNumber`.
   static String? dineInAnchorForMatching(Order o) {
-    final r = o.referenceNumber?.trim();
-    if (r != null && r.isNotEmpty) return r;
     final fromHub = dineInAnchorFromHubMetadata(o.hubMetadata);
     if (fromHub != null && fromHub.isNotEmpty) return fromHub;
+    final r = o.referenceNumber?.trim();
+    if (r != null && r.isNotEmpty) return r;
     return null;
   }
 
-  /// Floor/table routing only — ignores plain staff KOT text like `ead` on [Order.referenceNumber].
+  /// KOT / ticket line: dine-in uses table anchor only; other channels use `referenceNumber` or invoice.
+  static String printableRoutingLabel(Order? o) {
+    if (o == null) return '';
+    final ot = (o.orderType ?? '').trim().toLowerCase();
+    if (ot == 'dine_in') {
+      final a = dineInAnchorForMatching(o);
+      if (a != null && a.isNotEmpty) return stripLeadingFloorId(a);
+      return o.invoiceNumber;
+    }
+    final r = o.referenceNumber?.trim();
+    if (r != null && r.isNotEmpty) return r;
+    return o.invoiceNumber;
+  }
+
+  /// Floor/table routing only — ignores plain staff KOT text on [Order.referenceNumber].
   static String? dineInRoutingAnchorForMatching(Order o) {
     final fromHub = dineInAnchorFromHubMetadata(o.hubMetadata);
     if (fromHub != null && fromHub.isNotEmpty) return fromHub;

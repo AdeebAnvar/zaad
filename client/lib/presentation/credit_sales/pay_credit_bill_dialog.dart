@@ -10,6 +10,7 @@ import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/print/cash_drawer_on_payment.dart';
 import 'package:pos/core/utils/credit_payment_metadata.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
+import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
@@ -93,14 +94,15 @@ class _PayCreditBillDialogState extends State<_PayCreditBillDialog> {
         CustomSnackBar.showError(message: 'Order not found');
         return;
       }
-      if (fresh.creditAmount < 0.01) {
+      final openingCredit = orderOutstandingCredit(fresh);
+      if (openingCredit < 0.01) {
         CustomSnackBar.showWarning(message: 'No credit balance on this order');
         Navigator.of(context).pop();
         widget.onPaymentRecorded?.call();
         return;
       }
 
-      final pay = math.min(amount, fresh.creditAmount);
+      final pay = math.min(amount, openingCredit);
       final type = _paymentType!;
 
       var cash = fresh.cashAmount;
@@ -117,7 +119,7 @@ class _PayCreditBillDialogState extends State<_PayCreditBillDialog> {
           online += pay;
           break;
       }
-      final newCredit = (fresh.creditAmount - pay).clamp(0.0, double.infinity);
+      final newCredit = (openingCredit - pay).clamp(0.0, double.infinity);
 
       final updated = fresh.copyWith(
         cashAmount: cash,
@@ -165,7 +167,7 @@ class _PayCreditBillDialogState extends State<_PayCreditBillDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final balance = widget.order.creditAmount;
+    final balance = orderOutstandingCredit(widget.order);
     final maxW = AppDialogLayout.maxContentWidth(context);
 
     return Dialog(

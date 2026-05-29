@@ -18,8 +18,35 @@ function initWebSocket(server, db) {
     clientTracking: true,
   });
 
+  // Keep idle LAN sockets alive and detect dead peers.
+  // Without this, Wi-Fi/NAT middleboxes may silently drop inactive SUB sockets.
+  const heartbeatTimer = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (ws.isAlive === false) {
+        hubLog('CONN', 'WebSocket heartbeat timeout', {
+          ip: ws.__posIp,
+          port: ws.__posPort,
+          lastDeviceId: ws.__posLastDeviceId,
+          deviceName: ws.__posDeviceName,
+        });
+        ws.terminate();
+        continue;
+      }
+      ws.isAlive = false;
+      try {
+        ws.ping();
+      } catch (_) {
+        ws.terminate();
+      }
+    }
+  }, wsConfig.heartbeatMs);
+
   wss.on('connection', (ws, req) => {
     attachSocketMeta(ws, req);
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
     hubLog('CONN', 'WebSocket open', {
       ip: ws.__posIp,
       port: ws.__posPort,
@@ -28,6 +55,10 @@ function initWebSocket(server, db) {
       peerCount: wss.clients.size,
     });
     handleWS(ws, wss, db);
+  });
+
+  wss.on('close', () => {
+    clearInterval(heartbeatTimer);
   });
 
   return wss;

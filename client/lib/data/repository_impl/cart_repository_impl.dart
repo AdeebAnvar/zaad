@@ -115,6 +115,11 @@ class CartRepositoryImpl implements CartRepository {
   }
 
   @override
+  Future<void> updateCartInvoiceNumber(int cartId, String invoiceNumber) {
+    return db.cartsDao.updateCartInvoiceNumber(cartId, invoiceNumber);
+  }
+
+  @override
   Future<void> replaceCartItems(int cartId, List<CartItem> lines) {
     return db.cartsDao.replaceCartItems(cartId, lines);
   }

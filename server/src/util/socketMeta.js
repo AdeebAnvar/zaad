@@ -12,18 +12,24 @@ function attachSocketMeta(ws, req) {
   ws.__posUserAgent = req.headers['user-agent'] || null;
   ws.__posLastDeviceId = null;
   ws.__posClientRole = null;
+  ws.__posDeviceName = null;
 }
 
 /**
  * @param {import('ws')} ws
  * @param {string} [deviceId]
+ * @param {string} [clientRole]
+ * @param {string} [deviceName]
  */
-function rememberInboundDevice(ws, deviceId, clientRole) {
+function rememberInboundDevice(ws, deviceId, clientRole, deviceName) {
   if (typeof deviceId === 'string' && deviceId.length > 0) {
     ws.__posLastDeviceId = deviceId;
   }
   if (typeof clientRole === 'string' && clientRole.length > 0) {
     ws.__posClientRole = clientRole;
+  }
+  if (typeof deviceName === 'string' && deviceName.length > 0) {
+    ws.__posDeviceName = deviceName;
   }
 }
 
@@ -34,6 +40,7 @@ function clientPeer(ws) {
   return {
     role: ws.__posClientRole || 'CLIENT',
     deviceId: ws.__posLastDeviceId || null,
+    deviceName: ws.__posDeviceName || null,
     ip: ws.__posIp || null,
     port: ws.__posPort ?? null,
     userAgent: ws.__posUserAgent || null,

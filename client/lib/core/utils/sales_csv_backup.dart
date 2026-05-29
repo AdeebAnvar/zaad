@@ -19,14 +19,16 @@ class SalesCsvBackup {
 
   static const String fileName = 'sales_backup.xlsx';
   static const String metaFileName = 'sales_backup_meta.json';
+  static const Duration _minRefreshInterval = Duration(minutes: 30);
 
-  /// Refuse to shrink the export if order count drops more than this vs last good write.
   static const int _minOrderDropAbsolute = 10;
   static const double _minOrderDropFraction = 0.05;
 
   static Future<void> _writeQueue = Future<void>.value();
   static Timer? _debounceTimer;
   static AppDatabase? _debouncedDb;
+  /// Last successful full workbook write (`refreshFromDatabase` / `refreshNow`).
+  static DateTime _lastRefreshAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Coalesces bursts (checkout, KOT updates) — does not block the caller.
   static void scheduleDebouncedRefresh(
@@ -93,6 +95,22 @@ class SalesCsvBackup {
 
   /// Runs export on an internal queue. Prefer [scheduleDebouncedRefresh] on hot paths.
   static Future<void> refreshFromDatabase(AppDatabase db) async {
+    final now = DateTime.now();
+    final elapsed = now.difference(_lastRefreshAt);
+    if (elapsed >= _minRefreshInterval) {
+      _debounceTimer?.cancel();
+      _writeQueue = _writeQueue.then((_) => _safeRefresh(db));
+      await _writeQueue;
+      return;
+    }
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_minRefreshInterval - elapsed, () {
+      _writeQueue = _writeQueue.then((_) => _safeRefresh(db));
+    });
+  }
+
+  /// Bypass debounce (day close).
+  static Future<void> refreshNow(AppDatabase db) async {
     _writeQueue = _writeQueue.then((_) => _safeRefresh(db));
     await _writeQueue;
   }
@@ -117,6 +135,7 @@ class SalesCsvBackup {
     'customer_email',
     'customer_phone',
     'customer_gender',
+    'customer_address',
     'cash_amount',
     'credit_amount',
     'card_amount',
@@ -161,8 +180,7 @@ class SalesCsvBackup {
       final orders = await db.ordersDao.getAllOrders(branchId: branchId);
       final previousCount = await _readLastOrderCount();
 
-      if (previousCount != null &&
-          _wouldShrinkExport(newCount: orders.length, previousCount: previousCount)) {
+      if (previousCount != null && _wouldShrinkExport(newCount: orders.length, previousCount: previousCount)) {
         debugPrint(
           '[SalesBackup] Refusing shrink: $previousCount -> ${orders.length} orders '
           '(keeping existing $fileName)',
@@ -188,6 +206,7 @@ class SalesCsvBackup {
         try {
           await file.writeAsBytes(bytes);
           await _writeMeta(orders.length);
+          _lastRefreshAt = DateTime.now();
           return;
         } on FileSystemException {
           if (attempt == 2) return;

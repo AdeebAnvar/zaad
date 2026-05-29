@@ -31,8 +31,7 @@ class PrintService {
 
   CapabilityProfile? _thermalProfile;
 
-  Future<CapabilityProfile> _thermalCapabilityProfile() async =>
-      _thermalProfile ??= await CapabilityProfile.load();
+  Future<CapabilityProfile> _thermalCapabilityProfile() async => _thermalProfile ??= await CapabilityProfile.load();
 
   static const int _defaultPort = 9100;
   static const Duration _connectionTimeout = Duration(seconds: 15);
@@ -208,9 +207,7 @@ class PrintService {
     if (storedDiscountField > 0.009 && storedDiscountField <= 100) {
       final impliedSaving = grossBeforeDiscount * (storedDiscountField / 100.0);
       if ((impliedSaving - saving).abs() < 0.03) {
-        return storedDiscountField % 1 == 0
-            ? storedDiscountField.round().toString()
-            : storedDiscountField.toStringAsFixed(2);
+        return storedDiscountField % 1 == 0 ? storedDiscountField.round().toString() : storedDiscountField.toStringAsFixed(2);
       }
     }
     final pct = (saving / grossBeforeDiscount * 100.0).clamp(0.0, 100.0);
@@ -264,8 +261,7 @@ class PrintService {
       final rawOffer = root['applied_offer'];
       if (rawOffer is! Map) return null;
       final offer = Map<String, dynamic>.from(rawOffer);
-      final amount = (offer['discountAmount'] as num?)?.toDouble() ??
-          (double.tryParse(offer['discountAmount']?.toString() ?? '') ?? 0.0);
+      final amount = (offer['discountAmount'] as num?)?.toDouble() ?? (double.tryParse(offer['discountAmount']?.toString() ?? '') ?? 0.0);
       if (amount <= 0.009) return null;
       var name = offer['name']?.toString().trim() ?? '';
       final namesList = offer['autoDayOfferNames'];
@@ -438,9 +434,7 @@ class PrintService {
     final orderDate = orderedAt ?? DateTime.now();
     final orderTypeLabel = _orderTypeLabel(order?.orderType);
     // Resolve cashier name from session if not provided by caller.
-    final resolvedCashier = cashierName?.trim().isNotEmpty == true
-        ? cashierName!.trim()
-        : await _resolveCashierName();
+    final resolvedCashier = cashierName?.trim().isNotEmpty == true ? cashierName!.trim() : await _resolveCashierName();
 
     final lines = await _kotLinesFromCartOrOrder(cartItems, order);
     if (lines.isEmpty) return failed;
@@ -476,6 +470,7 @@ class PrintService {
           orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
           cashierName: resolvedCashier,
+          pickupToken: order?.pickupToken,
         ),
       );
       previewDocs.add('');
@@ -503,6 +498,7 @@ class PrintService {
           orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
           cashierName: resolvedCashier,
+          pickupToken: order?.pickupToken,
         );
         final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
         await _sendToPrinter(
@@ -543,6 +539,7 @@ class PrintService {
     int? branchId,
     DateTime? orderedAt,
     String? cashierName,
+    int? pickupToken,
   }) async {
     final failed = <String>[];
     final previewDocs = <String>[];
@@ -555,9 +552,7 @@ class PrintService {
     final invRaw = (invoiceNumber ?? '').trim();
     final orderDate = orderedAt ?? DateTime.now();
     final orderTypeLabel = _orderTypeLabel(orderTypeRaw);
-    final resolvedCashier = cashierName?.trim().isNotEmpty == true
-        ? cashierName!.trim()
-        : await _resolveCashierName();
+    final resolvedCashier = cashierName?.trim().isNotEmpty == true ? cashierName!.trim() : await _resolveCashierName();
 
     final kotLines = await _buildPrintLines(rows.map((r) => r.lineForKitchen).toList());
     final paired = <(KotKitchenUpdateRow, _PrintLine)>[];
@@ -600,6 +595,7 @@ class PrintService {
           orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
           cashierName: resolvedCashier,
+          pickupToken: pickupToken,
         ),
       );
       previewDocs.add('');
@@ -626,6 +622,7 @@ class PrintService {
           orderTypeLabel: orderTypeLabel,
           orderedAt: orderDate,
           cashierName: resolvedCashier,
+          pickupToken: pickupToken,
         );
         final (address, vendorId, productId, connType) = _decodeAddress(printerIp);
         await _sendToPrinter(
@@ -1002,6 +999,13 @@ class PrintService {
     );
   }
 
+  void _appendKotPreviewTokenLine(List<String> out, int? pickupToken) {
+    if (pickupToken == null) return;
+    final t = 'Token No.: $pickupToken';
+    out.add(t.padLeft((42 + t.length) ~/ 2).padRight(42));
+    out.add('');
+  }
+
   List<String> _buildKotPreviewLines({
     required List<_PrintLine> items,
     required String branchName,
@@ -1011,6 +1015,7 @@ class PrintService {
     required String orderTypeLabel,
     required DateTime orderedAt,
     String? cashierName,
+    int? pickupToken,
   }) {
     final out = <String>[];
     final safeBranch = branchName.trim();
@@ -1018,6 +1023,7 @@ class PrintService {
     out.add('--- new order ---'.padLeft(28).padRight(42));
     out.add('Kitchen: ${_sanitize(kitchenName)}');
     if (orderTypeLabel.isNotEmpty) out.add('Order type: ${_sanitize(orderTypeLabel)}');
+    _appendKotPreviewTokenLine(out, pickupToken);
     _appendKotPreviewRefInvoice(out, referenceNumber: referenceNumber, invoiceNumber: invoiceNumber);
     out.add('');
     out.add('ITEM'.padRight(38) + 'QTY'.padLeft(4));
@@ -1042,6 +1048,7 @@ class PrintService {
     required String orderTypeLabel,
     required DateTime orderedAt,
     String? cashierName,
+    int? pickupToken,
   }) {
     final out = <String>[];
     final safeBranch = branchName.trim();
@@ -1049,6 +1056,7 @@ class PrintService {
     out.add('--- update order ---'.padLeft(28).padRight(42));
     out.add('Kitchen: ${_sanitize(kitchenName)}');
     if (orderTypeLabel.isNotEmpty) out.add(orderTypeLabel);
+    _appendKotPreviewTokenLine(out, pickupToken);
     _appendKotPreviewRefInvoice(out, referenceNumber: referenceNumber, invoiceNumber: invoiceNumber);
     out.add('');
     out.add('ITEM'.padRight(38) + 'QTY'.padLeft(4));
@@ -1072,11 +1080,47 @@ class PrintService {
     return '';
   }
 
+  static void _emitDayClosingVariancePreview(
+    void Function(String label, double amt) pair,
+    List<DayClosingPaymentVariance> variances,
+  ) {
+    const tol = 0.009;
+    for (final v in variances) {
+      if (v.excess > tol) pair('${v.channel} EXCESS', v.excess);
+      if (v.short > tol) pair('${v.channel} SHORT', v.short);
+    }
+  }
+
+  static void _emitDayClosingReconciliationPreview(
+    void Function(String label, double amt) pair,
+    DayClosingCloseReconciliation recon,
+  ) {
+    const tol = 0.009;
+    void channel(
+      String label,
+      double expected,
+      double excess,
+      double short,
+      double actual,
+    ) {
+      pair('EXPECTED $label SALE', expected);
+      if (excess > tol) pair('$label EXCESS (+)', excess);
+      if (short > tol) pair('$label SHORT (-)', short);
+      pair('ACTUAL $label SALE', actual);
+    }
+
+    channel('CASH', recon.cashExpected, recon.cashExcess, recon.cashShort, recon.actualCash);
+    channel('CARD', recon.cardExpected, recon.cardExcess, recon.cardShort, recon.actualCard);
+    channel('CREDIT', recon.creditExpected, recon.creditExcess, recon.creditShort, recon.actualCredit);
+    channel('ONLINE', recon.onlineExpected, recon.onlineExcess, recon.onlineShort, recon.actualOnline);
+  }
+
   /// Text lines for debug overlay; branch/logo render via [ReceiptPreviewData.branch] / [logoPngBytes].
   List<String> _buildDayClosingPreviewLines({
     required DayClosingSummary summary,
     required CounterAccess counterAccess,
     required String closedBy,
+    DayClosingCloseReconciliation? closeReconciliation,
   }) {
     final out = <String>[];
     void hr() => out.add('-' * 42);
@@ -1113,12 +1157,20 @@ class PrintService {
     }
     pair('DISCOUNTS', summary.discount);
     pair('NET SALES (completed)', summary.netTotal);
-    pair('CASH SALE', summary.cashSale);
-    pair('CARD SALE', summary.cardSale);
-    pair('CREDIT SALE', summary.creditSale);
-    pair('ONLINE SALE', summary.onlineSale);
+    pair('CASH SALE', closeReconciliation?.actualCash ?? summary.cashSale);
+    pair('CARD SALE', closeReconciliation?.actualCard ?? summary.cardSale);
+    pair('CREDIT SALE', closeReconciliation?.actualCredit ?? summary.creditSale);
+    pair('ONLINE SALE', closeReconciliation?.actualOnline ?? summary.onlineSale);
     pair('DELIVERY SALE', summary.deliverySale);
-    pair('CASH DRAWER BALANCE', summary.cashDrawer);
+    pair(
+      'CASH DRAWER BALANCE',
+      effectiveDayClosingCashDrawer(summary, closeReconciliation: closeReconciliation),
+    );
+
+    if (closeReconciliation != null) {
+      secTitle('DAY CLOSING PAYMENT RECONCILIATION');
+      _emitDayClosingReconciliationPreview(pair, closeReconciliation);
+    }
 
     secTitle('2. SALES SUMMARY & ADJUSTMENTS');
     out.add('${'TYPE'.padRight(12)}${'COUNT'.padLeft(4)}${'DISCOUNT'.padRight(11)}${'AMOUNT'.padLeft(13)}');
@@ -1131,8 +1183,10 @@ class PrintService {
         '${('$_currency${_fmtMoney(r.amount)}').padLeft(13)}',
       );
     }
-    pair('EXCESS AMOUNT', summary.excessAmount);
-    pair('SHORT AMOUNT', summary.shortAmount);
+    _emitDayClosingVariancePreview(
+      pair,
+      effectiveDayClosingPaymentVariances(summary, closeReconciliation: closeReconciliation),
+    );
 
     secTitle('3. EXPENSE & UNPAID RECONCILIATION');
     pair('PURCHASE', summary.purchase);
@@ -1150,7 +1204,26 @@ class PrintService {
       'TOTAL (EXP + SAL + UNPAID – OTHER INCOME)',
       summary.purchase + summary.salary + summary.unpaidAmount - summary.otherIncome,
     );
-    pair('DIFFERENCE (SECTION 3 TOTAL − MODELED DRAWER)', summary.difference.abs());
+    pair(
+      'DIFFERENCE (SECTION 3 TOTAL − MODELED DRAWER)',
+      effectiveDayClosingDifference(summary, closeReconciliation: closeReconciliation).abs(),
+    );
+
+    secTitle('3c. OTHER INCOME SUMMARY');
+    if (summary.otherIncomeRows.isEmpty) {
+      pair('OTHER INCOME (RECORDED)', summary.otherIncome);
+    } else {
+      out.add('${'DESCRIPTION'.padRight(18)}${'PAYMENT'.padRight(10)}${'AMOUNT'.padLeft(12)}');
+      hr();
+      for (final r in summary.otherIncomeRows) {
+        out.add(
+          '${_sanitize(r.description).padRight(18)}'
+          '${_sanitize(r.payment.toUpperCase()).padRight(10)}'
+          '${('$_currency${_fmtMoney(r.amount)}').padLeft(12)}',
+        );
+      }
+      pair('TOTAL OTHER INCOME (+)', summary.otherIncome);
+    }
 
     if (summary.openBills.isNotEmpty) {
       secTitle('3b. OPEN BILLS (SETTLE THESE FIRST)');
@@ -1177,10 +1250,19 @@ class PrintService {
     pair('DINE-IN SALES', summary.dineInSales);
     pair('DELIVERY SALES', summary.deliverySale);
     pair('TAKEAWAY SALES', summary.takeAwaySales);
-    pair('CASH IN (OPENING + CASH SALE AFTER DISCOUNT)', summary.cashIn);
+    pair('OTHER INCOME (+)', summary.otherIncome);
+    pair(
+      'CASH IN (OPENING + CASH SALE + OTHER INCOME)',
+      effectiveDayClosingCashIn(summary, closeReconciliation: closeReconciliation),
+    );
     pair('CASH OUT (EXPENSES FROM CASH)', summary.cashOut);
-    pair('TOTAL CASH DRAWER', summary.cashDrawer);
-    final hint = _dayClosingCashDrawerHint(summary.difference);
+    pair(
+      'TOTAL CASH DRAWER',
+      effectiveDayClosingCashDrawer(summary, closeReconciliation: closeReconciliation),
+    );
+    final hint = _dayClosingCashDrawerHint(
+      effectiveDayClosingDifference(summary, closeReconciliation: closeReconciliation),
+    );
     if (hint.isNotEmpty) out.add(hint);
 
     secTitle('5. CATEGORY WISE PRODUCT LIST');
@@ -1203,27 +1285,7 @@ class PrintService {
     }
     pair('GRAND TOTAL', summary.netTotal);
 
-    secTitle('6. ITEM WISE PRODUCT LIST');
-    out.add('${'ITEM'.padRight(20)}${'QTY'.padLeft(5)}${'AMOUNT'.padLeft(15)}');
-    hr();
-    for (final r in summary.itemRows) {
-      final nm = _sanitize(r.item.toUpperCase());
-      final wrapped = _wrapReceiptLine(nm, 20);
-      for (var i = 0; i < wrapped.length; i++) {
-        if (i == 0) {
-          out.add(
-            '${wrapped[0].padRight(20)}'
-            '${r.qty.toString().padLeft(5)}'
-            '${('$_currency${_fmtMoney(r.amount)}').padLeft(15)}',
-          );
-        } else {
-          out.add(wrapped[i]);
-        }
-      }
-    }
-    pair('GRAND TOTAL', summary.netTotal);
-
-    secTitle('7. CANCELLED BILLS SUMMARY');
+    secTitle('6. CANCELLED BILLS SUMMARY');
     if (summary.cancelledRows.isEmpty) {
       out.add('NO CANCELLED BILLS RECORDED.');
     } else {
@@ -1350,6 +1412,7 @@ class PrintService {
   Future<List<String>> printDayClosingReport({
     required DayClosingSummary summary,
     required CounterAccess counterAccess,
+    DayClosingCloseReconciliation? closeReconciliation,
   }) async {
     final failed = <String>[];
     final billPrinter = await _db.itemDao.getBillPrinter();
@@ -1374,6 +1437,7 @@ class PrintService {
         branch: branch,
         logoImage: logoImg,
         closedBy: closedBy,
+        closeReconciliation: closeReconciliation,
       );
       if (kDebugMode) {
         Uint8List? logoPng;
@@ -1387,6 +1451,7 @@ class PrintService {
             summary: summary,
             counterAccess: counterAccess,
             closedBy: closedBy,
+            closeReconciliation: closeReconciliation,
           ),
           branch: branch,
           logoPngBytes: logoPng,
@@ -1485,9 +1550,7 @@ class PrintService {
       final derivedListUnit = ci.quantity > 0 ? ci.total / ci.quantity : 0.0;
       final effectiveListUnit = listUnit > 0.001 ? listUnit : derivedListUnit;
       final caption = _receiptLineDiscountCaption(ci, effectiveListUnit, ci.total);
-      final lineDisc = caption.isEmpty
-          ? 0.0
-          : (effectiveListUnit * ci.quantity - ci.total).clamp(0.0, double.infinity);
+      final lineDisc = caption.isEmpty ? 0.0 : (effectiveListUnit * ci.quantity - ci.total).clamp(0.0, double.infinity);
 
       lines.add(_PrintLine(
         itemName: _sanitize(
@@ -1536,13 +1599,7 @@ class PrintService {
       try {
         final d = jsonDecode(notes);
         if (d is Map) {
-          final n = d['lineNote'] ??
-              d['line_note'] ??
-              d['note'] ??
-              d['notes'] ??
-              d['remarks'] ??
-              d['instruction'] ??
-              d['instructions'];
+          final n = d['lineNote'] ?? d['line_note'] ?? d['note'] ?? d['notes'] ?? d['remarks'] ?? d['instruction'] ?? d['instructions'];
           if (n is String && n.trim().isNotEmpty) return n.trim();
           if (n != null && n is! Map && n is! List) {
             final s = n.toString().trim();
@@ -1754,6 +1811,7 @@ class PrintService {
     required String orderTypeLabel,
     required DateTime orderedAt,
     String? cashierName,
+    int? pickupToken,
   }) async {
     final profile = await _thermalCapabilityProfile();
     final generator = Generator(PaperSize.mm80, profile);
@@ -1770,6 +1828,18 @@ class PrintService {
     );
     if (orderTypeLabel.isNotEmpty) {
       bytes += generator.text('Order type: ${_sanitize(orderTypeLabel)}');
+    }
+    if (pickupToken != null) {
+      bytes += generator.feed(1);
+      bytes += generator.text(
+        'Token No.: $pickupToken',
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          height: PosTextSize.size3,
+          width: PosTextSize.size3,
+        ),
+      );
     }
     bytes += _kotThermalRefInvoiceHeader(
       generator,
@@ -1824,6 +1894,7 @@ class PrintService {
     required String orderTypeLabel,
     required DateTime orderedAt,
     String? cashierName,
+    int? pickupToken,
   }) async {
     final profile = await _thermalCapabilityProfile();
     final generator = Generator(PaperSize.mm80, profile);
@@ -1844,6 +1915,18 @@ class PrintService {
     );
     if (orderTypeLabel.isNotEmpty) {
       bytes += generator.text(orderTypeLabel);
+    }
+    if (pickupToken != null) {
+      bytes += generator.feed(1);
+      bytes += generator.text(
+        'Token No.: $pickupToken',
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          height: PosTextSize.size3,
+          width: PosTextSize.size3,
+        ),
+      );
     }
     bytes += _kotThermalRefInvoiceHeader(
       generator,
@@ -1989,6 +2072,15 @@ class PrintService {
       'Contact: ${_sanitize(contact.isNotEmpty ? contact : '-')}',
       styles: leftInvoice,
     );
+    final addrLine = (order.customerAddress ?? '').trim();
+    if (addrLine.isNotEmpty) {
+      final addrLines = _dedupeWrappedLines(
+        _wrapReceiptLine('Address: ${_sanitize(addrLine)}', 42),
+      );
+      for (final line in addrLines) {
+        bytes += generator.text(line, styles: leftInvoice);
+      }
+    }
 
     final totalPayable = order.finalAmount > 0 ? order.finalAmount : order.totalAmount;
     final paidSum = order.cashAmount + order.cardAmount + order.creditAmount + order.onlineAmount;
@@ -2000,6 +2092,18 @@ class PrintService {
     final otLabel = _orderTypeLabel(order.orderType);
     if (otLabel.isNotEmpty) {
       bytes += generator.text('Order type: $otLabel', styles: centerBold);
+    }
+    if (order.pickupToken != null) {
+      bytes += generator.feed(1);
+      bytes += generator.text(
+        'Token No.: ${order.pickupToken}',
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          height: PosTextSize.size3,
+          width: PosTextSize.size3,
+        ),
+      );
     }
 
     bytes += generator.feed(1);
@@ -2150,7 +2254,6 @@ class PrintService {
     bytes += generator.feed(1);
 
     final brand = branch?.branchName.trim() ?? '';
-    bytes += generator.text('Sip, smile, Repeat!', styles: center);
     if (brand.isNotEmpty) {
       bytes += generator.text(
         'Thank you for choosing ${_sanitize(brand)}!',
@@ -2163,6 +2266,47 @@ class PrintService {
     bytes += generator.feed(2);
     bytes += generator.cut();
     return bytes;
+  }
+
+  void _emitDayClosingVarianceTicket(
+    Generator generator,
+    List<int> bytes,
+    List<DayClosingPaymentVariance> variances,
+  ) {
+    const tol = 0.009;
+    for (final v in variances) {
+      if (v.excess > tol) {
+        _dayClosingEmitMoneyPair(generator, bytes, '${v.channel} EXCESS', v.excess);
+      }
+      if (v.short > tol) {
+        _dayClosingEmitMoneyPair(generator, bytes, '${v.channel} SHORT', v.short);
+      }
+    }
+  }
+
+  void _emitDayClosingReconciliationTicket(
+    Generator generator,
+    List<int> bytes,
+    DayClosingCloseReconciliation recon,
+  ) {
+    const tol = 0.009;
+    void channel(
+      String label,
+      double expected,
+      double excess,
+      double short,
+      double actual,
+    ) {
+      _dayClosingEmitMoneyPair(generator, bytes, 'EXPECTED $label SALE', expected);
+      if (excess > tol) _dayClosingEmitMoneyPair(generator, bytes, '$label EXCESS (+)', excess);
+      if (short > tol) _dayClosingEmitMoneyPair(generator, bytes, '$label SHORT (-)', short);
+      _dayClosingEmitMoneyPair(generator, bytes, 'ACTUAL $label SALE', actual);
+    }
+
+    channel('CASH', recon.cashExpected, recon.cashExcess, recon.cashShort, recon.actualCash);
+    channel('CARD', recon.cardExpected, recon.cardExcess, recon.cardShort, recon.actualCard);
+    channel('CREDIT', recon.creditExpected, recon.creditExcess, recon.creditShort, recon.actualCredit);
+    channel('ONLINE', recon.onlineExpected, recon.onlineExcess, recon.onlineShort, recon.actualOnline);
   }
 
   void _dayClosingEmitMoneyPair(Generator generator, List<int> bytes, String label, double amount) {
@@ -2195,6 +2339,7 @@ class PrintService {
     required BranchModel? branch,
     required img.Image? logoImage,
     required String closedBy,
+    DayClosingCloseReconciliation? closeReconciliation,
   }) async {
     final profile = await _thermalCapabilityProfile();
     final generator = Generator(PaperSize.mm80, profile);
@@ -2268,12 +2413,42 @@ class PrintService {
     }
     _dayClosingEmitMoneyPair(generator, bytes, 'DISCOUNTS', summary.discount);
     _dayClosingEmitMoneyPair(generator, bytes, 'NET SALES (completed)', summary.netTotal);
-    _dayClosingEmitMoneyPair(generator, bytes, 'CASH SALE', summary.cashSale);
-    _dayClosingEmitMoneyPair(generator, bytes, 'CARD SALE', summary.cardSale);
-    _dayClosingEmitMoneyPair(generator, bytes, 'CREDIT SALE', summary.creditSale);
-    _dayClosingEmitMoneyPair(generator, bytes, 'ONLINE SALE', summary.onlineSale);
+    _dayClosingEmitMoneyPair(
+      generator,
+      bytes,
+      'CASH SALE',
+      closeReconciliation?.actualCash ?? summary.cashSale,
+    );
+    _dayClosingEmitMoneyPair(
+      generator,
+      bytes,
+      'CARD SALE',
+      closeReconciliation?.actualCard ?? summary.cardSale,
+    );
+    _dayClosingEmitMoneyPair(
+      generator,
+      bytes,
+      'CREDIT SALE',
+      closeReconciliation?.actualCredit ?? summary.creditSale,
+    );
+    _dayClosingEmitMoneyPair(
+      generator,
+      bytes,
+      'ONLINE SALE',
+      closeReconciliation?.actualOnline ?? summary.onlineSale,
+    );
     _dayClosingEmitMoneyPair(generator, bytes, 'DELIVERY SALE', summary.deliverySale);
-    _dayClosingEmitMoneyPair(generator, bytes, 'CASH DRAWER BALANCE', summary.cashDrawer);
+    _dayClosingEmitMoneyPair(
+      generator,
+      bytes,
+      'CASH DRAWER BALANCE',
+      effectiveDayClosingCashDrawer(summary, closeReconciliation: closeReconciliation),
+    );
+
+    if (closeReconciliation != null) {
+      _dayClosingEmitSectionTitle(generator, bytes, 'DAY CLOSING PAYMENT RECONCILIATION');
+      _emitDayClosingReconciliationTicket(generator, bytes, closeReconciliation);
+    }
 
     _dayClosingEmitSectionTitle(generator, bytes, '2. SALES SUMMARY & ADJUSTMENTS');
     bytes += generator.text(
@@ -2290,8 +2465,11 @@ class PrintService {
         styles: const PosStyles(align: PosAlign.left),
       );
     }
-    _dayClosingEmitMoneyPair(generator, bytes, 'EXCESS AMOUNT', summary.excessAmount);
-    _dayClosingEmitMoneyPair(generator, bytes, 'SHORT AMOUNT', summary.shortAmount);
+    _emitDayClosingVarianceTicket(
+      generator,
+      bytes,
+      effectiveDayClosingPaymentVariances(summary, closeReconciliation: closeReconciliation),
+    );
 
     _dayClosingEmitSectionTitle(generator, bytes, '3. EXPENSE & UNPAID RECONCILIATION');
     _dayClosingEmitMoneyPair(generator, bytes, 'PURCHASE', summary.purchase);
@@ -2320,8 +2498,28 @@ class PrintService {
       generator,
       bytes,
       'DIFFERENCE (SECTION 3 TOTAL − MODELED DRAWER)',
-      summary.difference.abs(),
+      effectiveDayClosingDifference(summary, closeReconciliation: closeReconciliation).abs(),
     );
+
+    _dayClosingEmitSectionTitle(generator, bytes, '3c. OTHER INCOME SUMMARY');
+    if (summary.otherIncomeRows.isEmpty) {
+      _dayClosingEmitMoneyPair(generator, bytes, 'OTHER INCOME (RECORDED)', summary.otherIncome);
+    } else {
+      bytes += generator.text(
+        '${'DESCRIPTION'.padRight(14)}${'PAYMENT'.padRight(10)}${'AMOUNT'.padLeft(14)}',
+        styles: leftBold,
+      );
+      bytes += generator.hr(ch: '-');
+      for (final r in summary.otherIncomeRows) {
+        bytes += generator.text(
+          '${_sanitize(r.description).padRight(14)}'
+          '${_sanitize(r.payment.toUpperCase()).padRight(10)}'
+          '${('$_currency${_fmtMoney(r.amount)}').padLeft(14)}',
+          styles: const PosStyles(align: PosAlign.left),
+        );
+      }
+      _dayClosingEmitMoneyPair(generator, bytes, 'TOTAL OTHER INCOME (+)', summary.otherIncome);
+    }
 
     if (summary.openBills.isNotEmpty) {
       _dayClosingEmitSectionTitle(generator, bytes, '3b. OPEN BILLS (SETTLE THESE FIRST)');
@@ -2352,10 +2550,23 @@ class PrintService {
     _dayClosingEmitMoneyPair(generator, bytes, 'DINE-IN SALES', summary.dineInSales);
     _dayClosingEmitMoneyPair(generator, bytes, 'DELIVERY SALES', summary.deliverySale);
     _dayClosingEmitMoneyPair(generator, bytes, 'TAKEAWAY SALES', summary.takeAwaySales);
-    _dayClosingEmitMoneyPair(generator, bytes, 'CASH IN (OPENING + CASH SALE AFTER DISCOUNT)', summary.cashIn);
+    _dayClosingEmitMoneyPair(generator, bytes, 'OTHER INCOME (+)', summary.otherIncome);
+    _dayClosingEmitMoneyPair(
+      generator,
+      bytes,
+      'CASH IN (OPENING + CASH SALE + OTHER INCOME)',
+      effectiveDayClosingCashIn(summary, closeReconciliation: closeReconciliation),
+    );
     _dayClosingEmitMoneyPair(generator, bytes, 'CASH OUT (EXPENSES FROM CASH)', summary.cashOut);
-    _dayClosingEmitMoneyPair(generator, bytes, 'TOTAL CASH DRAWER', summary.cashDrawer);
-    final hint = _dayClosingCashDrawerHint(summary.difference);
+    _dayClosingEmitMoneyPair(
+      generator,
+      bytes,
+      'TOTAL CASH DRAWER',
+      effectiveDayClosingCashDrawer(summary, closeReconciliation: closeReconciliation),
+    );
+    final hint = _dayClosingCashDrawerHint(
+      effectiveDayClosingDifference(summary, closeReconciliation: closeReconciliation),
+    );
     if (hint.isNotEmpty) {
       bytes += generator.text(_sanitize(hint), styles: const PosStyles(align: PosAlign.left));
     }
@@ -2384,31 +2595,7 @@ class PrintService {
     }
     _dayClosingEmitMoneyPair(generator, bytes, 'GRAND TOTAL', summary.netTotal);
 
-    _dayClosingEmitSectionTitle(generator, bytes, '6. ITEM WISE PRODUCT LIST');
-    bytes += generator.text(
-      '${'ITEM'.padRight(20)}${'QTY'.padLeft(5)}${'AMOUNT'.padLeft(15)}',
-      styles: leftBold,
-    );
-    bytes += generator.hr(ch: '-');
-    for (final r in summary.itemRows) {
-      final nm = _sanitize(r.item.toUpperCase());
-      final wrapped = _wrapReceiptLine(nm, 20);
-      for (var i = 0; i < wrapped.length; i++) {
-        if (i == 0) {
-          bytes += generator.text(
-            '${wrapped[0].padRight(20)}'
-            '${r.qty.toString().padLeft(5)}'
-            '${('$_currency${_fmtMoney(r.amount)}').padLeft(15)}',
-            styles: const PosStyles(align: PosAlign.left),
-          );
-        } else {
-          bytes += generator.text(wrapped[i], styles: const PosStyles(align: PosAlign.left));
-        }
-      }
-    }
-    _dayClosingEmitMoneyPair(generator, bytes, 'GRAND TOTAL', summary.netTotal);
-
-    _dayClosingEmitSectionTitle(generator, bytes, '7. CANCELLED BILLS SUMMARY');
+    _dayClosingEmitSectionTitle(generator, bytes, '6. CANCELLED BILLS SUMMARY');
     if (summary.cancelledRows.isEmpty) {
       bytes += generator.text(
         'NO CANCELLED BILLS RECORDED.',
@@ -2584,6 +2771,7 @@ class _PrintLine {
   final String? notes;
   final int? kitchenId;
   final String? kitchenName;
+
   /// Sum saved vs [unitPrice] × quantity on the receipt (for optional totals row).
   final double lineDiscountAmount;
   final String? receiptDiscountCaption;

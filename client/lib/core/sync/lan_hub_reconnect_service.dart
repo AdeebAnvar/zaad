@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:get_it/get_it.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
+import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/local_hub_primary_inbound_coordinator.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
 import 'package:pos/core/utils/network_utils.dart';
@@ -87,11 +88,24 @@ class LanHubReconnectService with WidgetsBindingObserver {
       if (g.isRegistered<LocalHubPrimaryInboundCoordinator>()) {
         g<LocalHubPrimaryInboundCoordinator>().requestFastReconnect();
       }
+      if (!_settings.isHubSub) {
+        unawaited(_retryMainUnsyncedSafely());
+      }
       if (kDebugMode) {
         debugPrint('[LanHubReconnect] kick ($reason)');
       }
     } finally {
       _kickInFlight = false;
+    }
+  }
+
+  Future<void> _retryMainUnsyncedSafely() async {
+    try {
+      await HubOrderLanPublisher.retryUnsyncedNow();
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[LanHubReconnect] retryUnsyncedNow failed: $e\n$st');
+      }
     }
   }
 }

@@ -62,8 +62,18 @@ void main() {
         'ws': <String, dynamic>{
           'openSockets': 2,
           'peers': <Map<String, dynamic>>[
-            <String, dynamic>{'deviceId': 'main-uuid', 'ip': '192.168.1.7', 'port': 50100},
-            <String, dynamic>{'deviceId': 'sub-uuid', 'ip': '192.168.1.6', 'port': 50200},
+            <String, dynamic>{
+              'deviceId': 'main-uuid',
+              'deviceName': 'MAIN-PC',
+              'ip': '192.168.1.7',
+              'port': 50100,
+            },
+            <String, dynamic>{
+              'deviceId': 'sub-uuid',
+              'deviceName': 'Counter-1',
+              'ip': '192.168.1.6',
+              'port': 50200,
+            },
           ],
         },
       });
@@ -72,6 +82,8 @@ void main() {
       expect(summary!.openSockets, 2);
       expect(summary.peers, hasLength(2));
       expect(summary.peers.first.deviceId, 'main-uuid');
+      expect(summary.peers.first.deviceName, 'MAIN-PC');
+      expect(summary.peers.last.deviceName, 'Counter-1');
     });
 
     test('solitary gate skips heavy mirror when only MAIN connected', () async {

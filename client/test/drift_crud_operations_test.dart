@@ -779,5 +779,31 @@ void main() {
       final credit = await repo.getCreditSales();
       expect(credit.any((o) => o.invoiceNumber == r.invoice), isTrue);
     });
+
+    test('getCreditSales includes inferred credit when credit_amount is zero', () async {
+      final r = await newCartWithLine();
+      await repo.createOrder(
+        Order(
+          id: 0,
+          cartId: r.cartId,
+          invoiceNumber: '${r.invoice}-INF',
+          totalAmount: 40,
+          discountAmount: 0,
+          finalAmount: 40,
+          cashAmount: 10,
+          creditAmount: 0,
+          cardAmount: 0,
+          onlineAmount: 0,
+          createdAt: DateTime.utc(2026, 5, 17, 15),
+          status: 'completed',
+          orderType: 'take_away',
+          branchId: 2,
+          hubSyncPending: false,
+        ),
+      );
+
+      final credit = await repo.getCreditSales();
+      expect(credit.any((o) => o.invoiceNumber == '${r.invoice}-INF'), isTrue);
+    });
   });
 }

@@ -37,6 +37,7 @@ function websocketClientsSnapshot(wss) {
     if (peers.length < maxPeers) {
       peers.push({
         deviceId: ws.__posLastDeviceId || null,
+        deviceName: ws.__posDeviceName || null,
         ip: ws.__posIp || null,
         port: ws.__posPort ?? null,
       });

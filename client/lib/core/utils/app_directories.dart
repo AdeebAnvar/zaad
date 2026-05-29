@@ -10,7 +10,7 @@ import 'package:sqlite3/sqlite3.dart' as sqlite;
 /// App-managed folders under **user-visible Documents/ZaadPOS** when possible:
 /// - …/ZaadPOS/local   -> sqlite (`pos.sqlite`)
 /// - …/ZaadPOS/media   -> images + `sales_backup.xlsx`
-/// - …/ZaadPOS/backup  -> SQLite copies (`BackupService`)
+/// - …/ZaadPOS/backup  -> `latest.db` + dated copies (`BackupService`, safe restore)
 /// - …/ZaadPOS/exports -> reserved for future XLSX exports
 ///
 /// **Windows**: same as before — path_provider’s application documents (your `Documents` folder).
@@ -20,10 +20,9 @@ import 'package:sqlite3/sqlite3.dart' as sqlite;
 class AppDirectories {
   AppDirectories._();
 
-  /// **Temporary (≈2 days):** skip public `Documents/ZaadPOS` on Android and use internal
-  /// app storage only. Many OEMs block SQLite there without "All files access".
-  /// Set to `false` when rolling out the full public-Documents flow again.
-  static const bool temporaryForceAndroidInternalStorage = true;
+  /// Prefer user-visible `Documents/ZaadPOS` on Android when probes pass.
+  /// Keep `false` so users can access and delete app-managed files directly.
+  static const bool temporaryForceAndroidInternalStorage = false;
 
   static const MethodChannel _androidStorageChannel = MethodChannel('com.example.pos_app/storage');
 
@@ -84,10 +83,49 @@ class AppDirectories {
   }
 
   static Future<String?> _androidPublicDocumentsPathRaw() async {
-    try {
-      return await _androidStorageChannel.invokeMethod<String>('publicDocumentsPath');
-    } catch (_) {
+    String normalize(String rawPath) {
+      var value = rawPath.trim();
+      if (value.isEmpty) return value;
+      // Some OEM/storage APIs can return a malformed ".../Documents/0" path.
+      // SQLite then fails with "unable to open database file". Normalize to
+      // the canonical external Documents location when this pattern appears.
+      final unix = value.replaceAll('\\', '/');
+      const malformedNeedle = '/documents/0';
+      final idx = unix.toLowerCase().indexOf(malformedNeedle);
+      if (idx > 0) {
+        final prefix = unix.substring(0, idx);
+        value = '$prefix/0/Documents';
+      } else {
+        value = unix;
+      }
+      return p.normalize(value);
+    }
+
+    Future<String?> resolveFallback() async {
+      const candidates = <String>[
+        '/storage/emulated/0/Documents',
+        '/sdcard/Documents',
+      ];
+      for (final candidate in candidates) {
+        final dir = Directory(candidate);
+        if (await dir.exists()) return p.normalize(candidate);
+      }
       return null;
+    }
+
+    try {
+      final path = await _androidStorageChannel.invokeMethod<String>('publicDocumentsPath');
+      if (path == null || path.trim().isEmpty) {
+        return resolveFallback();
+      }
+      final normalized = normalize(path);
+      final dir = Directory(normalized);
+      if (await dir.exists()) {
+        return normalized;
+      }
+      return (await resolveFallback()) ?? normalized;
+    } catch (_) {
+      return resolveFallback();
     }
   }
 
@@ -116,17 +154,85 @@ class AppDirectories {
       final testPath = p.join(dir.path, '.zaadpos_sqlite_probe');
       final db = sqlite.sqlite3.open(testPath);
       try {
+        // Match production Drift open (WAL) — plain open can pass while pos.sqlite fails.
+        db.execute('PRAGMA journal_mode = WAL;');
+        db.execute('PRAGMA synchronous = NORMAL;');
         db.execute('PRAGMA user_version = 1;');
+        db.execute('CREATE TABLE IF NOT EXISTS _zaadpos_probe (id INTEGER);');
       } finally {
         db.dispose();
       }
-      final f = File(testPath);
-      if (await f.exists()) {
-        await f.delete();
+      for (final sidecar in [testPath, '$testPath-wal', '$testPath-shm']) {
+        final f = File(sidecar);
+        if (await f.exists()) {
+          try {
+            await f.delete();
+          } catch (_) {}
+        }
       }
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Device API level (e.g. 30 = Android 11, 36 = Android 16).
+  static Future<int> androidSdkInt() async {
+    if (!Platform.isAndroid) return 0;
+    try {
+      final sdk = await _androidStorageChannel.invokeMethod<int>('androidSdkInt');
+      if (sdk != null) return sdk;
+    } catch (_) {}
+    return 0;
+  }
+
+  /// Android 11+ (API 30+), including Android 16 — uses Special app access, not a popup.
+  static Future<bool> androidNeedsAllFilesAccessGate() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final v = await _androidStorageChannel.invokeMethod<bool>('needsAllFilesAccessGate');
+      if (v != null) return v;
+    } catch (_) {}
+    return (await androidSdkInt()) >= 30;
+  }
+
+  /// True when the OS allows writing under public Documents (not just manifest declare).
+  static Future<bool> androidHasAllFilesAccess() async {
+    return _androidHasAllFilesAccess();
+  }
+
+  static Future<bool> _androidHasAllFilesAccess() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final granted = await _androidStorageChannel.invokeMethod<bool>('hasAllFilesAccess');
+      if (granted == true) return true;
+    } catch (_) {}
+    final manage = await Permission.manageExternalStorage.status;
+    if (manage.isGranted) return true;
+    final storage = await Permission.storage.status;
+    return storage.isGranted;
+  }
+
+  static Future<void> openAndroidAllFilesAccessSettings() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _androidStorageChannel.invokeMethod<void>('openStorageSettings');
+    } catch (_) {
+      await openAppSettings();
+    }
+  }
+
+  /// API 23–29: shows the normal Android storage permission dialog.
+  static Future<void> requestLegacyAndroidStoragePermission() async {
+    if (!Platform.isAndroid) return;
+    if (await androidNeedsAllFilesAccessGate()) return;
+    try {
+      await _androidStorageChannel.invokeMethod<bool>('requestLegacyStoragePermission');
+      return;
+    } catch (_) {}
+    final storage = await Permission.storage.status;
+    if (!storage.isGranted) {
+      await Permission.storage.request();
     }
   }
 
@@ -142,6 +248,28 @@ class AppDirectories {
     _androidPublicDocumentsOk = null;
   }
 
+  /// After a failed open on public Documents, force internal app storage on retry.
+  static void invalidateAndroidPublicDocuments() {
+    if (!Platform.isAndroid) return;
+    _androidPublicDocumentsOk = false;
+    if (kDebugMode) {
+      debugPrint('[AppDirectories] Public Documents disabled after open failure; using internal storage.');
+    }
+  }
+
+  /// Runs before cold-start DB open: legacy merge, runtime permission, then path probe.
+  static Future<void> prepareAndroidStorageBeforeDatabaseOpen() async {
+    if (!Platform.isAndroid) return;
+    await migrateLegacyLayoutIfNeeded();
+    // Manifest declares storage permissions; Android still requires a runtime grant
+    // before writing under public Documents/ZaadPOS (Android 11+ → All files access).
+    await _requestAndroidStoragePermissions();
+    await _ensureAndroidCanUsePublicDocuments();
+    if (_androidPublicDocumentsOk != true) {
+      await recoverAndroidDbFromPublicIfNeeded();
+    }
+  }
+
   /// Clears the cached probe result and re-checks after the user grants storage.
   static Future<bool> requestAndroidPublicStorageAccess() async {
     if (!Platform.isAndroid) return false;
@@ -153,18 +281,14 @@ class AppDirectories {
 
   static Future<void> _requestAndroidStoragePermissions() async {
     if (!Platform.isAndroid) return;
+    if (await _androidHasAllFilesAccess()) return;
 
-    // Android 11+ — "All files access" (opens system settings when needed).
-    final manage = await Permission.manageExternalStorage.status;
-    if (!manage.isGranted) {
-      await Permission.manageExternalStorage.request();
+    if (await androidNeedsAllFilesAccessGate()) {
+      // Android 11–16: no popup — [AndroidStorageStartupGate] opens Special app access.
+      return;
     }
 
-    // Android 10 and below, and some OEM paths.
-    final storage = await Permission.storage.status;
-    if (!storage.isGranted) {
-      await Permission.storage.request();
-    }
+    await requestLegacyAndroidStoragePermission();
   }
 
   static Future<void> _ensureAndroidCanUsePublicDocuments() async {
@@ -186,17 +310,23 @@ class AppDirectories {
     }
 
     Future<bool> probePublicTree() async {
+      if (!await _androidHasAllFilesAccess()) return false;
       if (!await _probeWritableFile(raw)) return false;
       final localProbeDir = Directory(p.join(raw, appFolderName, localFolderName));
       return _probeSqliteInDirectory(localProbeDir);
     }
 
-    if (await probePublicTree()) {
-      _androidPublicDocumentsOk = true;
+    await _requestAndroidStoragePermissions();
+
+    if (!await _androidHasAllFilesAccess()) {
+      _androidPublicDocumentsOk = false;
+      if (kDebugMode) {
+        debugPrint(
+          '[AppDirectories] All-files access not granted; using internal app storage until enabled in Settings.',
+        );
+      }
       return;
     }
-
-    await _requestAndroidStoragePermissions();
 
     if (await probePublicTree()) {
       _androidPublicDocumentsOk = true;

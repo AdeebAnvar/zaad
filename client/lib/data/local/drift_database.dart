@@ -10,6 +10,7 @@ import 'package:pos/domain/models/branch_model.dart';
 import 'package:pos/domain/models/settings_model.dart';
 import 'package:pos/domain/models/user_model.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart' as sqlite;
 
 part 'drift_database.g.dart';
 part 'dao/users_dao.dart';
@@ -29,6 +30,7 @@ part 'dao/pending_actions_dao.dart';
 part 'dao/sync_queue_dao.dart';
 part 'dao/settle_sales_outbox_dao.dart';
 part 'dao/day_closing_checkpoint_dao.dart';
+part 'dao/financial_records_dao.dart';
 
 /// Used from `branches_dao` part; wraps [ImageUtils.downloadImage].
 Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.downloadImage(url, fileName);
@@ -65,6 +67,7 @@ Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.
     SyncInbox,
     SettleSalesOutbox,
     DayClosingCheckpoint,
+    FinancialRecords,
   ],
   daos: [
     UsersDao,
@@ -84,6 +87,7 @@ Future<String?> _downloadBranchImage(String url, String fileName) => ImageUtils.
     SyncQueueDao,
     SettleSalesOutboxDao,
     DayClosingCheckpointDao,
+    FinancialRecordsDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -96,7 +100,25 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(_openMemory());
 
   @override
-  int get schemaVersion => 53;
+  int get schemaVersion => 55;
+
+  /// Recovered / partially migrated DBs can have [schemaVersion] bumped without new columns.
+  /// Runs on every open so login sync does not crash on missing [Branches.defaultOpeningCash].
+  Future<void> ensureBranchesDefaultOpeningCashColumn() async {
+    final rows = await customSelect('PRAGMA table_info(branches)').get();
+    final hasColumn = rows.any((r) => r.read<String>('name') == 'default_opening_cash');
+    if (hasColumn) return;
+    await customStatement(
+      'ALTER TABLE branches ADD COLUMN default_opening_cash INTEGER NOT NULL DEFAULT 0',
+    );
+    try {
+      await customStatement(
+        'UPDATE branches SET default_opening_cash = COALESCE(opening_cash, 0)',
+      );
+    } on SqliteException catch (_) {
+      /* opening_cash may be absent on very old rows */
+    }
+  }
 
   /// Removes carts/orders seeded with TEXT [created_at] (Drift expects INTEGER ms).
   Future<void> repairTextTimestampRows() async {
@@ -118,7 +140,38 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Fixes legacy [branches] rows where NOT NULL columns are NULL (Drift map crashes on read).
+  /// Recovered DBs may have schema v52+ without [Orders.pickupToken] on disk.
+  Future<void> ensureOrdersPickupTokenColumn() async {
+    try {
+      final rows = await customSelect("PRAGMA table_info('orders')").get();
+      final hasColumn = rows.any((r) => r.read<String>('name') == 'pickup_token');
+      if (hasColumn) return;
+      await customStatement('ALTER TABLE orders ADD COLUMN pickup_token INTEGER');
+    } on SqliteException catch (e) {
+      final m = e.message.toLowerCase();
+      if (m.contains('no such table')) return;
+      if (m.contains('duplicate column')) return;
+      rethrow;
+    }
+  }
+
+  /// Recovered DBs may have schema v53+ without [Orders.customerAddress] on disk.
+  Future<void> ensureOrdersCustomerAddressColumn() async {
+    try {
+      final rows = await customSelect("PRAGMA table_info('orders')").get();
+      final hasColumn = rows.any((r) => r.read<String>('name') == 'customer_address');
+      if (hasColumn) return;
+      await customStatement('ALTER TABLE orders ADD COLUMN customer_address TEXT');
+    } on SqliteException catch (e) {
+      final m = e.message.toLowerCase();
+      if (m.contains('no such table')) return;
+      if (m.contains('duplicate column')) return;
+      rethrow;
+    }
+  }
+
   Future<void> repairLegacyBranchRows() async {
+    await ensureBranchesDefaultOpeningCashColumn();
     try {
       await customStatement(
         'UPDATE branches SET default_opening_cash = COALESCE(default_opening_cash, opening_cash, 0) '
@@ -331,6 +384,15 @@ class AppDatabase extends _$AppDatabase {
           );
         }
         if (from < 52) {
+          await safeAddColumn(orders, orders.pickupToken);
+        }
+        if (from < 53) {
+          await safeAddColumn(orders, orders.customerAddress);
+        }
+        if (from < 54) {
+          await m.createTable(financialRecords);
+        }
+        if (from < 55) {
           await repairLegacyBranchRows();
         }
       },
@@ -349,6 +411,9 @@ class AppDatabase extends _$AppDatabase {
           final m = e.message.toLowerCase();
           if (!m.contains('no such column')) rethrow;
         }
+        await ensureBranchesDefaultOpeningCashColumn();
+        await ensureOrdersPickupTokenColumn();
+        await ensureOrdersCustomerAddressColumn();
         await repairLegacyBranchRows();
         // repairTextTimestampRows runs from ZaadDI.runDeferredBackgroundServices.
       },
@@ -356,23 +421,29 @@ class AppDatabase extends _$AppDatabase {
   }
 }
 
-QueryExecutor _openBackgroundExecutor(File file) {
-  return NativeDatabase.createInBackground(
-    file,
-    setup: (rawDb) {
-      rawDb.execute('PRAGMA journal_mode = WAL;');
-      rawDb.execute('PRAGMA synchronous = NORMAL;');
-      // Match [PosSqliteOpen] probe window — slow OneDrive paths need longer waits.
-      rawDb.execute('PRAGMA busy_timeout = 30000;');
-    },
-  );
+void _configureSqlitePragmas(sqlite.Database rawDb) {
+  rawDb.execute('PRAGMA journal_mode = WAL;');
+  rawDb.execute('PRAGMA synchronous = NORMAL;');
+  // Match [PosSqliteOpen] probe window — slow OneDrive paths need longer waits.
+  rawDb.execute('PRAGMA busy_timeout = 30000;');
+}
+
+/// Android public Documents paths fail in Drift's background isolate (SQLite 14).
+/// Windows keeps [NativeDatabase.createInBackground] for OneDrive responsiveness.
+QueryExecutor _openNativeExecutor(File file) {
+  void setup(sqlite.Database rawDb) => _configureSqlitePragmas(rawDb);
+
+  if (Platform.isAndroid) {
+    return NativeDatabase(file, setup: setup);
+  }
+  return NativeDatabase.createInBackground(file, setup: setup);
 }
 
 LazyDatabase _open() {
   return LazyDatabase(() async {
     final dir = await AppDirectories.local();
     final file = File(p.join(dir.path, 'pos.sqlite'));
-    return _openBackgroundExecutor(file);
+    return _openNativeExecutor(file);
   });
 }
 
@@ -381,7 +452,7 @@ LazyDatabase _openFile(File file) {
     if (!await file.parent.exists()) {
       await file.parent.create(recursive: true);
     }
-    return _openBackgroundExecutor(file);
+    return _openNativeExecutor(file);
   });
 }
 

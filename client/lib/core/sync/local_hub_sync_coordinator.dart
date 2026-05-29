@@ -7,7 +7,9 @@ import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/core/sync/ws_detach_done_errors.dart';
+import 'package:get_it/get_it.dart';
 import 'package:pos/core/sync/hub_inbound_dispatch.dart';
+import 'package:pos/core/sync/lan_hub_connection_notifier.dart';
 import 'package:pos/core/sync/sync_inbox_applier.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/branch_repository.dart';
@@ -101,6 +103,15 @@ class LocalHubSyncCoordinator {
     for (var i = 0; i < 40 && _loopRunning; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
+    // If an old loop is still alive, force it to continue with fresh settings
+    // instead of waiting for an app restart.
+    if (_loopRunning) {
+      _stopDesired = false;
+      _fastReconnectRequested = true;
+      _backoffSec = 0;
+      unawaited(_channel?.sink.close());
+      return;
+    }
     await startIfEnabled();
   }
 
@@ -162,6 +173,7 @@ class LocalHubSyncCoordinator {
         // #endregion
 
         await _handshakeAndFlush(ch);
+        _notifySubHubConnected();
 
         await for (final raw in ch.stream) {
           if (_stopDesired) break;
@@ -184,9 +196,20 @@ class LocalHubSyncCoordinator {
           /* ignore */
         }
         _channel = null;
+        _notifySubHubDisconnected();
       }
     }
     _loopRunning = false;
+  }
+
+  void _notifySubHubConnected() {
+    if (!GetIt.instance.isRegistered<LanHubConnectionNotifier>()) return;
+    GetIt.instance<LanHubConnectionNotifier>().onSubHubConnected(_settings);
+  }
+
+  void _notifySubHubDisconnected() {
+    if (!GetIt.instance.isRegistered<LanHubConnectionNotifier>()) return;
+    GetIt.instance<LanHubConnectionNotifier>().onSubHubDisconnected(_settings);
   }
 
   Future<void> _waitBeforeReconnect() async {
@@ -213,9 +236,10 @@ class LocalHubSyncCoordinator {
     final connect = PosSyncEnvelope(
       eventId: _uuid.v4(),
       type: PosSyncEventTypes.connect,
-      payload: const <String, dynamic>{
+      payload: <String, dynamic>{
         'clientRole': 'SUB_CLIENT',
         'appMode': 'hub_sub',
+        'deviceName': _settings.deviceDisplayLabel(),
       },
       timestamp: ts,
       deviceId: deviceId,

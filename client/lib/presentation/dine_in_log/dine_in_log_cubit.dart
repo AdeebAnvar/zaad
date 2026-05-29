@@ -174,7 +174,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
     }
   }
 
-  /// Updates dine-in table/floor routing in hub metadata (optional KOT [Order.referenceNumber] unchanged).
+  /// Updates dine-in routing in **hub metadata only**; clears [Order.referenceNumber] for dine-in.
   Future<String?> moveDineInOrderToTable({
     required int orderId,
     required String newReferenceNumber,
@@ -183,14 +183,10 @@ class DineInLogCubit extends Cubit<DineInLogState> {
       final order = await orderRepo.getOrderById(orderId);
       if (order == null) return 'Order not found';
       final mergedHub = DineInRefParser.mergeHubMetadataAnchor(order.hubMetadata, newReferenceNumber);
-      final hadHubAnchor = DineInRefParser.dineInAnchorFromHubMetadata(order.hubMetadata) != null;
-      final r = order.referenceNumber?.trim() ?? '';
-      final routingOnlyInRef =
-          !hadHubAnchor && r.isNotEmpty && DineInRefParser.extractLeadingFloorId(r) != null;
       await orderRepo.updateOrder(
         order.copyWith(
           hubMetadata: Value(mergedHub),
-          referenceNumber: routingOnlyInRef ? const Value<String?>(null) : const Value.absent(),
+          referenceNumber: const Value<String?>(null),
         ),
       );
       await loadOrders();
@@ -250,11 +246,20 @@ class DineInLogCubit extends Cubit<DineInLogState> {
       final moved = await cartRepo.getCartItemsByCartId(newCartId) ?? [];
       final movedTotal = _sumLineTotals(moved);
 
+      var childHub = source.hubMetadata;
+      final srcAnchor = DineInRefParser.dineInAnchorForMatching(source);
+      if (srcAnchor != null && srcAnchor.isNotEmpty) {
+        final fid = DineInRefParser.extractLeadingFloorId(srcAnchor) ?? 1;
+        final tc = DineInRefParser.extractTableCode(srcAnchor);
+        final childAnchor = DineInRefParser.buildTableOnlyReference(fid, tc);
+        childHub = DineInRefParser.mergeHubMetadataAnchor(source.hubMetadata, childAnchor);
+      }
+
       final newOrder = Order(
         id: 0,
         cartId: newCartId,
         invoiceNumber: newInvoice,
-        referenceNumber: source.referenceNumber,
+        referenceNumber: null,
         totalAmount: movedTotal,
         discountAmount: 0,
         discountType: null,
@@ -263,6 +268,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         customerEmail: source.customerEmail,
         customerPhone: source.customerPhone,
         customerGender: source.customerGender,
+        customerAddress: source.customerAddress,
         cashAmount: 0,
         creditAmount: 0,
         cardAmount: 0,
@@ -275,7 +281,7 @@ class DineInLogCubit extends Cubit<DineInLogState> {
         driverName: null,
         userId: source.userId,
         branchId: source.branchId,
-        hubMetadata: source.hubMetadata,
+        hubMetadata: childHub,
         hubSyncPending: false,
       );
       await orderRepo.createOrder(newOrder);
@@ -306,8 +312,11 @@ class DineInLogCubit extends Cubit<DineInLogState> {
       }
       final tRef = DineInRefParser.dineInRoutingAnchorForMatching(target)?.trim();
       final sRef = DineInRefParser.dineInRoutingAnchorForMatching(source)?.trim();
-      if (tRef == null || tRef.isEmpty || tRef != sRef) {
-        return 'Bills must be for the same table / reference';
+      if (tRef == null || tRef.isEmpty || sRef == null || sRef.isEmpty) {
+        return 'Table assignment is missing for one of the bills';
+      }
+      if (!DineInRefParser.sameTableRouting(tRef, sRef)) {
+        return 'Bills must be for the same table';
       }
 
       final sourceItems = await cartRepo.getCartItemsByCartId(source.cartId) ?? [];

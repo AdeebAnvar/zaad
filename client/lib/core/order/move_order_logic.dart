@@ -2,7 +2,6 @@ import 'package:drift/drift.dart' show Value;
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/cart_repository.dart';
 import 'package:pos/data/repository/order_repository.dart';
-import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 
@@ -16,12 +15,13 @@ Future<String?> moveOrderToTakeAway({
   required CartRepository cartRepo,
   required Order order,
   required String referenceNumber,
+  bool requireReference = true,
 }) async {
   if (!orderCanMoveBetweenLogs(order)) {
     return 'Cannot move completed, delivered, or cancelled orders';
   }
   final ref = referenceNumber.trim();
-  if (ref.isEmpty) return 'Enter a reference number';
+  if (requireReference && ref.isEmpty) return 'Enter a reference number';
 
   await cartRepo.updateCartOrderInfo(
     order.cartId,
@@ -33,7 +33,7 @@ Future<String?> moveOrderToTakeAway({
   await orderRepo.updateOrder(
     order.copyWith(
       orderType: const Value('take_away'),
-      referenceNumber: Value(ref),
+      referenceNumber: ref.isEmpty ? const Value<String?>(null) : Value(ref),
       deliveryPartner: const Value(null),
       driverId: const Value(null),
       driverName: const Value(null),
@@ -106,13 +106,10 @@ Future<String?> moveOrderToDineIn({
   required Order order,
   required int floorId,
   required DiningTable table,
-  required int pax,
 }) async {
   if (!orderCanMoveBetweenLogs(order)) {
     return 'Cannot move completed, delivered, or cancelled orders';
   }
-  final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
-  if (seatHandling && pax < 1) return 'Enter a valid pax count';
 
   await cartRepo.updateCartOrderInfo(
     order.cartId,
@@ -120,14 +117,14 @@ Future<String?> moveOrderToDineIn({
     deliveryPartner: null,
   );
 
-  final ref = seatHandling
-      ? DineInRefParser.buildReference(floorId, table.code, pax)
-      : DineInRefParser.buildTableOnlyReference(floorId, table.code);
+  final anchor = DineInRefParser.buildTableOnlyReference(floorId, table.code);
+  final mergedHub = DineInRefParser.mergeHubMetadataAnchor(order.hubMetadata, anchor);
 
   await orderRepo.updateOrder(
     order.copyWith(
       orderType: const Value('dine_in'),
-      referenceNumber: Value(ref),
+      referenceNumber: const Value<String?>(null),
+      hubMetadata: Value(mergedHub),
       deliveryPartner: const Value(null),
       driverId: const Value(null),
       driverName: const Value(null),

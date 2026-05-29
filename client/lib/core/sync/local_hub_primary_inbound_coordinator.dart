@@ -6,7 +6,9 @@ import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/core/sync/ws_detach_done_errors.dart';
+import 'package:get_it/get_it.dart';
 import 'package:pos/core/sync/hub_inbound_dispatch.dart';
+import 'package:pos/core/sync/lan_hub_connection_notifier.dart';
 import 'package:pos/core/sync/sync_inbox_applier.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/branch_repository.dart';
@@ -100,6 +102,15 @@ class LocalHubPrimaryInboundCoordinator {
     stop();
     for (var i = 0; i < 40 && _loopRunning; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    // If an old loop is still alive, force it to continue with fresh settings
+    // instead of waiting for an app restart.
+    if (_loopRunning) {
+      _stopDesired = false;
+      _fastReconnectRequested = true;
+      _backoffSec = 0;
+      unawaited(_channel?.sink.close());
+      return;
     }
     await startIfEnabled();
   }
@@ -205,9 +216,10 @@ class LocalHubPrimaryInboundCoordinator {
     final connect = PosSyncEnvelope(
       eventId: _uuid.v4(),
       type: PosSyncEventTypes.connect,
-      payload: const <String, dynamic>{
+      payload: <String, dynamic>{
         'clientRole': 'MAIN_CLIENT',
         'appMode': 'main',
+        'deviceName': _settings.deviceDisplayLabel(),
       },
       timestamp: ts,
       deviceId: deviceId,
@@ -243,10 +255,16 @@ class LocalHubPrimaryInboundCoordinator {
     final env = PosSyncEnvelope.tryDecode(raw);
     if (env == null) return;
 
+    if (env.type == PosSyncEventTypes.peerDisconnect) {
+      _notifyMainPeerDisconnected(env);
+      return;
+    }
+
     if (env.type == PosSyncEventTypes.connect) {
       final role = env.payload['clientRole']?.toString();
       if (role == 'SUB_CLIENT') {
         unawaited(HubCompanySnapshotPublisher.broadcastAfterTenantLink(_db));
+        _notifyMainPeerConnected(env);
       }
       return;
     }
@@ -324,6 +342,24 @@ class LocalHubPrimaryInboundCoordinator {
     }
 
     _ordersLive.notifyHubOrdersChanged();
+  }
+
+  void _notifyMainPeerConnected(PosSyncEnvelope env) {
+    if (!GetIt.instance.isRegistered<LanHubConnectionNotifier>()) return;
+    GetIt.instance<LanHubConnectionNotifier>().onMainPeerConnected(
+      deviceId: env.deviceId,
+      deviceName: env.payload['deviceName']?.toString(),
+      clientRole: env.payload['clientRole']?.toString(),
+    );
+  }
+
+  void _notifyMainPeerDisconnected(PosSyncEnvelope env) {
+    if (!GetIt.instance.isRegistered<LanHubConnectionNotifier>()) return;
+    GetIt.instance<LanHubConnectionNotifier>().onMainPeerDisconnected(
+      deviceId: env.deviceId,
+      deviceName: env.payload['deviceName']?.toString(),
+      clientRole: env.payload['clientRole']?.toString(),
+    );
   }
 
   Future<void> _persistInboxAndApply(PosSyncEnvelope env, String raw) async {

@@ -17,67 +17,121 @@ class PosSqliteOpen {
   static const int _maxAttempts = 3;
 
   static Future<AppDatabase> openAppDatabase() async {
-    final localDir = await AppDirectories.local();
-    final dbFile = File(p.join(localDir.path, 'pos.sqlite'));
     Object? lastError;
 
-    for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
-      final db = AppDatabase();
-      try {
-        await _probeDatabase(db).timeout(
-          _probeTimeout,
-          onTimeout: () => throw TimeoutException(
-            'open timed out after ${_probeTimeout.inSeconds}s',
+    for (var pass = 0; pass < 2; pass++) {
+      final localDir = await AppDirectories.local();
+      final dbFile = File(p.join(localDir.path, 'pos.sqlite'));
+      if (!await localDir.exists()) {
+        await localDir.create(recursive: true);
+      }
+
+      for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
+        final db = AppDatabase();
+        try {
+          await _probeDatabase(db).timeout(
             _probeTimeout,
-          ),
-        );
-        return db;
-      } on TimeoutException catch (e) {
-        lastError = e;
-        await _safeClose(db);
-        if (attempt < _maxAttempts) {
-          await Future<void>.delayed(Duration(seconds: attempt * 2));
-          continue;
-        }
-        throw StateError(_timeoutMessage(dbFile));
-      } on SqliteException catch (e) {
-        lastError = e;
-        await _safeClose(db);
-        final busy = _isBusyOrLocked(e);
-        if (busy && attempt < _maxAttempts) {
-          await Future<void>.delayed(Duration(seconds: attempt * 2));
-          if (await _tryRecoverStaleWalSidecars(dbFile)) {
+            onTimeout: () => throw TimeoutException(
+              'open timed out after ${_probeTimeout.inSeconds}s',
+              _probeTimeout,
+            ),
+          );
+          return db;
+        } on TimeoutException catch (e) {
+          lastError = e;
+          await _safeClose(db);
+          if (attempt < _maxAttempts) {
+            await Future<void>.delayed(Duration(seconds: attempt * 2));
             continue;
           }
-          continue;
+          throw StateError(_timeoutMessage(dbFile));
+        } on SqliteException catch (e) {
+          lastError = e;
+          await _safeClose(db);
+          if (pass == 0 &&
+              Platform.isAndroid &&
+              _isCantOpenDatabase(e) &&
+              _isAndroidPublicDocumentsPath(dbFile.path)) {
+            AppDirectories.invalidateAndroidPublicDocuments();
+            break;
+          }
+          final busy = _isBusyOrLocked(e);
+          if (busy && attempt < _maxAttempts) {
+            await Future<void>.delayed(Duration(seconds: attempt * 2));
+            if (await _tryRecoverStaleWalSidecars(dbFile)) {
+              continue;
+            }
+            continue;
+          }
+          if (busy) {
+            throw StateError(await _busyMessage(dbFile, e));
+          }
+          throw StateError(_cantOpenMessage(dbFile, e));
+        } on StateError {
+          rethrow;
+        } catch (e) {
+          lastError = e;
+          await _safeClose(db);
+          if (pass == 0 &&
+              Platform.isAndroid &&
+              _isCantOpenMessage(e) &&
+              _isAndroidPublicDocumentsPath(dbFile.path)) {
+            AppDirectories.invalidateAndroidPublicDocuments();
+            break;
+          }
+          if (attempt < _maxAttempts) {
+            await Future<void>.delayed(Duration(seconds: attempt));
+            continue;
+          }
+          throw StateError(_cantOpenMessage(dbFile, e));
         }
-        if (busy) {
-          throw StateError(await _busyMessage(dbFile, e));
-        }
-        throw StateError(
-          'Could not open local database (${sqliteExceptionSummary(e)}). '
-          'Path: ${dbFile.path}',
-        );
-      } on StateError {
-        rethrow;
-      } catch (e) {
-        lastError = e;
-        await _safeClose(db);
-        if (attempt < _maxAttempts) {
-          await Future<void>.delayed(Duration(seconds: attempt));
-          continue;
-        }
-        throw StateError(
-          'Could not open local database ($e).\n'
-          'Path: ${dbFile.path}',
-        );
       }
     }
 
+    final fallbackDir = await AppDirectories.local();
+    final fallbackFile = File(p.join(fallbackDir.path, 'pos.sqlite'));
+    if (Platform.isAndroid && _isAndroidPublicDocumentsPath(fallbackFile.path)) {
+      throw StateError(_androidPublicStorageRequiredMessage(fallbackFile));
+    }
     throw StateError(
       'Could not open local database ($lastError).\n'
-      'Path: ${dbFile.path}',
+      'Path: ${fallbackFile.path}',
     );
+  }
+
+  static String _cantOpenMessage(File dbFile, Object error) {
+    if (Platform.isAndroid && _isAndroidPublicDocumentsPath(dbFile.path)) {
+      return _androidPublicStorageRequiredMessage(dbFile);
+    }
+    final summary = error is SqliteException ? sqliteExceptionSummary(error) : error.toString();
+    return 'Could not open local database ($summary).\nPath: ${dbFile.path}';
+  }
+
+  static String _androidPublicStorageRequiredMessage(File dbFile) {
+    return 'Zaad POS could not create its database in Documents/ZaadPOS.\n\n'
+        'Cause: Android has not granted "All files access" for this app, or the '
+        'folder is not writable (SQLite error 14).\n\n'
+        'Fix:\n'
+        '1. Settings → Apps → Zaad POS → Permissions\n'
+        '2. Enable "Files" or "All files access"\n'
+        '3. Force-stop the app and open again\n\n'
+        'Until then the app will use private app storage automatically.\n\n'
+        'Path attempted:\n${dbFile.path}';
+  }
+
+  static bool _isCantOpenDatabase(SqliteException e) =>
+      e.resultCode == 14 ||
+      e.extendedResultCode == 14 ||
+      e.message.toLowerCase().contains('unable to open database');
+
+  static bool _isCantOpenMessage(Object e) {
+    final text = e.toString().toLowerCase();
+    return text.contains('unable to open database') || text.contains('sqliteexception(14)');
+  }
+
+  static bool _isAndroidPublicDocumentsPath(String path) {
+    final normalized = path.replaceAll('\\', '/').toLowerCase();
+    return normalized.contains('/documents/${AppDirectories.appFolderName.toLowerCase()}/');
   }
 
   static Future<void> _probeDatabase(AppDatabase db) async {

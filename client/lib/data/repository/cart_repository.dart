@@ -17,6 +17,7 @@ abstract class CartRepository {
 
   /// Keeps cart row in sync when an order changes service type (move between logs).
   Future<void> updateCartOrderInfo(int cartId, {required String orderType, String? deliveryPartner});
+  Future<void> updateCartInvoiceNumber(int cartId, String invoiceNumber);
 
   Future<List<CartItem>?> getCartItemsByCartId(int cartId);
 

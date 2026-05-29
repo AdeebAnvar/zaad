@@ -93,6 +93,7 @@ class HubOrdersPayloadBuilder {
         'customer_email': draft.customerEmail,
         'customer_phone': draft.customerPhone,
         'customer_gender': draft.customerGender,
+        'customer_address': draft.customerAddress,
         'cash_amount': draft.cashAmount,
         'credit_amount': draft.creditAmount,
         'card_amount': draft.cardAmount,
@@ -105,6 +106,7 @@ class HubOrdersPayloadBuilder {
         'driver_name': draft.driverName,
         'user_id': draft.userId,
         'order_type': draft.orderType,
+        if (draft.pickupToken != null) 'pickup_token': draft.pickupToken,
       };
   }
 
