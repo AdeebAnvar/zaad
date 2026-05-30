@@ -63,6 +63,29 @@ function broadcast(wss, obj, originWs) {
   }
 
   trafficOutBroadcast(originWs, obj, recipientRows);
+
+  // #region agent log
+  if (obj && (obj.type === 'ORDER_CREATE' || obj.type === 'ORDER_UPDATE' || obj.type === 'DELETE')) {
+    fetch('http://127.0.0.1:7778/ingest/b57793d3-e555-4b7c-82b0-d86317abb97e', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '92b510' },
+      body: JSON.stringify({
+        sessionId: '92b510',
+        hypothesisId: 'H6',
+        location: 'eventService.js:broadcast',
+        message: 'hub_order_broadcast',
+        data: {
+          type: obj.type,
+          eventId: obj.eventId,
+          fromDeviceId: obj.deviceId,
+          recipientCount: recipientRows.length,
+          orderId: obj.payload && obj.payload.orderId,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+  }
+  // #endregion
 }
 
 function ackEnvelope(forEventId, ok, extras = {}) {
