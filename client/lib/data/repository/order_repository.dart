@@ -89,6 +89,13 @@ abstract class OrderRepository {
   /// Serialized with [createCartWithReservedInvoice] so concurrent sales cannot reuse the same number.
   Future<String> getNextInvoiceNumber(String orderType);
 
+  /// Open cart for counter add-to-cart — does **not** consume the next invoice (see [createCartWithReservedInvoice]).
+  Future<int> createDraftCart({
+    required String orderType,
+    String? deliveryPartner,
+    int? branchId,
+  });
+
   /// Atomically allocates the next invoice number and creates the cart row (avoids duplicate INV under concurrency).
   /// [branchId] when set uses that branch for both invoice scoping and the cart row; otherwise the active session branch.
   Future<({String invoice, int cartId})> createCartWithReservedInvoice({

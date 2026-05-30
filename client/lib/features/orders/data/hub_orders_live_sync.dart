@@ -1,20 +1,29 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 
-/// Debounced [revision] notifier so order-backed UIs can trigger a Drift reload together.
-/// (Reserved for future realtime; no WebSocket wiring in cloud-only builds.)
+/// Lightweight [revision] notifier so order-backed UIs can trigger a Drift reload.
+/// Coalesces only same-tick bursts without adding visible delay.
 class HubOrdersLiveSync {
   HubOrdersLiveSync();
 
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
-  Timer? _debounce;
-  static const int _debounceMs = 400;
+  bool _queued = false;
 
   void notifyHubOrdersChanged() {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: _debounceMs), () {
-      revision.value = revision.value + 1;
+    if (_queued) return;
+    _queued = true;
+    Future<void>.microtask(() {
+      _queued = false;
+      final next = revision.value + 1;
+      revision.value = next;
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H4',
+        location: 'hub_orders_live_sync.dart:notifyHubOrdersChanged',
+        message: 'hub_orders_revision_bump',
+        data: <String, Object?>{'revision': next},
+      );
+      // #endregion
     });
   }
 }

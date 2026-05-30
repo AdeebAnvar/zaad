@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/lan_hub_health.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
@@ -27,8 +28,12 @@ class HubOrderLanPublisher {
 
   static Future<void>? _serial;
 
-  /// Serializes background flushes when [enqueueMainEventWithQueue] uses `awaitFlush: false`.
-  static Future<void>? _deferredMainOutboxFlushTail;
+  /// Coalesces burst enqueues (catalog mirror) into one flush attempt.
+  static Timer? _deferredFlushTimer;
+  static LocalHubSettings? _deferredFlushHub;
+  static AppDatabase? _deferredFlushDb;
+
+  static DateTime? _lastUnreachableLogAt;
 
   static Future<Map<String, dynamic>> _snapshotMap(Order order, List<CartItem> cartItems) async {
     final flutter = HubOrdersPayloadBuilder.flutterBlockFromDraft(order);
@@ -49,7 +54,9 @@ class HubOrderLanPublisher {
       'branch_id': order.branchId,
       'invoice_number': order.invoiceNumber,
       'created_at': order.createdAt.toIso8601String(),
-      'status': OrderPushStatus.toRemote(orderType: orderType, localStatus: order.status),
+      // LAN Drift mirror uses local lifecycle words (kot / placed / pending), not tenant push enums.
+      'status': order.status,
+      'hub_status': OrderPushStatus.toRemote(orderType: orderType, localStatus: order.status),
       'delivery_partner': order.deliveryPartner,
       ...flutter,
       'order_type': orderType,
@@ -120,6 +127,20 @@ class HubOrderLanPublisher {
       if (hub.isHubSub) {
         final g = GetIt.instance;
         if (!g.isRegistered<LocalHubSyncCoordinator>()) return;
+        // #region agent log
+        agentDebugLog(
+          hypothesisId: 'H2',
+          location: 'hub_order_lan_publisher.dart:scheduleOrderUpsert',
+          message: 'sub_schedule_order_upsert',
+          data: <String, Object?>{
+            'type': type,
+            'isCreate': isCreate,
+            'orderId': order.id,
+            'hubOrderId': payload['orderId']?.toString(),
+            'orderType': order.orderType,
+          },
+        );
+        // #endregion
         _serial = (_serial ?? Future<void>.value()).then((_) async {
           try {
             await g<LocalHubSyncCoordinator>().enqueueOutbound(type, payload);
@@ -201,11 +222,14 @@ class HubOrderLanPublisher {
     required LocalHubSettings hub,
     required AppDatabase db,
   }) {
-    _deferredMainOutboxFlushTail =
-        (_deferredMainOutboxFlushTail ?? Future<void>.value()).then((_) async {
-      try {
-        await _flushMainOutboxBestEffort(hub: hub, db: db);
-      } catch (_) {}
+    _deferredFlushHub = hub;
+    _deferredFlushDb = db;
+    _deferredFlushTimer?.cancel();
+    _deferredFlushTimer = Timer(const Duration(milliseconds: 500), () {
+      final h = _deferredFlushHub;
+      final d = _deferredFlushDb;
+      if (h == null || d == null) return;
+      unawaited(_flushMainOutboxBestEffortSafe(hub: h, db: d));
     });
   }
 
@@ -242,17 +266,10 @@ class HubOrderLanPublisher {
   }) async {
     final publishUrl = await LanHubReachability.resolvePublishWsUrl(hub);
     if (publishUrl == null) {
-      if (kDebugMode) {
-        final rows = await db.syncQueueDao.outboxWorkQueue(DateTime.now());
-        if (rows.isNotEmpty) {
-          debugPrint(
-            '[HubOrderLanPublisher] LAN hub unreachable (${hub.publishHubWsUrlOrLoopback}) — '
-            'deferring ${rows.length} outbox row(s)',
-          );
-        }
-      }
+      await _logUnreachableOnce(hub, db);
       return 0;
     }
+    _lastUnreachableLogAt = null;
 
     final now = DateTime.now();
     final rows = await db.syncQueueDao.outboxWorkQueue(now);
@@ -286,7 +303,39 @@ class HubOrderLanPublisher {
     return acked;
   }
 
+  static Future<int> _flushMainOutboxBestEffortSafe({
+    required LocalHubSettings hub,
+    required AppDatabase db,
+  }) async {
+    try {
+      return await _flushMainOutboxBestEffort(hub: hub, db: db);
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[HubOrderLanPublisher] outbox flush failed: $e\n$st');
+      }
+      LanHubReachability.invalidate();
+      return 0;
+    }
+  }
+
   static int _nextBackoffSec(int retryCount) => (1 << retryCount.clamp(0, 8)).clamp(1, 120);
+
+  /// At most one debug line per 45s while the hub health probe fails.
+  static Future<void> _logUnreachableOnce(LocalHubSettings hub, AppDatabase db) async {
+    if (!kDebugMode) return;
+    final now = DateTime.now();
+    if (_lastUnreachableLogAt != null &&
+        now.difference(_lastUnreachableLogAt!) < const Duration(seconds: 45)) {
+      return;
+    }
+    final pending = await db.syncQueueDao.unsyncedOutboxCount();
+    if (pending <= 0) return;
+    _lastUnreachableLogAt = now;
+    debugPrint(
+      '[HubOrderLanPublisher] LAN hub unreachable (${hub.publishHubWsUrlOrLoopback}) — '
+      'deferring $pending outbox row(s) (retries when hub is reachable)',
+    );
+  }
 
   static Future<bool> _sendMainOutboxRowWithAck({
     required LocalHubSettings hub,

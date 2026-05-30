@@ -78,6 +78,17 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
     await (delete(carts)..where((c) => c.id.equals(cartId))).go();
   }
 
+  /// Draft counter carts with no [Orders] row (abandoned after screen refresh).
+  Future<List<int>> orphanDraftCartIds() async {
+    final rows = await customSelect(
+      "SELECT c.id AS id FROM carts c "
+      "WHERE c.invoice_number LIKE '_draft-%' "
+      'AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.cart_id = c.id)',
+      readsFrom: {carts},
+    ).get();
+    return [for (final r in rows) r.read<int>('id')];
+  }
+
   Future<Cart?> getCartByInvoice(String invoice) {
     return (select(carts)..where((c) => c.invoiceNumber.equals(invoice))).getSingleOrNull();
   }
@@ -92,6 +103,12 @@ class CartsDao extends DatabaseAccessor<AppDatabase> with _$CartsDaoMixin {
         orderType: Value(orderType),
         deliveryPartner: Value(deliveryPartner),
       ),
+    );
+  }
+
+  Future<void> updateCartInvoiceNumber(int cartId, String invoiceNumber) {
+    return (update(carts)..where((c) => c.id.equals(cartId))).write(
+      CartsCompanion(invoiceNumber: Value(invoiceNumber)),
     );
   }
 

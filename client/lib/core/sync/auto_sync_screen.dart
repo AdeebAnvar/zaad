@@ -102,7 +102,7 @@ class _AutoSyncScreenState extends State<AutoSyncScreen> {
         setState(() {
           pullProgress = 1.0;
           _pushPhase = true;
-          message = 'Pushing sales to server...';
+          message = 'Pushing sales, expenses & income to server...';
           pushProgress = 0.0;
         });
       } else if (kDebugMode) {

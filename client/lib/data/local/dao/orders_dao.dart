@@ -65,10 +65,12 @@ class OrderLogs extends Table {
 ])
 class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   OrdersDao(super.db);
+  bool? _hasPickupTokenColumnCache;
 
   /* ───────── ORDERS ───────── */
 
-  Future<int> createOrder(OrdersCompanion order) {
+  Future<int> createOrder(OrdersCompanion order) async {
+    await attachedDatabase.ensureOrdersCustomerAddressColumn();
     return into(orders).insert(order);
   }
 
@@ -180,6 +182,21 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     return (delete(orders)..where((o) => o.id.equals(orderId))).go();
   }
 
+  /// Any order row for [invoiceNumber] on [branchId] (e.g. token counter sentinel).
+  Future<Order?> getOrderByInvoiceAndBranch(
+    String invoiceNumber, {
+    required int branchId,
+  }) async {
+    final inv = invoiceNumber.trim();
+    if (inv.isEmpty) return null;
+    return (select(orders)
+          ..where((o) => o.invoiceNumber.equals(inv))
+          ..where((o) => o.branchId.equals(branchId))
+          ..orderBy([(o) => OrderingTerm.desc(o.id)])
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
   Future<Order?> getKOTByReference(String referenceNumber, {required int branchId}) async {
     final query = select(orders)
       ..where((o) => o.referenceNumber.equals(referenceNumber))
@@ -268,34 +285,40 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     return rows.map((r) => r.read<int>('uid')).toList();
   }
 
-  List<GeneratedColumn<Object>> get _listOrderColumns => [
-        orders.id,
-        orders.cartId,
-        orders.invoiceNumber,
-        orders.referenceNumber,
-        orders.totalAmount,
-        orders.discountAmount,
-        orders.discountType,
-        orders.finalAmount,
-        orders.customerName,
-        orders.customerEmail,
-        orders.customerPhone,
-        orders.customerGender,
-        orders.cashAmount,
-        orders.creditAmount,
-        orders.cardAmount,
-        orders.onlineAmount,
-        orders.createdAt,
-        orders.status,
-        orders.orderType,
-        orders.deliveryPartner,
-        orders.driverId,
-        orders.driverName,
-        orders.userId,
-        orders.branchId,
-        orders.serverOrderId,
-        orders.hubSyncPending,
-      ];
+  Future<List<GeneratedColumn<Object>>> _listOrderColumnsForQuery() async {
+    final cols = <GeneratedColumn<Object>>[
+      orders.id,
+      orders.cartId,
+      orders.invoiceNumber,
+      orders.referenceNumber,
+      orders.totalAmount,
+      orders.discountAmount,
+      orders.discountType,
+      orders.finalAmount,
+      orders.customerName,
+      orders.customerEmail,
+      orders.customerPhone,
+      orders.customerGender,
+      orders.cashAmount,
+      orders.creditAmount,
+      orders.cardAmount,
+      orders.onlineAmount,
+      orders.createdAt,
+      orders.status,
+      orders.orderType,
+      orders.deliveryPartner,
+      orders.driverId,
+      orders.driverName,
+      orders.userId,
+      orders.branchId,
+      orders.serverOrderId,
+      orders.hubSyncPending,
+    ];
+    if (await _hasPickupTokenColumn()) {
+      cols.add(orders.pickupToken);
+    }
+    return cols;
+  }
 
   /// Mirrors [orderCountsAsRecentSale] (Recent Sales default list) — keep SQL in sync with that helper.
   static final Expression<bool> _recentSaleSettledSql = CustomExpression(
@@ -352,17 +375,27 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       serverOrderId: row.read(orders.serverOrderId),
       hubMetadata: null,
       hubSyncPending: row.read(orders.hubSyncPending)!,
-      pickupToken: row.read(orders.pickupToken),
+      pickupToken: _readPickupTokenFromRow(row),
     );
   }
 
-  Future<void> updateOrder(OrdersCompanion order) {
-    return (update(orders)..where((o) => o.id.equals(order.id.value))).write(order);
+  int? _readPickupTokenFromRow(TypedResult row) {
+    try {
+      return row.read(orders.pickupToken);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> updateOrder(OrdersCompanion order) async {
+    await attachedDatabase.ensureOrdersCustomerAddressColumn();
+    await (update(orders)..where((o) => o.id.equals(order.id.value))).write(order);
   }
 
   /// Max [Orders.pickupToken] for [branchId] with `created_at` strictly after [createdAfterExclusive]
   /// (when null, all time). Ignores null tokens.
   Future<int?> maxPickupTokenForBranchSince(int branchId, DateTime? createdAfterExclusive) async {
+    if (!await _hasPickupTokenColumn()) return null;
     final maxExpr = orders.pickupToken.max();
     final q = selectOnly(orders)..addColumns([maxExpr]);
     q.where(orders.branchId.equals(branchId));
@@ -370,12 +403,35 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     if (createdAfterExclusive != null) {
       q.where(orders.createdAt.isBiggerThanValue(createdAfterExclusive));
     }
-    final row = await q.map((r) => r.read(maxExpr)).getSingleOrNull();
-    return row;
+    try {
+      final row = await q.getSingleOrNull();
+      return row?.read(maxExpr);
+    } on SqliteException catch (e) {
+      if (_isMissingColumnSqliteError(e, 'pickup_token')) return null;
+      rethrow;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Latest order with a token (for counter display). Scoped to current business period when [createdAfterExclusive] is set.
   Stream<Order?> watchLatestOrderWithPickupToken({
+    required int branchId,
+    DateTime? createdAfterExclusive,
+  }) {
+    return Stream.fromFuture(_hasPickupTokenColumn()).asyncExpand((hasColumn) {
+      if (!hasColumn) return Stream.value(null);
+      return _watchLatestOrderWithPickupTokenUnsafe(
+        branchId: branchId,
+        createdAfterExclusive: createdAfterExclusive,
+      ).handleError(
+        (_, __) => _hasPickupTokenColumnCache = false,
+        test: (error) => error is SqliteException && _isMissingColumnSqliteError(error, 'pickup_token'),
+      );
+    });
+  }
+
+  Stream<Order?> _watchLatestOrderWithPickupTokenUnsafe({
     required int branchId,
     DateTime? createdAfterExclusive,
   }) {
@@ -397,6 +453,38 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
           ..limit(1))
         .watch()
         .map((rows) => rows.isEmpty ? null : rows.first);
+  }
+
+  Future<bool> _hasPickupTokenColumn() async {
+    final cached = _hasPickupTokenColumnCache;
+    if (cached != null) return cached;
+    try {
+      final info = await customSelect("PRAGMA table_info('orders')").get();
+      final hasColumn = info.any(
+        (r) => (r.read<String>('name')).toLowerCase() == 'pickup_token',
+      );
+      _hasPickupTokenColumnCache = hasColumn;
+      if (!hasColumn) {
+        await attachedDatabase.ensureOrdersPickupTokenColumn();
+        final retry = await customSelect("PRAGMA table_info('orders')").get();
+        final repaired = retry.any(
+          (r) => (r.read<String>('name')).toLowerCase() == 'pickup_token',
+        );
+        if (repaired) {
+          _hasPickupTokenColumnCache = true;
+          return true;
+        }
+      }
+      return hasColumn;
+    } on SqliteException catch (_) {
+      _hasPickupTokenColumnCache = false;
+      return false;
+    }
+  }
+
+  bool _isMissingColumnSqliteError(SqliteException e, String columnName) {
+    final msg = e.message.toLowerCase();
+    return msg.contains('no such column') && msg.contains(columnName.toLowerCase());
   }
 
   Future<int> insertOrderLog(String orderJson) {
@@ -571,7 +659,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     int? branchId,
     int? limit,
     List<String>? excludeStatusAnyOf,
-  }) {
+  }) async {
     var query = select(orders);
 
     if (branchId != null) {
@@ -630,7 +718,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       query = query..where((o) => o.userId.equals(userId));
     }
 
-    if (pickupToken != null) {
+    if (pickupToken != null && await _hasPickupTokenColumn()) {
       query = query..where((o) => o.pickupToken.equals(pickupToken));
     }
 
@@ -665,8 +753,9 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     bool onlyRecentSaleSettled = false,
     String? paymentMethodKey,
     bool excludeKotStatus = false,
-  }) {
-    var query = selectOnly(orders)..addColumns(_listOrderColumns);
+  }) async {
+    final listCols = await _listOrderColumnsForQuery();
+    var query = selectOnly(orders)..addColumns(listCols);
 
     if (branchId != null) {
       query = query..where(orders.branchId.equals(branchId));
@@ -732,7 +821,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       query = query..where(orders.userId.equals(userId));
     }
 
-    if (pickupToken != null) {
+    if (pickupToken != null && await _hasPickupTokenColumn()) {
       query = query..where(orders.pickupToken.equals(pickupToken));
     }
 
@@ -833,7 +922,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       query = query..where(orders.userId.equals(userId));
     }
 
-    if (pickupToken != null) {
+    if (pickupToken != null && await _hasPickupTokenColumn()) {
       query = query..where(orders.pickupToken.equals(pickupToken));
     }
 
@@ -842,16 +931,24 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
     return row.read(countExp) ?? 0;
   }
 
+  /// Matches [orderOutstandingCredit] — explicit `credit_amount` or unpaid gap after cash/card/online.
+  static final Expression<bool> _hasOutstandingCreditSql = CustomExpression<bool>(
+    "(credit_amount > 0.004 OR "
+    "((CASE WHEN final_amount > 0.009 THEN final_amount ELSE total_amount END) "
+    "- cash_amount - card_amount - online_amount) > 0.004)",
+  );
+
   /// Credit sales list without loading [Orders.hubMetadata].
   Future<List<Order>> filterCreditSalesForList({
     required int branchId,
     int? userId,
     int limit = 400,
-  }) {
-    var query = selectOnly(orders)..addColumns(_listOrderColumns);
+  }) async {
+    final listCols = await _listOrderColumnsForQuery();
+    var query = selectOnly(orders)..addColumns(listCols);
     query = query
       ..where(orders.branchId.equals(branchId))
-      ..where(orders.creditAmount.isBiggerThanValue(0.004))
+      ..where(_hasOutstandingCreditSql)
       ..where(orders.status.equals('cancelled').not());
     if (userId != null) {
       query = query..where(orders.userId.equals(userId));

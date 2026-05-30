@@ -2,11 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/core/sync/ws_detach_done_errors.dart';
+import 'package:get_it/get_it.dart';
 import 'package:pos/core/sync/hub_inbound_dispatch.dart';
+import 'package:pos/core/sync/lan_hub_connection_notifier.dart';
 import 'package:pos/core/sync/sync_inbox_applier.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/branch_repository.dart';
@@ -81,7 +84,28 @@ class LocalHubPrimaryInboundCoordinator {
     return _settings.publishHubWsUrlOrLoopback.trim().isNotEmpty;
   }
 
+  /// MAIN publishes on a second socket; hub echoes to the listener with the same [deviceId].
+  /// Skip only when this [eventId] is our outbox row — not when SUB accidentally shares our id.
+  Future<bool> _isEchoOfMainLanPublish(PosSyncEnvelope env) async {
+    if (env.deviceId != _settings.requireDeviceId()) return false;
+    final row = await _db.syncQueueDao.outboxRowById(env.eventId);
+    return row != null;
+  }
+
   Future<void> startIfEnabled() async {
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H1',
+      location: 'local_hub_primary_inbound_coordinator.dart:startIfEnabled',
+      message: 'main_inbound_start_check',
+      data: <String, Object?>{
+        'enabled': _enabled,
+        'isHubSub': _settings.isHubSub,
+        'publishUrlLen': _settings.publishHubWsUrlOrLoopback.length,
+        'blocksCloud': _settings.blocksTenantCloudRest,
+      },
+    );
+    // #endregion
     if (!_enabled) return;
     await _settings.resolveOrAllocateDeviceId(_uuid.v4);
     _stopDesired = false;
@@ -100,6 +124,15 @@ class LocalHubPrimaryInboundCoordinator {
     stop();
     for (var i = 0; i < 40 && _loopRunning; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    // If an old loop is still alive, force it to continue with fresh settings
+    // instead of waiting for an app restart.
+    if (_loopRunning) {
+      _stopDesired = false;
+      _fastReconnectRequested = true;
+      _backoffSec = 0;
+      unawaited(_channel?.sink.close());
+      return;
     }
     await startIfEnabled();
   }
@@ -131,6 +164,17 @@ class LocalHubPrimaryInboundCoordinator {
         _channel = ch;
         _backoffSec = 0;
         detachWebSocketSinkDone(ch);
+        // #region agent log
+        agentDebugLog(
+          hypothesisId: 'H1',
+          location: 'local_hub_primary_inbound_coordinator.dart:_connectionLoop',
+          message: 'main_inbound_ws_connected',
+          data: <String, Object?>{
+            'host': uri.host,
+            'port': uri.port,
+          },
+        );
+        // #endregion
 
         await _handshakeConnectOnly(ch);
 
@@ -205,9 +249,10 @@ class LocalHubPrimaryInboundCoordinator {
     final connect = PosSyncEnvelope(
       eventId: _uuid.v4(),
       type: PosSyncEventTypes.connect,
-      payload: const <String, dynamic>{
+      payload: <String, dynamic>{
         'clientRole': 'MAIN_CLIENT',
         'appMode': 'main',
+        'deviceName': _settings.deviceDisplayLabel(),
       },
       timestamp: ts,
       deviceId: deviceId,
@@ -243,10 +288,16 @@ class LocalHubPrimaryInboundCoordinator {
     final env = PosSyncEnvelope.tryDecode(raw);
     if (env == null) return;
 
+    if (env.type == PosSyncEventTypes.peerDisconnect) {
+      _notifyMainPeerDisconnected(env);
+      return;
+    }
+
     if (env.type == PosSyncEventTypes.connect) {
       final role = env.payload['clientRole']?.toString();
       if (role == 'SUB_CLIENT') {
         unawaited(HubCompanySnapshotPublisher.broadcastAfterTenantLink(_db));
+        _notifyMainPeerConnected(env);
       }
       return;
     }
@@ -276,12 +327,33 @@ class LocalHubPrimaryInboundCoordinator {
       return;
     }
 
-    // Avoid re-applying this POS's own ORDER_* (publish uses a second socket; hub echoes to listeners).
-    final mainDid = _settings.requireDeviceId();
-    if (env.deviceId == mainDid) {
+    if (await _isEchoOfMainLanPublish(env)) {
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H3',
+        location: 'local_hub_primary_inbound_coordinator.dart:_onRawMessage',
+        message: 'main_inbound_skip_own_outbox_echo',
+        data: <String, Object?>{
+          'type': env.type,
+          'eventId': env.eventId,
+        },
+      );
+      // #endregion
       return;
     }
 
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'H1-H3',
+      location: 'local_hub_primary_inbound_coordinator.dart:_onRawMessage',
+      message: 'main_inbound_order_event',
+      data: <String, Object?>{
+        'type': env.type,
+        'fromDeviceId': env.deviceId,
+        'orderId': env.payload['orderId']?.toString(),
+      },
+    );
+    // #endregion
     await _persistInboxAndApply(env, raw);
     _ordersLive.notifyHubOrdersChanged();
   }
@@ -309,7 +381,7 @@ class LocalHubPrimaryInboundCoordinator {
         await _maybeAdvanceWatermark(effMs);
         continue;
       }
-      if (inner.deviceId == _settings.requireDeviceId()) {
+      if (await _isEchoOfMainLanPublish(inner)) {
         await _maybeAdvanceWatermark(effMs);
         continue;
       }
@@ -324,6 +396,24 @@ class LocalHubPrimaryInboundCoordinator {
     }
 
     _ordersLive.notifyHubOrdersChanged();
+  }
+
+  void _notifyMainPeerConnected(PosSyncEnvelope env) {
+    if (!GetIt.instance.isRegistered<LanHubConnectionNotifier>()) return;
+    GetIt.instance<LanHubConnectionNotifier>().onMainPeerConnected(
+      deviceId: env.deviceId,
+      deviceName: env.payload['deviceName']?.toString(),
+      clientRole: env.payload['clientRole']?.toString(),
+    );
+  }
+
+  void _notifyMainPeerDisconnected(PosSyncEnvelope env) {
+    if (!GetIt.instance.isRegistered<LanHubConnectionNotifier>()) return;
+    GetIt.instance<LanHubConnectionNotifier>().onMainPeerDisconnected(
+      deviceId: env.deviceId,
+      deviceName: env.payload['deviceName']?.toString(),
+      clientRole: env.payload['clientRole']?.toString(),
+    );
   }
 
   Future<void> _persistInboxAndApply(PosSyncEnvelope env, String raw) async {

@@ -139,6 +139,10 @@ class SyncInboxApplier {
         case PosSyncEventTypes.companySnapshot:
           await _applyCompanySnapshot(env.payload);
           break;
+        case PosSyncEventTypes.floorPlanSnapshot:
+          await _applyFloorPlanSnapshot(env.payload);
+          ordersLiveSync.notifyHubOrdersChanged();
+          break;
         case PosSyncEventTypes.apiMirror:
           await _applyApiMirror(env.payload);
           break;
@@ -270,11 +274,27 @@ class SyncInboxApplier {
       }
     }
 
+    final partnerSnapshotProvided = partnersRaw is List;
+    var partnerCatalogChanged = false;
     await db.transaction(() async {
       await _userRepo.saveUsersToLocal(users);
       await _branchRepo.saveBranchesToLocal(branches, downloadRemoteImages: false);
       await _settingsRepo.saveSettingsToLocal(settingsModel);
-      if (partnerRows.isNotEmpty) {
+      if (partnerSnapshotProvided) {
+        // Mirror MAIN exactly: remove stale local delivery partners, then insert snapshot rows.
+        final existing = await db.deliveryPartnersDao.getAll();
+        if (existing.length != partnerRows.length) {
+          partnerCatalogChanged = true;
+        } else {
+          final byId = {for (final p in existing) p.id: p.name.trim()};
+          for (final p in partnerRows) {
+            if (byId[p.id] != p.name) {
+              partnerCatalogChanged = true;
+              break;
+            }
+          }
+        }
+        await db.delete(db.deliveryPartners).go();
         for (final p in partnerRows) {
           await db.deliveryPartnersDao.upsertDeliveryPartner(
             DeliveryPartnersCompanion.insert(
@@ -286,7 +306,7 @@ class SyncInboxApplier {
       }
     });
 
-    if (partnerRows.isNotEmpty) {
+    if (partnerSnapshotProvided && partnerCatalogChanged) {
       DeliveryPartnerCatalogSignal.notifyPartnersChanged();
     }
 
@@ -351,6 +371,37 @@ class SyncInboxApplier {
         return '.jpg';
       default:
         return '.bin';
+    }
+  }
+
+  Future<void> _applyFloorPlanSnapshot(Map<String, dynamic> payload) async {
+    final branchId = coerceUserId(payload['branchId']) ?? coerceUserId(payload['branch_id']);
+    if (branchId == null || branchId <= 0) return;
+
+    final floorsRaw = payload['floors'];
+    final tablesRaw = payload['tables'];
+    final floors = floorsRaw is List
+        ? floorsRaw
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : <Map<String, dynamic>>[];
+    final tables = tablesRaw is List
+        ? tablesRaw
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : <Map<String, dynamic>>[];
+
+    await db.diningTablesDao.applyFloorPlanSnapshot(
+      branchId: branchId,
+      floors: floors,
+      tables: tables,
+    );
+    if (kDebugMode) {
+      debugPrint(
+        '[SyncInbox] FLOOR_PLAN_SNAPSHOT branch=$branchId floors=${floors.length} tables=${tables.length}',
+      );
     }
   }
 
@@ -569,7 +620,10 @@ class SyncInboxApplier {
       flutterSnap: flutterSnap,
       cartOrderType: cartTypeHint,
     );
-    final hubStatusRaw = snap['status']?.toString() ?? 'pending';
+    final hubStatusRaw = snap['local_status']?.toString() ??
+        snap['hub_status']?.toString() ??
+        snap['status']?.toString() ??
+        'pending';
     final status = OrderPushStatus.localFromHub(
       orderType: orderTypeRaw,
       hubStatus: hubStatusRaw,

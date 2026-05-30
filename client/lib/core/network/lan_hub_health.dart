@@ -6,6 +6,9 @@ import 'package:http/http.dart' as http;
 import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 
+DateTime? _lastHealthFetchErrorLogAt;
+String? _lastHealthFetchErrorKey;
+
 /// Parsed `GET /health` subset from the MAIN Node hub (`server/src/app.js`).
 class LanHubWsHealthSummary {
   const LanHubWsHealthSummary({
@@ -21,9 +24,10 @@ class LanHubWsHealthSummary {
 }
 
 class LanHubWsPeerBrief {
-  const LanHubWsPeerBrief({this.deviceId, this.ip, this.port});
+  const LanHubWsPeerBrief({this.deviceId, this.deviceName, this.ip, this.port});
 
   final String? deviceId;
+  final String? deviceName;
   final String? ip;
   final int? port;
 
@@ -31,6 +35,7 @@ class LanHubWsPeerBrief {
     final portRaw = json['port'];
     return LanHubWsPeerBrief(
       deviceId: json['deviceId']?.toString(),
+      deviceName: json['deviceName']?.toString(),
       ip: json['ip']?.toString(),
       port: portRaw is num ? portRaw.toInt() : int.tryParse('$portRaw'),
     );
@@ -77,8 +82,19 @@ Future<LanHubWsHealthSummary?> fetchLanHubWsHealthSummary(
     final decoded = jsonDecode(r.body);
     if (decoded is! Map) return null;
     return parseLanHubHealthJson(Map<String, dynamic>.from(decoded));
-  } catch (e, st) {
-    if (kDebugMode) debugPrint('[lan_hub_health] fetch failed: $e\n$st');
+  } catch (e) {
+    if (kDebugMode) {
+      final now = DateTime.now();
+      final key = '${healthUri.authority}:${e.runtimeType}';
+      final shouldLog = _lastHealthFetchErrorLogAt == null ||
+          _lastHealthFetchErrorKey != key ||
+          now.difference(_lastHealthFetchErrorLogAt!) >= const Duration(seconds: 20);
+      if (shouldLog) {
+        _lastHealthFetchErrorLogAt = now;
+        _lastHealthFetchErrorKey = key;
+        debugPrint('[lan_hub_health] fetch failed (${healthUri.authority}): $e');
+      }
+    }
     return null;
   }
 }

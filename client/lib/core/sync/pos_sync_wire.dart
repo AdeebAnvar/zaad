@@ -3,12 +3,16 @@ import 'dart:convert';
 /// Canonical WebSocket envelopes for LAN MAIN ⇄ Flutter SUB sync.
 abstract final class PosSyncEventTypes {
   static const connect = 'CONNECT';
+  /// Hub broadcasts when a WebSocket peer disconnects (MAIN shows cashier tablet lost).
+  static const peerDisconnect = 'DISCONNECT';
   static const syncRequest = 'SYNC_REQUEST';
   static const syncResponse = 'SYNC_RESPONSE';
   static const itemUpsert = 'ITEM_UPSERT';
   static const categoryUpsert = 'CATEGORY_UPSERT';
   /// MAIN → SUB: full company identity for local login (users, branches, settings) after tenant link.
   static const companySnapshot = 'COMPANY_SNAPSHOT';
+  /// MAIN → SUB: dine-in floors + tables for the active branch (keeps SUB floor plan in sync).
+  static const floorPlanSnapshot = 'FLOOR_PLAN_SNAPSHOT';
   /// MAIN → SUB: mirrored tenant REST JSON responses (subset applied on SUB).
   static const apiMirror = 'API_MIRROR';
   /// Branch day-close watermark (MAIN ⇄ SUB) — updates [DayClosingCheckpoint] on all peers.

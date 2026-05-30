@@ -10,6 +10,7 @@
 - [Repository layout](#repository-layout)
 - [Technology stack](#technology-stack)
 - [Architecture](#architecture)
+- [Full architecture reference](#full-architecture-reference)
 - [Deployment roles: MAIN vs SUB](#deployment-roles-main-vs-sub)
 - [Data storage](#data-storage)
 - [Sync & networking](#sync--networking)
@@ -130,6 +131,10 @@ flowchart TB
 3. **Last-write-wins (LWW)** — Hub journal replays events with `effectiveMs` timestamps on MAIN SQLite and SUB Drift.
 4. **Permission-driven UI** — Counter features are gated by tenant `permissions` on the user model.
 5. **Branch scope** — Orders, invoices, and day-closing are scoped to the active branch session.
+
+### Full architecture reference
+
+For deep coverage of **Node.js hub internals**, **WebSocket envelope protocol**, **Flutter ↔ SQLite connection model**, **Drift background isolates**, and **where compute isolates run**, see **[`ARCHITECTURE.md`](ARCHITECTURE.md)**.
 
 ---
 
@@ -492,6 +497,7 @@ Long-running terminals should be monitored for:
 
 ## Related docs
 
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — Full system architecture (Node, WebSocket, Flutter, DB, isolates)
 - [`client/README.md`](client/README.md) — Flutter client quick start
 - [`client/lib/features/orders/README.md`](client/lib/features/orders/README.md) — Orders hub integration notes
 

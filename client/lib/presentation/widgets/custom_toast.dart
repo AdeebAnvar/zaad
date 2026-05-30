@@ -6,7 +6,7 @@ import 'package:pos/core/constants/colors.dart';
 
 enum SnackBarType { success, error, warning, info }
 
-enum SnackBarPosition { top, bottom }
+enum SnackBarPosition { top, topRight, bottom }
 
 class CustomSnackBar {
   static final Map<SnackBarType, Color> _backgroundColors = {
@@ -268,7 +268,8 @@ class _StaticCornerToastOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isTop = position == SnackBarPosition.top;
+    final isTop = position == SnackBarPosition.top || position == SnackBarPosition.topRight;
+    final isTopRight = position == SnackBarPosition.topRight;
     final toastMax = _toastMaxWidth(context, width, compact: compact);
 
     if (isTop) {
@@ -277,7 +278,7 @@ class _StaticCornerToastOverlay extends StatelessWidget {
         right: _kToastHorizontalInset,
         top: _toastTopOffset(context),
         child: Align(
-          alignment: Alignment.topCenter,
+          alignment: isTopRight ? Alignment.topRight : Alignment.topCenter,
           child: _CornerToastPill(
             message: message,
             icon: icon,
@@ -463,7 +464,9 @@ class _AnimatedCornerToastOverlayState extends State<_AnimatedCornerToastOverlay
 
   @override
   Widget build(BuildContext context) {
-    final isTop = widget.position == SnackBarPosition.top;
+    final isTop =
+        widget.position == SnackBarPosition.top || widget.position == SnackBarPosition.topRight;
+    final isTopRight = widget.position == SnackBarPosition.topRight;
     final toastMax = _toastMaxWidth(context, widget.width, compact: widget.compact);
 
     Widget animatedPill() {
@@ -497,7 +500,7 @@ class _AnimatedCornerToastOverlayState extends State<_AnimatedCornerToastOverlay
         right: _kToastHorizontalInset,
         top: _toastTopOffset(context),
         child: Align(
-          alignment: Alignment.topCenter,
+          alignment: isTopRight ? Alignment.topRight : Alignment.topCenter,
           child: animatedPill(),
         ),
       );

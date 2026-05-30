@@ -30,6 +30,14 @@ class CartRepositoryImpl implements CartRepository {
   }
 
   @override
+  Future<void> deleteOrphanDraftCarts() async {
+    final ids = await db.cartsDao.orphanDraftCartIds();
+    for (final id in ids) {
+      await db.cartsDao.deleteCart(id);
+    }
+  }
+
+  @override
   Future<Cart?> getCartByInvoice(String invoice) async {
     return db.cartsDao.getCartByInvoice(invoice);
   }
@@ -112,6 +120,11 @@ class CartRepositoryImpl implements CartRepository {
   @override
   Future<void> updateCartOrderInfo(int cartId, {required String orderType, String? deliveryPartner}) {
     return db.cartsDao.updateCartOrderInfo(cartId, orderType: orderType, deliveryPartner: deliveryPartner);
+  }
+
+  @override
+  Future<void> updateCartInvoiceNumber(int cartId, String invoiceNumber) {
+    return db.cartsDao.updateCartInvoiceNumber(cartId, invoiceNumber);
   }
 
   @override

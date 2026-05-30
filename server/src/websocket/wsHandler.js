@@ -1,6 +1,7 @@
 'use strict';
 
-const { handleEnvelope, send } = require('../services/eventService');
+const { randomUUID } = require('crypto');
+const { handleEnvelope, send, broadcast } = require('../services/eventService');
 const { hubLog, trafficInEnvelope, trafficInMalformed, trafficOutUnicast } = require('../util/hubLog');
 const { rememberInboundDevice } = require('../util/socketMeta');
 
@@ -28,6 +29,7 @@ function handleWS(ws, wss, db) {
         ws,
         typeof data.deviceId === 'string' ? data.deviceId : '',
         typeof payload.clientRole === 'string' ? payload.clientRole : '',
+        typeof payload.deviceName === 'string' ? payload.deviceName : '',
       );
     }
 
@@ -47,10 +49,32 @@ function handleWS(ws, wss, db) {
 
   ws.on('close', (code, reason) => {
     hubLog('CONN', 'WebSocket closed', {
-      peer: { ip: ws.__posIp, port: ws.__posPort, lastDeviceId: ws.__posLastDeviceId },
+      peer: {
+        ip: ws.__posIp,
+        port: ws.__posPort,
+        lastDeviceId: ws.__posLastDeviceId,
+        deviceName: ws.__posDeviceName,
+      },
       code,
       reason: reason && reason.toString(),
     });
+    const deviceId = ws.__posLastDeviceId;
+    if (typeof deviceId === 'string' && deviceId.length > 0) {
+      broadcast(
+        wss,
+        {
+          eventId: randomUUID(),
+          type: 'DISCONNECT',
+          payload: {
+            clientRole: ws.__posClientRole || '',
+            deviceName: ws.__posDeviceName || '',
+          },
+          timestamp: Math.floor(Date.now() / 1000),
+          deviceId,
+        },
+        ws,
+      );
+    }
   });
 }
 

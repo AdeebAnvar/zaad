@@ -14,10 +14,16 @@ String paymentTypeSlugFromOrder(
   bool includeOnline = false,
   String fallback = 'CREDIT',
 }) {
-  if (order.creditAmount > 0.009) return 'CREDIT';
-  if (order.onlineAmount > 0.009) return 'ONLINE';
-  if (order.cashAmount > 0.009) return 'CASH';
-  if (order.cardAmount > 0.009) return 'CARD';
+  final entries = <MapEntry<String, double>>[
+    MapEntry('CASH', order.cashAmount),
+    MapEntry('CARD', order.cardAmount),
+    MapEntry('CREDIT', order.creditAmount),
+    if (includeOnline) MapEntry('ONLINE', order.onlineAmount),
+  ];
+  entries.sort((a, b) => b.value.compareTo(a.value));
+  if (entries.isNotEmpty && entries.first.value > 0.009) {
+    return entries.first.key;
+  }
   return includeOnline && fallback == 'CREDIT' ? 'ONLINE' : fallback;
 }
 

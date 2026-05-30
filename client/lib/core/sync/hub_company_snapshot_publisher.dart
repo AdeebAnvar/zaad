@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/auth/terminal_branch_scope.dart';
+import 'package:pos/core/network/lan_hub_health.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
@@ -58,6 +59,16 @@ class HubCompanySnapshotPublisher {
         data: const <String, Object?>{},
       );
       // #endregion
+      return;
+    }
+
+    if (await LanHubReachability.resolvePublishWsUrl(hub) == null) {
+      if (kDebugMode) {
+        debugPrint(
+          '[HubCompanySnapshotPublisher] skip: LAN hub unreachable ($resolvedUrl) — '
+          'COMPANY_SNAPSHOT deferred until hub responds',
+        );
+      }
       return;
     }
 

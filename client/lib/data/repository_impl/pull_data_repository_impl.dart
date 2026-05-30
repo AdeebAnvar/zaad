@@ -13,6 +13,7 @@ import 'package:pos/core/network/cloud_sync_prerequisites.dart';
 import 'package:pos/core/sync/company_bootstrap_persist.dart';
 import 'package:pos/core/sync/pull_response_parse.dart';
 import 'package:pos/core/sync/hub_catalog_lan_publisher.dart';
+import 'package:pos/core/sync/hub_floor_plan_lan_publisher.dart';
 import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/core/utils/image_utils.dart';
 import 'package:pos/core/utils/item_order_channels.dart';
@@ -239,6 +240,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
           db: _db,
           pulledItemsSnapshot: allItemForImages,
         ).timeout(const Duration(minutes: 5));
+        await HubFloorPlanLanPublisher.publishForActiveBranch(_db);
       } on TimeoutException catch (e, st) {
         if (kDebugMode) {
           debugPrint('[pull] LAN catalog mirror timed out — continuing: $e\n$st');
@@ -284,6 +286,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
         db: _db,
         pulledItemsSnapshot: items,
       ).timeout(const Duration(minutes: 5));
+      await HubFloorPlanLanPublisher.publishForActiveBranch(_db);
     } on TimeoutException catch (e, st) {
       if (kDebugMode) {
         debugPrint('[pull] deferred LAN catalog mirror timed out — done: $e\n$st');
@@ -1009,6 +1012,11 @@ class PullDataRepositoryImpl implements PullDataRepository {
       );
       final dineName = f.floorName != null && f.floorName!.trim().isNotEmpty ? f.floorName!.trim() : f.unitName?.trim();
       if (syncDineFloors && dineName != null && dineName.isNotEmpty) {
+        if (_asDateTime(f.deletedAt) != null) {
+          await (_db.delete(_db.diningTables)..where((row) => row.floorId.equals(f.id))).go();
+          await (_db.delete(_db.diningFloors)..where((row) => row.id.equals(f.id))).go();
+          continue;
+        }
         await _db.diningTablesDao.upsertFloor(
           DiningFloorsCompanion.insert(
             id: Value(f.id),
@@ -1017,7 +1025,7 @@ class PullDataRepositoryImpl implements PullDataRepository {
             recordUuid: Value(f.uuid),
             branchId: Value(f.branchId),
             floorSlug: Value(f.floorSlug ?? f.unitSlug),
-            deletedAt: Value(_asDateTime(f.deletedAt)),
+            deletedAt: const Value(null),
           ),
         );
       }
@@ -1411,6 +1419,10 @@ class PullDataRepositoryImpl implements PullDataRepository {
 
   Future<void> _persistTables(TablesModel r) async {
     for (final t in r.createdUpdated) {
+      if (_asDateTime(t.deletedAt) != null) {
+        await (_db.delete(_db.diningTables)..where((row) => row.id.equals(t.id))).go();
+        continue;
+      }
       final code = t.tableName.isNotEmpty ? t.tableName : t.tableSlug;
       try {
         await _db.diningTablesDao.upsertTable(

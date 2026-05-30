@@ -18,7 +18,7 @@ void agentDebugLog({
   if (!kDebugMode) return;
 
   final payload = <String, Object?>{
-    'sessionId': 'a1dec1',
+    'sessionId': '92b510',
     'timestamp': DateTime.now().millisecondsSinceEpoch,
     'hypothesisId': hypothesisId,
     'location': location,
@@ -42,7 +42,7 @@ class _AgentDebugLogSink {
     var dir = Directory.current;
     for (var i = 0; i < 8; i++) {
       try {
-        final file = File(p.join(dir.path, 'debug-a1dec1.log'));
+        final file = File(p.join(dir.path, 'debug-92b510.log'));
         await file.writeAsString('$line\n', mode: FileMode.append, flush: true);
         return;
       } catch (_) {}
@@ -52,7 +52,7 @@ class _AgentDebugLogSink {
         break;
       }
     }
-    for (final rel in <String>['debug-a1dec1.log', '../debug-a1dec1.log', '../../debug-a1dec1.log']) {
+    for (final rel in <String>['debug-92b510.log', '../debug-92b510.log', '../../debug-92b510.log']) {
       try {
         final file = File(rel);
         await file.writeAsString('$line\n', mode: FileMode.append, flush: true);
@@ -68,7 +68,7 @@ class _AgentDebugLogSink {
             Uri.parse('http://$host:7778/ingest/b57793d3-e555-4b7c-82b0-d86317abb97e'),
             headers: const <String, String>{
               'Content-Type': 'application/json',
-              'X-Debug-Session-Id': 'a1dec1',
+              'X-Debug-Session-Id': '92b510',
             },
             body: line,
           )

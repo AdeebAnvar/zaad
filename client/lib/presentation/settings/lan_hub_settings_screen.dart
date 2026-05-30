@@ -1,23 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:io' show Platform;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/app/navigation.dart';
 import 'package:pos/app/routes.dart';
+import 'package:pos/core/auth/counter_access.dart';
+import 'package:pos/core/auth/login_credentials_prefs.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
 import 'package:pos/core/network/lan_hub_health.dart';
+import 'package:pos/core/sync/lan_hub_connection_notifier.dart';
 import 'package:pos/core/sync/lan_hub_reconnect_service.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/hub_order_lan_publisher.dart';
 import 'package:pos/core/sync/local_hub_primary_inbound_coordinator.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
 import 'package:pos/data/local/drift_database.dart';
+import 'package:pos/data/local/tenant_switch_local_wipe.dart';
 import 'package:pos/presentation/widgets/custom_button.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_textfield.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// LAN hub: device role + MAIN PC IP. URL is always `ws://<ip>:3001/ws`.
 class LanHubSettingsScreen extends StatefulWidget {
@@ -188,6 +194,79 @@ class _LanHubSettingsScreenState extends State<LanHubSettingsScreen> {
           : (ipRaw.isEmpty ? 'Primary uses ${LocalHubSettings.defaultMainPublishHubLoopback} when IP is blank' : 'Primary uses ${LocalHubSettings.canonicalHubWsUrl(ipRaw)}');
       CustomSnackBar.showSuccess(message: 'Saved. $summaryText');
       Navigator.maybePop(context);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _resetLinkedDeviceFromApp() async {
+    if (_loading) return;
+    final platformName = Platform.isAndroid
+        ? 'Android'
+        : (Platform.isWindows ? 'Windows' : (Platform.isIOS ? 'iOS' : 'this device'));
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset linked device data?'),
+        content: Text(
+          'This will clear local orders/logs/cache on this $platformName device, remove saved LAN link settings, and sign out.\n\n'
+          'After reset, open LAN hub and pair again with the MAIN device.\n\n'
+          'This action cannot be undone.',
+          style: AppStyles.getRegularTextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Reset now'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _loading = true);
+    try {
+      if (locator.isRegistered<LocalHubSyncCoordinator>()) {
+        locator<LocalHubSyncCoordinator>().stop();
+      }
+      if (locator.isRegistered<LocalHubPrimaryInboundCoordinator>()) {
+        locator<LocalHubPrimaryInboundCoordinator>().stop();
+      }
+
+      final db = locator<AppDatabase>();
+      await clearLocalDataForNewTenant(db);
+      await db.delete(db.users).go();
+      await db.delete(db.branches).go();
+      await db.delete(db.settings).go();
+      await db.delete(db.sessions).go();
+
+      final prefs = locator<SharedPreferences>();
+      await LoginCredentialsPrefs.clear(prefs);
+      await prefs.remove(LocalHubSettings.wsUrlKey);
+      await prefs.remove(LocalHubSettings.terminalBranchIdKey);
+      await prefs.remove(LocalHubSettings.deviceIdKey);
+      await prefs.remove(LocalHubSettings.deviceDisplayNameKey);
+      await prefs.remove(LocalHubSettings.lastJournalMsKey);
+      await prefs.remove(LocalHubSettings.shadowCartKey);
+      await _hub.setRoleHubSub(false);
+
+      if (locator.isRegistered<LanHubConnectionNotifier>()) {
+        locator<LanHubConnectionNotifier>().resetMainPeerTracking();
+      }
+      if (locator.isRegistered<CurrentCounterSession>()) {
+        locator<CurrentCounterSession>().clear();
+      }
+
+      if (!mounted) return;
+      CustomSnackBar.showSuccess(message: 'Linked device data reset. Please pair again.');
+      AppNavigator.pushReplacementNamed(Routes.login);
+    } catch (e) {
+      if (!mounted) return;
+      CustomSnackBar.showError(message: 'Reset failed: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -428,7 +507,7 @@ class _LanHubSettingsScreenState extends State<LanHubSettingsScreen> {
                               (p) => Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
                                 child: Text(
-                                  '${p.deviceId ?? '?'}  ${p.ip ?? ''}:${p.port ?? ''}',
+                                  '${hubPeerDisplayLabel(deviceName: p.deviceName, deviceId: p.deviceId)}  ${p.ip ?? ''}:${p.port ?? ''}',
                                   style: AppStyles.getRegularTextStyle(fontSize: 13),
                                 ),
                               ),
@@ -487,6 +566,12 @@ class _LanHubSettingsScreenState extends State<LanHubSettingsScreen> {
             ),
           ],
           const SizedBox(height: 28),
+          OutlinedButton.icon(
+            onPressed: _loading ? null : _resetLinkedDeviceFromApp,
+            icon: const Icon(Icons.delete_forever_rounded),
+            label: Text(_cashierTablet ? 'Reset linked device data' : 'Reset local LAN data'),
+          ),
+          const SizedBox(height: 12),
           CustomButton(
             text: 'Save',
             isLoading: _loading,

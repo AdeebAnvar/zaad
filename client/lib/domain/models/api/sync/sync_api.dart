@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -23,11 +25,20 @@ class SyncApi {
     final dio = await DioClient.getInstance();
     final path = ApiEndpoints.pushRecords;
     if (kDebugMode) {
-      debugPrint('[SyncApi] POST ${dio.options.baseUrl}$path (push_records)');
+      final expenseCount =
+          body['expenses'] is List ? (body['expenses'] as List).length : 0;
+      debugPrint(
+        '[SyncApi] POST ${dio.options.baseUrl}$path (push_records) expenses=$expenseCount',
+      );
     }
-    return dio.post(
+    // Explicit JSON so `expenses[]` null fields are never dropped by serializers.
+    return dio.post<String>(
       path,
-      data: body,
+      data: jsonEncode(body),
+      options: Options(
+        contentType: Headers.jsonContentType,
+        responseType: ResponseType.json,
+      ),
     );
   }
 

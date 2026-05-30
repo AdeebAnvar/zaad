@@ -37,6 +37,7 @@ class _AndroidStoragePermissionPromptState extends State<AndroidStoragePermissio
 
     if (AppDirectories.temporaryForceAndroidInternalStorage) return;
 
+    if (await AppDirectories.androidHasAllFilesAccess()) return;
     if (await AppDirectories.androidPublicDocumentsReady) return;
 
     final prefs = await SharedPreferences.getInstance();
@@ -53,9 +54,9 @@ class _AndroidStoragePermissionPromptState extends State<AndroidStoragePermissio
       context,
       title: 'Storage access',
       message:
-          'Allow Zaad POS to save your database, backups, and exports in '
-          'Documents/ZaadPOS?\n\n'
-          'On Android 11+, you may need to enable "All files access" in the next screen.',
+          'Allow Zaad POS to save data in Documents/ZaadPOS?\n\n'
+          'On Android 11+, this is not under normal Permissions. '
+          'The next screen is Special app access → All files access → turn ON for Zaad POS.',
       confirmText: 'Allow',
       cancelText: 'Not now',
     );
@@ -87,7 +88,7 @@ class _AndroidStoragePermissionPromptState extends State<AndroidStoragePermissio
     );
 
     if (openSettings == true) {
-      await openAppSettings();
+      await AppDirectories.openAndroidAllFilesAccessSettings();
     } else {
       await prefs.setBool(AndroidStoragePermissionPrompt._declinedKey, true);
     }

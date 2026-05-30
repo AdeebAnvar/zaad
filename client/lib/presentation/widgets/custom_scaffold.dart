@@ -59,10 +59,14 @@ class _CustomScaffoldState extends State<CustomScaffold> {
         return;
       }
 
-      final session = await locator<AppDatabase>().sessionDao.getActiveSession();
+      final session =
+          await locator<AppDatabase>().sessionDao.getActiveSession();
       if (session != null && mounted) {
-        final loadedBranch = await locator<AppDatabase>().branchesDao.getBranchById(session.branchId);
-        final loadedUser = await locator<AppDatabase>().usersDao.findUserById(session.userId);
+        final loadedBranch = await locator<AppDatabase>()
+            .branchesDao
+            .getBranchById(session.branchId);
+        final loadedUser =
+            await locator<AppDatabase>().usersDao.findUserById(session.userId);
 
         if (mounted) {
           cached.setProfile(u: loadedUser, b: loadedBranch);
@@ -99,8 +103,21 @@ class _CustomScaffoldState extends State<CustomScaffold> {
     final size = MediaQuery.sizeOf(context);
     final drawerWidth = size.width > 600 ? size.width / 5 : size.width / 1.4;
 
+    final branchName = (branchModel?.branchName ?? '').trim();
+    final screenTitle = widget.title.trim();
+    final appBarTitle = [
+      if (branchName.isNotEmpty) branchName,
+      if (screenTitle.isNotEmpty &&
+          screenTitle.toLowerCase() != branchName.toLowerCase())
+        screenTitle,
+    ].join(' - ');
+
     return Scaffold(
-      appBar: CustomAppBar(title: branchModel?.branchName ?? "", screen: widget.appBarScreen, onBack: widget.onBack),
+      appBar: CustomAppBar(
+        title: appBarTitle,
+        screen: widget.appBarScreen,
+        onBack: widget.onBack,
+      ),
       drawer: PosDrawer(
         width: drawerWidth,
         companyLogo: branchModel?.localImage ?? '',
