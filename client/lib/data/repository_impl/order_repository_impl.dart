@@ -552,6 +552,23 @@ class OrderRepositoryImpl implements OrderRepository {
   }
 
   @override
+  Future<int> createDraftCart({
+    required String orderType,
+    String? deliveryPartner,
+    int? branchId,
+  }) async {
+    final cartBranchId = branchId ?? await db.sessionDao.requireActiveBranchId();
+    final cartId = await db.cartsDao.createCart(
+      '_draft-pending',
+      orderType: orderType,
+      deliveryPartner: deliveryPartner,
+      branchId: cartBranchId,
+    );
+    await db.cartsDao.updateCartInvoiceNumber(cartId, draftCartInvoiceForId(cartId));
+    return cartId;
+  }
+
+  @override
   Future<({String invoice, int cartId})> createCartWithReservedInvoice({
     required String orderType,
     String? deliveryPartner,

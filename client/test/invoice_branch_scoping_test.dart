@@ -249,6 +249,13 @@ void main() {
       await db.close();
     });
 
+    test('createDraftCart does not consume invoice sequence', () async {
+      await repo.createDraftCart(orderType: 'take_away');
+      await repo.createDraftCart(orderType: 'take_away');
+      final r = await repo.createCartWithReservedInvoice(orderType: 'take_away');
+      expect(r.invoice, 'INV-2-001');
+    });
+
     test('reserved invoices are INV-2-001, INV-2-002', () async {
       final a = await repo.createCartWithReservedInvoice(orderType: 'take_away');
       final b = await repo.createCartWithReservedInvoice(orderType: 'take_away');

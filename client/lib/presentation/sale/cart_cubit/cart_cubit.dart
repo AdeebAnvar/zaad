@@ -18,6 +18,7 @@ import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/data/repository/item_repository.dart';
 import 'package:pos/core/update/updater_manager.dart';
 import 'package:pos/core/debug/agent_debug_log.dart';
+import 'package:pos/core/utils/invoice_number_utils.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 import 'package:pos/presentation/sale/cart_cubit/kot_save_result.dart';
 import 'package:pos/presentation/sale/cart_cubit/payment_save_result.dart';
@@ -344,12 +345,12 @@ class CartCubit extends Cubit<CartState> {
     if (_activeCartId != null) return;
 
     try {
-      final r = await orderRepo.createCartWithReservedInvoice(
+      final cartId = await orderRepo.createDraftCart(
         orderType: orderType.value,
         deliveryPartner: deliveryPartner,
       );
-      _activeCartId = r.cartId;
-      _invoiceNumber = r.invoice;
+      _activeCartId = cartId;
+      _invoiceNumber = null;
     } catch (e, st) {
       // #region agent log
       agentDebugLog(
@@ -366,17 +367,16 @@ class CartCubit extends Cubit<CartState> {
     }
   }
 
-  /// Single invoice sequence per cart: `_ensureCart` reserves a number on the cart row;
-  /// KOT and Pay must reuse it (no second `getNextInvoiceNumber` for the same sale).
+  /// Allocates the next sale invoice on first KOT / payment — not when items are added to cart.
   Future<String> _invoiceNumberForPersistedCart() async {
     final memo = _invoiceNumber?.trim();
-    if (memo != null && memo.isNotEmpty) return memo;
+    if (memo != null && memo.isNotEmpty && !isDraftCartInvoice(memo)) return memo;
 
     final cartId = _activeCartId;
     if (cartId != null) {
       final row = await cartRepo.getCartByCartId(cartId);
       final fromRow = row?.invoiceNumber.trim() ?? '';
-      if (fromRow.isNotEmpty) {
+      if (fromRow.isNotEmpty && !isDraftCartInvoice(fromRow)) {
         _invoiceNumber = fromRow;
         return fromRow;
       }
@@ -384,6 +384,17 @@ class CartCubit extends Cubit<CartState> {
 
     final next = await orderRepo.getNextInvoiceNumber(orderType.value);
     _invoiceNumber = next;
+    if (cartId != null) {
+      await cartRepo.updateCartInvoiceNumber(cartId, next);
+    }
+    // #region agent log
+    agentDebugLog(
+      hypothesisId: 'inv-fix',
+      location: 'cart_cubit.dart:_invoiceNumberForPersistedCart',
+      message: 'invoice_allocated_at_commit',
+      data: <String, Object?>{'invoice': next, 'cartId': cartId},
+    );
+    // #endregion
     return next;
   }
 
@@ -391,15 +402,26 @@ class CartCubit extends Cubit<CartState> {
     await sessionDao.setActiveCartId(null);
   }
 
-  /// Restore cart from session's active cart id (Drift as single source of truth).
-  /// Call when opening Take Away screen without an orderId.
+  /// Fresh counter entry: drop in-memory cart and delete abandoned draft carts (no invoice consumed).
   Future<void> loadActiveCart() async {
-    final cartId = await sessionDao.getActiveCartId();
-    if (cartId == null) return;
-
-    // We no longer restore persisted carts across screen rebuilds / app restarts.
-    // Clear any previously saved active cart id so future sessions start fresh.
-    await sessionDao.setActiveCartId(null);
+    if (_activeCartId != null && !isEditingPaidOrder && !_openedForEdit) {
+      final row = await cartRepo.getCartByCartId(_activeCartId!);
+      if (row != null && isDraftCartInvoice(row.invoiceNumber)) {
+        await cartRepo.deleteCart(_activeCartId!);
+      }
+    }
+    await cartRepo.deleteOrphanDraftCarts();
+    _activeCartId = null;
+    _invoiceNumber = null;
+    _currentKOTReference = null;
+    _currentKOTOrderId = null;
+    _newlyAddedCartItemIds.clear();
+    _kotPrintedCartItemIds.clear();
+    _kotKitchenBaselineForDiff = null;
+    _cartDiscountAmount = 0.0;
+    _cartDiscountType = null;
+    await _clearPersistedCartId();
+    emit(CartState([]));
   }
 
   Future<void> removeItem(int index, BuildContext? context) async {
@@ -577,7 +599,6 @@ class CartCubit extends Cubit<CartState> {
       _currentKOTOrderId = orderToUpdate.id;
       kot = updatedOrder;
     } else {
-      // Same invoice as the active cart (reserved in _ensureCart).
       final cashierId = await _sessionUserId();
       final branchId = await _sessionBranchId();
       final order = Order(

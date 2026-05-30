@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/core/network/lan_hub_health.dart';
 import 'package:pos/core/network/local_hub_settings.dart';
 import 'package:pos/core/sync/local_hub_sync_coordinator.dart';
@@ -53,7 +54,9 @@ class HubOrderLanPublisher {
       'branch_id': order.branchId,
       'invoice_number': order.invoiceNumber,
       'created_at': order.createdAt.toIso8601String(),
-      'status': OrderPushStatus.toRemote(orderType: orderType, localStatus: order.status),
+      // LAN Drift mirror uses local lifecycle words (kot / placed / pending), not tenant push enums.
+      'status': order.status,
+      'hub_status': OrderPushStatus.toRemote(orderType: orderType, localStatus: order.status),
       'delivery_partner': order.deliveryPartner,
       ...flutter,
       'order_type': orderType,
@@ -124,6 +127,20 @@ class HubOrderLanPublisher {
       if (hub.isHubSub) {
         final g = GetIt.instance;
         if (!g.isRegistered<LocalHubSyncCoordinator>()) return;
+        // #region agent log
+        agentDebugLog(
+          hypothesisId: 'H2',
+          location: 'hub_order_lan_publisher.dart:scheduleOrderUpsert',
+          message: 'sub_schedule_order_upsert',
+          data: <String, Object?>{
+            'type': type,
+            'isCreate': isCreate,
+            'orderId': order.id,
+            'hubOrderId': payload['orderId']?.toString(),
+            'orderType': order.orderType,
+          },
+        );
+        // #endregion
         _serial = (_serial ?? Future<void>.value()).then((_) async {
           try {
             await g<LocalHubSyncCoordinator>().enqueueOutbound(type, payload);

@@ -47,6 +47,14 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
     if (h == null) return;
     void onRev() {
       if (isClosed) return;
+      // #region agent log
+      agentDebugLog(
+        hypothesisId: 'H4',
+        location: 'take_away_log_cubit.dart:_attachHubLive',
+        message: 'takeaway_log_hub_revision',
+        data: <String, Object?>{'revision': h.revision.value},
+      );
+      // #endregion
       unawaited(refreshOrders());
     }
 

@@ -333,6 +333,21 @@ class LocalHubSyncCoordinator {
         ch.sink.add(env.encode());
         await _db.syncQueueDao.patchOutbox(r.id, const SyncOutboxCompanion(status: Value('SENT')));
         ackedNow++;
+        if (r.eventType == PosSyncEventTypes.orderCreate ||
+            r.eventType == PosSyncEventTypes.orderUpdate) {
+          // #region agent log
+          agentDebugLog(
+            hypothesisId: 'H2',
+            location: 'local_hub_sync_coordinator.dart:_flushOutboxOver',
+            message: 'sub_outbox_sent',
+            data: <String, Object?>{
+              'type': r.eventType,
+              'eventId': r.id,
+              'orderId': payload['orderId']?.toString(),
+            },
+          );
+          // #endregion
+        }
       } catch (_) {
         await _db.syncQueueDao.patchOutbox(
           r.id,

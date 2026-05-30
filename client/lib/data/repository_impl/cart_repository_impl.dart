@@ -30,6 +30,14 @@ class CartRepositoryImpl implements CartRepository {
   }
 
   @override
+  Future<void> deleteOrphanDraftCarts() async {
+    final ids = await db.cartsDao.orphanDraftCartIds();
+    for (final id in ids) {
+      await db.cartsDao.deleteCart(id);
+    }
+  }
+
+  @override
   Future<Cart?> getCartByInvoice(String invoice) async {
     return db.cartsDao.getCartByInvoice(invoice);
   }

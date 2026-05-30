@@ -10,6 +10,9 @@ abstract class CartRepository {
 
   Future<void> deleteCart(int cartId);
 
+  /// Removes `_draft-*` carts that were never linked to an order (counter refresh / back navigation).
+  Future<void> deleteOrphanDraftCarts();
+
   Future<List<Cart>> getAllCarts();
 
   Future<Cart?> getCartByInvoice(String invoiceNumber);

@@ -44,6 +44,15 @@ String formatShortInvoice(String prefix, int branchId, int n) {
   return '$prefix-$normalizedBranchId-$suffix';
 }
 
+/// Placeholder on [Carts] until KOT / payment — must not match [formatShortInvoice] pattern.
+String draftCartInvoiceForId(int cartId) => '_draft-$cartId';
+
+/// True for in-progress counter carts (excluded from invoice MAX suffix queries).
+bool isDraftCartInvoice(String? raw) {
+  final s = raw?.trim() ?? '';
+  return s == '_draft-pending' || s.startsWith('_draft-');
+}
+
 /// Legacy fallback (should not be used for new carts when [OrderRepository.getNextInvoiceNumber] is available).
 String generateInvoiceNumber() {
   final now = DateTime.now();

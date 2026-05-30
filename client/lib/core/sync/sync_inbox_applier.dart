@@ -620,7 +620,10 @@ class SyncInboxApplier {
       flutterSnap: flutterSnap,
       cartOrderType: cartTypeHint,
     );
-    final hubStatusRaw = snap['status']?.toString() ?? 'pending';
+    final hubStatusRaw = snap['local_status']?.toString() ??
+        snap['hub_status']?.toString() ??
+        snap['status']?.toString() ??
+        'pending';
     final status = OrderPushStatus.localFromHub(
       orderType: orderTypeRaw,
       hubStatus: hubStatusRaw,
