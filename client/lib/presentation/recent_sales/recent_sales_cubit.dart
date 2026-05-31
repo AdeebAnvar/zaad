@@ -114,6 +114,15 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
     await _reloadOrders();
   }
 
+  bool get _hasActiveListFilters =>
+      (_invoiceNumber != null && _invoiceNumber!.isNotEmpty) ||
+      (_referenceNumber != null && _referenceNumber!.isNotEmpty) ||
+      (_orderType != null && _orderType!.isNotEmpty) ||
+      (_paymentMethod != null && _paymentMethod!.isNotEmpty) ||
+      _startDate != null ||
+      _endDate != null ||
+      _userId != null;
+
   Future<void> _reloadOrders() async {
     final prior = state;
     if (prior is RecentSalesLoaded) {
@@ -128,72 +137,80 @@ class RecentSalesCubit extends Cubit<RecentSalesState> {
       final userId = _userId ?? _scopedUserId(uiUserId: null);
 
       List<Order> orders;
-      late final int totalCount;
+      int totalCount;
 
-      if (useDefaultSettledView) {
-        totalCount = await orderRepo.countOrdersForList(
-          invoiceNumber: _invoiceNumber,
-          referenceNumber: _referenceNumber,
-          orderType: dbOrderType,
-          startDate: _startDate,
-          endDate: _endDate,
-          userId: userId,
-          onlyRecentSaleSettled: true,
-          paymentMethodKey: _paymentMethod,
-        );
-
-        final totalPages = totalCount == 0 ? 1 : (totalCount / kRecentSalesPageSize).ceil();
-        if (_page > totalPages) {
-          _page = totalPages;
+      Future<List<Order>> fetchPage(int offset) {
+        if (useDefaultSettledView) {
+          return orderRepo.filterOrdersForList(
+            invoiceNumber: _invoiceNumber,
+            referenceNumber: _referenceNumber,
+            orderType: dbOrderType,
+            startDate: _startDate,
+            endDate: _endDate,
+            userId: userId,
+            onlyRecentSaleSettled: true,
+            paymentMethodKey: _paymentMethod,
+            limit: kRecentSalesPageSize,
+            offset: offset,
+          );
         }
-
-        final offset = (_page - 1) * kRecentSalesPageSize;
-
-        orders = await orderRepo.filterOrdersForList(
+        return orderRepo.filterOrdersForList(
           invoiceNumber: _invoiceNumber,
           referenceNumber: _referenceNumber,
+          status: dbStatus,
           orderType: dbOrderType,
           startDate: _startDate,
           endDate: _endDate,
           userId: userId,
-          onlyRecentSaleSettled: true,
           paymentMethodKey: _paymentMethod,
+          excludeKotStatus: true,
           limit: kRecentSalesPageSize,
           offset: offset,
         );
+      }
+
+      Future<int> fetchCount() {
+        if (useDefaultSettledView) {
+          return orderRepo.countOrdersForList(
+            invoiceNumber: _invoiceNumber,
+            referenceNumber: _referenceNumber,
+            orderType: dbOrderType,
+            startDate: _startDate,
+            endDate: _endDate,
+            userId: userId,
+            onlyRecentSaleSettled: true,
+            paymentMethodKey: _paymentMethod,
+          );
+        }
+        return orderRepo.countOrdersForList(
+          invoiceNumber: _invoiceNumber,
+          referenceNumber: _referenceNumber,
+          status: dbStatus,
+          orderType: dbOrderType,
+          startDate: _startDate,
+          endDate: _endDate,
+          userId: userId,
+          paymentMethodKey: _paymentMethod,
+          excludeKotStatus: true,
+        );
+      }
+
+      final tryFastPath = _page == 1 && !_hasActiveListFilters;
+      if (tryFastPath) {
+        orders = await fetchPage(0);
+        if (orders.length < kRecentSalesPageSize) {
+          totalCount = orders.length;
+        } else {
+          totalCount = await fetchCount();
+          final totalPages = totalCount == 0 ? 1 : (totalCount / kRecentSalesPageSize).ceil();
+          if (_page > totalPages) _page = totalPages;
+        }
       } else {
-        totalCount = await orderRepo.countOrdersForList(
-          invoiceNumber: _invoiceNumber,
-          referenceNumber: _referenceNumber,
-          status: dbStatus,
-          orderType: dbOrderType,
-          startDate: _startDate,
-          endDate: _endDate,
-          userId: userId,
-          paymentMethodKey: _paymentMethod,
-          excludeKotStatus: true,
-        );
-
+        totalCount = await fetchCount();
         final totalPages = totalCount == 0 ? 1 : (totalCount / kRecentSalesPageSize).ceil();
-        if (_page > totalPages) {
-          _page = totalPages;
-        }
-
+        if (_page > totalPages) _page = totalPages;
         final offset = (_page - 1) * kRecentSalesPageSize;
-
-        orders = await orderRepo.filterOrdersForList(
-          invoiceNumber: _invoiceNumber,
-          referenceNumber: _referenceNumber,
-          status: dbStatus,
-          orderType: dbOrderType,
-          startDate: _startDate,
-          endDate: _endDate,
-          userId: userId,
-          paymentMethodKey: _paymentMethod,
-          excludeKotStatus: true,
-          limit: kRecentSalesPageSize,
-          offset: offset,
-        );
+        orders = await fetchPage(offset);
       }
 
       sortOrdersNewestFirst(orders);

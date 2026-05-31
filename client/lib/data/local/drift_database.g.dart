@@ -4784,6 +4784,12 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
   late final GeneratedColumn<int> pickupToken = GeneratedColumn<int>(
       'pickup_token', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _salePushUuidMeta =
+      const VerificationMeta('salePushUuid');
+  @override
+  late final GeneratedColumn<String> salePushUuid = GeneratedColumn<String>(
+      'sale_push_uuid', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -4814,7 +4820,8 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
         serverOrderId,
         hubMetadata,
         hubSyncPending,
-        pickupToken
+        pickupToken,
+        salePushUuid
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4993,6 +5000,12 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           pickupToken.isAcceptableOrUnknown(
               data['pickup_token']!, _pickupTokenMeta));
     }
+    if (data.containsKey('sale_push_uuid')) {
+      context.handle(
+          _salePushUuidMeta,
+          salePushUuid.isAcceptableOrUnknown(
+              data['sale_push_uuid']!, _salePushUuidMeta));
+    }
     return context;
   }
 
@@ -5060,6 +5073,8 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, Order> {
           .read(DriftSqlType.bool, data['${effectivePrefix}hub_sync_pending'])!,
       pickupToken: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}pickup_token']),
+      salePushUuid: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}sale_push_uuid']),
     );
   }
 
@@ -5113,6 +5128,9 @@ class Order extends DataClass implements Insertable<Order> {
 
   /// Daily pickup / queue number; resets after [DayClosingCheckpoint.lastSettledAt] for the branch.
   final int? pickupToken;
+
+  /// Stable cloud `push_records` sale uuid — assigned once at order creation, never recomputed.
+  final String? salePushUuid;
   const Order(
       {required this.id,
       required this.cartId,
@@ -5142,7 +5160,8 @@ class Order extends DataClass implements Insertable<Order> {
       this.serverOrderId,
       this.hubMetadata,
       required this.hubSyncPending,
-      this.pickupToken});
+      this.pickupToken,
+      this.salePushUuid});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -5204,6 +5223,9 @@ class Order extends DataClass implements Insertable<Order> {
     map['hub_sync_pending'] = Variable<bool>(hubSyncPending);
     if (!nullToAbsent || pickupToken != null) {
       map['pickup_token'] = Variable<int>(pickupToken);
+    }
+    if (!nullToAbsent || salePushUuid != null) {
+      map['sale_push_uuid'] = Variable<String>(salePushUuid);
     }
     return map;
   }
@@ -5268,6 +5290,9 @@ class Order extends DataClass implements Insertable<Order> {
       pickupToken: pickupToken == null && nullToAbsent
           ? const Value.absent()
           : Value(pickupToken),
+      salePushUuid: salePushUuid == null && nullToAbsent
+          ? const Value.absent()
+          : Value(salePushUuid),
     );
   }
 
@@ -5304,6 +5329,7 @@ class Order extends DataClass implements Insertable<Order> {
       hubMetadata: serializer.fromJson<String?>(json['hubMetadata']),
       hubSyncPending: serializer.fromJson<bool>(json['hubSyncPending']),
       pickupToken: serializer.fromJson<int?>(json['pickupToken']),
+      salePushUuid: serializer.fromJson<String?>(json['salePushUuid']),
     );
   }
   @override
@@ -5339,6 +5365,7 @@ class Order extends DataClass implements Insertable<Order> {
       'hubMetadata': serializer.toJson<String?>(hubMetadata),
       'hubSyncPending': serializer.toJson<bool>(hubSyncPending),
       'pickupToken': serializer.toJson<int?>(pickupToken),
+      'salePushUuid': serializer.toJson<String?>(salePushUuid),
     };
   }
 
@@ -5371,7 +5398,8 @@ class Order extends DataClass implements Insertable<Order> {
           Value<String?> serverOrderId = const Value.absent(),
           Value<String?> hubMetadata = const Value.absent(),
           bool? hubSyncPending,
-          Value<int?> pickupToken = const Value.absent()}) =>
+          Value<int?> pickupToken = const Value.absent(),
+          Value<String?> salePushUuid = const Value.absent()}) =>
       Order(
         id: id ?? this.id,
         cartId: cartId ?? this.cartId,
@@ -5414,6 +5442,8 @@ class Order extends DataClass implements Insertable<Order> {
         hubMetadata: hubMetadata.present ? hubMetadata.value : this.hubMetadata,
         hubSyncPending: hubSyncPending ?? this.hubSyncPending,
         pickupToken: pickupToken.present ? pickupToken.value : this.pickupToken,
+        salePushUuid:
+            salePushUuid.present ? salePushUuid.value : this.salePushUuid,
       );
   Order copyWithCompanion(OrdersCompanion data) {
     return Order(
@@ -5481,6 +5511,9 @@ class Order extends DataClass implements Insertable<Order> {
           : this.hubSyncPending,
       pickupToken:
           data.pickupToken.present ? data.pickupToken.value : this.pickupToken,
+      salePushUuid: data.salePushUuid.present
+          ? data.salePushUuid.value
+          : this.salePushUuid,
     );
   }
 
@@ -5515,7 +5548,8 @@ class Order extends DataClass implements Insertable<Order> {
           ..write('serverOrderId: $serverOrderId, ')
           ..write('hubMetadata: $hubMetadata, ')
           ..write('hubSyncPending: $hubSyncPending, ')
-          ..write('pickupToken: $pickupToken')
+          ..write('pickupToken: $pickupToken, ')
+          ..write('salePushUuid: $salePushUuid')
           ..write(')'))
         .toString();
   }
@@ -5550,7 +5584,8 @@ class Order extends DataClass implements Insertable<Order> {
         serverOrderId,
         hubMetadata,
         hubSyncPending,
-        pickupToken
+        pickupToken,
+        salePushUuid
       ]);
   @override
   bool operator ==(Object other) =>
@@ -5584,7 +5619,8 @@ class Order extends DataClass implements Insertable<Order> {
           other.serverOrderId == this.serverOrderId &&
           other.hubMetadata == this.hubMetadata &&
           other.hubSyncPending == this.hubSyncPending &&
-          other.pickupToken == this.pickupToken);
+          other.pickupToken == this.pickupToken &&
+          other.salePushUuid == this.salePushUuid);
 }
 
 class OrdersCompanion extends UpdateCompanion<Order> {
@@ -5617,6 +5653,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
   final Value<String?> hubMetadata;
   final Value<bool> hubSyncPending;
   final Value<int?> pickupToken;
+  final Value<String?> salePushUuid;
   const OrdersCompanion({
     this.id = const Value.absent(),
     this.cartId = const Value.absent(),
@@ -5647,6 +5684,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.hubMetadata = const Value.absent(),
     this.hubSyncPending = const Value.absent(),
     this.pickupToken = const Value.absent(),
+    this.salePushUuid = const Value.absent(),
   });
   OrdersCompanion.insert({
     this.id = const Value.absent(),
@@ -5678,6 +5716,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     this.hubMetadata = const Value.absent(),
     this.hubSyncPending = const Value.absent(),
     this.pickupToken = const Value.absent(),
+    this.salePushUuid = const Value.absent(),
   })  : cartId = Value(cartId),
         invoiceNumber = Value(invoiceNumber),
         totalAmount = Value(totalAmount),
@@ -5713,6 +5752,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     Expression<String>? hubMetadata,
     Expression<bool>? hubSyncPending,
     Expression<int>? pickupToken,
+    Expression<String>? salePushUuid,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -5744,6 +5784,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       if (hubMetadata != null) 'hub_metadata': hubMetadata,
       if (hubSyncPending != null) 'hub_sync_pending': hubSyncPending,
       if (pickupToken != null) 'pickup_token': pickupToken,
+      if (salePushUuid != null) 'sale_push_uuid': salePushUuid,
     });
   }
 
@@ -5776,7 +5817,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       Value<String?>? serverOrderId,
       Value<String?>? hubMetadata,
       Value<bool>? hubSyncPending,
-      Value<int?>? pickupToken}) {
+      Value<int?>? pickupToken,
+      Value<String?>? salePushUuid}) {
     return OrdersCompanion(
       id: id ?? this.id,
       cartId: cartId ?? this.cartId,
@@ -5807,6 +5849,7 @@ class OrdersCompanion extends UpdateCompanion<Order> {
       hubMetadata: hubMetadata ?? this.hubMetadata,
       hubSyncPending: hubSyncPending ?? this.hubSyncPending,
       pickupToken: pickupToken ?? this.pickupToken,
+      salePushUuid: salePushUuid ?? this.salePushUuid,
     );
   }
 
@@ -5900,6 +5943,9 @@ class OrdersCompanion extends UpdateCompanion<Order> {
     if (pickupToken.present) {
       map['pickup_token'] = Variable<int>(pickupToken.value);
     }
+    if (salePushUuid.present) {
+      map['sale_push_uuid'] = Variable<String>(salePushUuid.value);
+    }
     return map;
   }
 
@@ -5934,7 +5980,8 @@ class OrdersCompanion extends UpdateCompanion<Order> {
           ..write('serverOrderId: $serverOrderId, ')
           ..write('hubMetadata: $hubMetadata, ')
           ..write('hubSyncPending: $hubSyncPending, ')
-          ..write('pickupToken: $pickupToken')
+          ..write('pickupToken: $pickupToken, ')
+          ..write('salePushUuid: $salePushUuid')
           ..write(')'))
         .toString();
   }
@@ -8080,6 +8127,12 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Branche> {
       type: DriftSqlType.int,
       requiredDuringInsert: false,
       defaultValue: const Constant(0));
+  static const VerificationMeta _lastTokenNoMeta =
+      const VerificationMeta('lastTokenNo');
+  @override
+  late final GeneratedColumn<int> lastTokenNo = GeneratedColumn<int>(
+      'last_token_no', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -8098,7 +8151,8 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Branche> {
         installationDate,
         expiryDate,
         openingCash,
-        defaultOpeningCash
+        defaultOpeningCash,
+        lastTokenNo
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -8215,6 +8269,12 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Branche> {
           defaultOpeningCash.isAcceptableOrUnknown(
               data['default_opening_cash']!, _defaultOpeningCashMeta));
     }
+    if (data.containsKey('last_token_no')) {
+      context.handle(
+          _lastTokenNoMeta,
+          lastTokenNo.isAcceptableOrUnknown(
+              data['last_token_no']!, _lastTokenNoMeta));
+    }
     return context;
   }
 
@@ -8258,6 +8318,8 @@ class $BranchesTable extends Branches with TableInfo<$BranchesTable, Branche> {
           .read(DriftSqlType.int, data['${effectivePrefix}opening_cash'])!,
       defaultOpeningCash: attachedDatabase.typeMapping.read(
           DriftSqlType.int, data['${effectivePrefix}default_opening_cash'])!,
+      lastTokenNo: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}last_token_no']),
     );
   }
 
@@ -8287,6 +8349,9 @@ class Branche extends DataClass implements Insertable<Branche> {
 
   /// Branch-wide default opening balance (from server / user edit); survives day close.
   final int defaultOpeningCash;
+
+  /// Last pickup token from server bootstrap / COMPANY_SNAPSHOT (`last_token_no`).
+  final int? lastTokenNo;
   const Branche(
       {required this.id,
       required this.branchName,
@@ -8304,7 +8369,8 @@ class Branche extends DataClass implements Insertable<Branche> {
       required this.installationDate,
       required this.expiryDate,
       required this.openingCash,
-      required this.defaultOpeningCash});
+      required this.defaultOpeningCash,
+      this.lastTokenNo});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -8333,6 +8399,9 @@ class Branche extends DataClass implements Insertable<Branche> {
     map['expiry_date'] = Variable<DateTime>(expiryDate);
     map['opening_cash'] = Variable<int>(openingCash);
     map['default_opening_cash'] = Variable<int>(defaultOpeningCash);
+    if (!nullToAbsent || lastTokenNo != null) {
+      map['last_token_no'] = Variable<int>(lastTokenNo);
+    }
     return map;
   }
 
@@ -8362,6 +8431,9 @@ class Branche extends DataClass implements Insertable<Branche> {
       expiryDate: Value(expiryDate),
       openingCash: Value(openingCash),
       defaultOpeningCash: Value(defaultOpeningCash),
+      lastTokenNo: lastTokenNo == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastTokenNo),
     );
   }
 
@@ -8386,6 +8458,7 @@ class Branche extends DataClass implements Insertable<Branche> {
       expiryDate: serializer.fromJson<DateTime>(json['expiryDate']),
       openingCash: serializer.fromJson<int>(json['openingCash']),
       defaultOpeningCash: serializer.fromJson<int>(json['defaultOpeningCash']),
+      lastTokenNo: serializer.fromJson<int?>(json['lastTokenNo']),
     );
   }
   @override
@@ -8409,6 +8482,7 @@ class Branche extends DataClass implements Insertable<Branche> {
       'expiryDate': serializer.toJson<DateTime>(expiryDate),
       'openingCash': serializer.toJson<int>(openingCash),
       'defaultOpeningCash': serializer.toJson<int>(defaultOpeningCash),
+      'lastTokenNo': serializer.toJson<int?>(lastTokenNo),
     };
   }
 
@@ -8429,7 +8503,8 @@ class Branche extends DataClass implements Insertable<Branche> {
           DateTime? installationDate,
           DateTime? expiryDate,
           int? openingCash,
-          int? defaultOpeningCash}) =>
+          int? defaultOpeningCash,
+          Value<int?> lastTokenNo = const Value.absent()}) =>
       Branche(
         id: id ?? this.id,
         branchName: branchName ?? this.branchName,
@@ -8448,6 +8523,7 @@ class Branche extends DataClass implements Insertable<Branche> {
         expiryDate: expiryDate ?? this.expiryDate,
         openingCash: openingCash ?? this.openingCash,
         defaultOpeningCash: defaultOpeningCash ?? this.defaultOpeningCash,
+        lastTokenNo: lastTokenNo.present ? lastTokenNo.value : this.lastTokenNo,
       );
   Branche copyWithCompanion(BranchesCompanion data) {
     return Branche(
@@ -8480,6 +8556,8 @@ class Branche extends DataClass implements Insertable<Branche> {
       defaultOpeningCash: data.defaultOpeningCash.present
           ? data.defaultOpeningCash.value
           : this.defaultOpeningCash,
+      lastTokenNo:
+          data.lastTokenNo.present ? data.lastTokenNo.value : this.lastTokenNo,
     );
   }
 
@@ -8502,7 +8580,8 @@ class Branche extends DataClass implements Insertable<Branche> {
           ..write('installationDate: $installationDate, ')
           ..write('expiryDate: $expiryDate, ')
           ..write('openingCash: $openingCash, ')
-          ..write('defaultOpeningCash: $defaultOpeningCash')
+          ..write('defaultOpeningCash: $defaultOpeningCash, ')
+          ..write('lastTokenNo: $lastTokenNo')
           ..write(')'))
         .toString();
   }
@@ -8525,7 +8604,8 @@ class Branche extends DataClass implements Insertable<Branche> {
       installationDate,
       expiryDate,
       openingCash,
-      defaultOpeningCash);
+      defaultOpeningCash,
+      lastTokenNo);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -8546,7 +8626,8 @@ class Branche extends DataClass implements Insertable<Branche> {
           other.installationDate == this.installationDate &&
           other.expiryDate == this.expiryDate &&
           other.openingCash == this.openingCash &&
-          other.defaultOpeningCash == this.defaultOpeningCash);
+          other.defaultOpeningCash == this.defaultOpeningCash &&
+          other.lastTokenNo == this.lastTokenNo);
 }
 
 class BranchesCompanion extends UpdateCompanion<Branche> {
@@ -8567,6 +8648,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
   final Value<DateTime> expiryDate;
   final Value<int> openingCash;
   final Value<int> defaultOpeningCash;
+  final Value<int?> lastTokenNo;
   const BranchesCompanion({
     this.id = const Value.absent(),
     this.branchName = const Value.absent(),
@@ -8585,6 +8667,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
     this.expiryDate = const Value.absent(),
     this.openingCash = const Value.absent(),
     this.defaultOpeningCash = const Value.absent(),
+    this.lastTokenNo = const Value.absent(),
   });
   BranchesCompanion.insert({
     this.id = const Value.absent(),
@@ -8604,6 +8687,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
     required DateTime expiryDate,
     required int openingCash,
     this.defaultOpeningCash = const Value.absent(),
+    this.lastTokenNo = const Value.absent(),
   })  : branchName = Value(branchName),
         location = Value(location),
         contactNo = Value(contactNo),
@@ -8632,6 +8716,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
     Expression<DateTime>? expiryDate,
     Expression<int>? openingCash,
     Expression<int>? defaultOpeningCash,
+    Expression<int>? lastTokenNo,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -8652,6 +8737,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
       if (openingCash != null) 'opening_cash': openingCash,
       if (defaultOpeningCash != null)
         'default_opening_cash': defaultOpeningCash,
+      if (lastTokenNo != null) 'last_token_no': lastTokenNo,
     });
   }
 
@@ -8672,7 +8758,8 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
       Value<DateTime>? installationDate,
       Value<DateTime>? expiryDate,
       Value<int>? openingCash,
-      Value<int>? defaultOpeningCash}) {
+      Value<int>? defaultOpeningCash,
+      Value<int?>? lastTokenNo}) {
     return BranchesCompanion(
       id: id ?? this.id,
       branchName: branchName ?? this.branchName,
@@ -8691,6 +8778,7 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
       expiryDate: expiryDate ?? this.expiryDate,
       openingCash: openingCash ?? this.openingCash,
       defaultOpeningCash: defaultOpeningCash ?? this.defaultOpeningCash,
+      lastTokenNo: lastTokenNo ?? this.lastTokenNo,
     );
   }
 
@@ -8748,6 +8836,9 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
     if (defaultOpeningCash.present) {
       map['default_opening_cash'] = Variable<int>(defaultOpeningCash.value);
     }
+    if (lastTokenNo.present) {
+      map['last_token_no'] = Variable<int>(lastTokenNo.value);
+    }
     return map;
   }
 
@@ -8770,7 +8861,8 @@ class BranchesCompanion extends UpdateCompanion<Branche> {
           ..write('installationDate: $installationDate, ')
           ..write('expiryDate: $expiryDate, ')
           ..write('openingCash: $openingCash, ')
-          ..write('defaultOpeningCash: $defaultOpeningCash')
+          ..write('defaultOpeningCash: $defaultOpeningCash, ')
+          ..write('lastTokenNo: $lastTokenNo')
           ..write(')'))
         .toString();
   }
@@ -19665,6 +19757,7 @@ typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
   Value<String?> hubMetadata,
   Value<bool> hubSyncPending,
   Value<int?> pickupToken,
+  Value<String?> salePushUuid,
 });
 typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<int> id,
@@ -19696,6 +19789,7 @@ typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<String?> hubMetadata,
   Value<bool> hubSyncPending,
   Value<int?> pickupToken,
+  Value<String?> salePushUuid,
 });
 
 final class $$OrdersTableReferences
@@ -19837,6 +19931,9 @@ class $$OrdersTableFilterComposer
 
   ColumnFilters<int> get pickupToken => $composableBuilder(
       column: $table.pickupToken, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get salePushUuid => $composableBuilder(
+      column: $table.salePushUuid, builder: (column) => ColumnFilters(column));
 
   $$CartsTableFilterComposer get cartId {
     final $$CartsTableFilterComposer composer = $composerBuilder(
@@ -20000,6 +20097,10 @@ class $$OrdersTableOrderingComposer
   ColumnOrderings<int> get pickupToken => $composableBuilder(
       column: $table.pickupToken, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get salePushUuid => $composableBuilder(
+      column: $table.salePushUuid,
+      builder: (column) => ColumnOrderings(column));
+
   $$CartsTableOrderingComposer get cartId {
     final $$CartsTableOrderingComposer composer = $composerBuilder(
         composer: this,
@@ -20148,6 +20249,9 @@ class $$OrdersTableAnnotationComposer
   GeneratedColumn<int> get pickupToken => $composableBuilder(
       column: $table.pickupToken, builder: (column) => column);
 
+  GeneratedColumn<String> get salePushUuid => $composableBuilder(
+      column: $table.salePushUuid, builder: (column) => column);
+
   $$CartsTableAnnotationComposer get cartId {
     final $$CartsTableAnnotationComposer composer = $composerBuilder(
         composer: this,
@@ -20261,6 +20365,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<String?> hubMetadata = const Value.absent(),
             Value<bool> hubSyncPending = const Value.absent(),
             Value<int?> pickupToken = const Value.absent(),
+            Value<String?> salePushUuid = const Value.absent(),
           }) =>
               OrdersCompanion(
             id: id,
@@ -20292,6 +20397,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             hubMetadata: hubMetadata,
             hubSyncPending: hubSyncPending,
             pickupToken: pickupToken,
+            salePushUuid: salePushUuid,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -20323,6 +20429,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<String?> hubMetadata = const Value.absent(),
             Value<bool> hubSyncPending = const Value.absent(),
             Value<int?> pickupToken = const Value.absent(),
+            Value<String?> salePushUuid = const Value.absent(),
           }) =>
               OrdersCompanion.insert(
             id: id,
@@ -20354,6 +20461,7 @@ class $$OrdersTableTableManager extends RootTableManager<
             hubMetadata: hubMetadata,
             hubSyncPending: hubSyncPending,
             pickupToken: pickupToken,
+            salePushUuid: salePushUuid,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>
@@ -21650,6 +21758,7 @@ typedef $$BranchesTableCreateCompanionBuilder = BranchesCompanion Function({
   required DateTime expiryDate,
   required int openingCash,
   Value<int> defaultOpeningCash,
+  Value<int?> lastTokenNo,
 });
 typedef $$BranchesTableUpdateCompanionBuilder = BranchesCompanion Function({
   Value<int> id,
@@ -21669,6 +21778,7 @@ typedef $$BranchesTableUpdateCompanionBuilder = BranchesCompanion Function({
   Value<DateTime> expiryDate,
   Value<int> openingCash,
   Value<int> defaultOpeningCash,
+  Value<int?> lastTokenNo,
 });
 
 class $$BranchesTableFilterComposer
@@ -21732,6 +21842,9 @@ class $$BranchesTableFilterComposer
   ColumnFilters<int> get defaultOpeningCash => $composableBuilder(
       column: $table.defaultOpeningCash,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get lastTokenNo => $composableBuilder(
+      column: $table.lastTokenNo, builder: (column) => ColumnFilters(column));
 }
 
 class $$BranchesTableOrderingComposer
@@ -21796,6 +21909,9 @@ class $$BranchesTableOrderingComposer
   ColumnOrderings<int> get defaultOpeningCash => $composableBuilder(
       column: $table.defaultOpeningCash,
       builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get lastTokenNo => $composableBuilder(
+      column: $table.lastTokenNo, builder: (column) => ColumnOrderings(column));
 }
 
 class $$BranchesTableAnnotationComposer
@@ -21857,6 +21973,9 @@ class $$BranchesTableAnnotationComposer
 
   GeneratedColumn<int> get defaultOpeningCash => $composableBuilder(
       column: $table.defaultOpeningCash, builder: (column) => column);
+
+  GeneratedColumn<int> get lastTokenNo => $composableBuilder(
+      column: $table.lastTokenNo, builder: (column) => column);
 }
 
 class $$BranchesTableTableManager extends RootTableManager<
@@ -21899,6 +22018,7 @@ class $$BranchesTableTableManager extends RootTableManager<
             Value<DateTime> expiryDate = const Value.absent(),
             Value<int> openingCash = const Value.absent(),
             Value<int> defaultOpeningCash = const Value.absent(),
+            Value<int?> lastTokenNo = const Value.absent(),
           }) =>
               BranchesCompanion(
             id: id,
@@ -21918,6 +22038,7 @@ class $$BranchesTableTableManager extends RootTableManager<
             expiryDate: expiryDate,
             openingCash: openingCash,
             defaultOpeningCash: defaultOpeningCash,
+            lastTokenNo: lastTokenNo,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -21937,6 +22058,7 @@ class $$BranchesTableTableManager extends RootTableManager<
             required DateTime expiryDate,
             required int openingCash,
             Value<int> defaultOpeningCash = const Value.absent(),
+            Value<int?> lastTokenNo = const Value.absent(),
           }) =>
               BranchesCompanion.insert(
             id: id,
@@ -21956,6 +22078,7 @@ class $$BranchesTableTableManager extends RootTableManager<
             expiryDate: expiryDate,
             openingCash: openingCash,
             defaultOpeningCash: defaultOpeningCash,
+            lastTokenNo: lastTokenNo,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

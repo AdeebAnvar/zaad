@@ -30,4 +30,10 @@ class DayClosingCheckpointDao extends DatabaseAccessor<AppDatabase>
       ),
     );
   }
+
+  Stream<DateTime?> watchLastSettledAtForBranch(int branchId) {
+    return (select(dayClosingCheckpoint)..where((t) => t.branchId.equals(branchId)))
+        .watch()
+        .map((rows) => rows.isEmpty ? null : rows.single.lastSettledAt);
+  }
 }

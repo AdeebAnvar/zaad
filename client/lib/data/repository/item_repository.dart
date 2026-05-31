@@ -8,6 +8,8 @@ abstract class ItemRepository {
   Stream<List<Category>> watchCategoriesFromLocal();
   Future<List<ItemVariant>> fetchAllVariants();
   Stream<List<ItemVariant>> watchAllVariants();
+  /// Item ids that have at least one topping row (catalog tap fast-path).
+  Future<Set<int>> fetchToppingItemIds();
   Future<List<ItemVariant>> fetchVariantsByItem(int itemId);
   Future<ItemVariant?> fetchVariantById(int variantId);
   Future<List<ItemTopping>> fetchToppingsByItem(int itemId);

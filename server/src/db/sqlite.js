@@ -157,6 +157,15 @@ function migrate(db) {
       json TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS branch_counters (
+      branch_id INTEGER NOT NULL,
+      prefix TEXT NOT NULL,
+      last_invoice_suffix INTEGER NOT NULL DEFAULT 0,
+      last_pickup_token INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (branch_id, prefix)
+    );
   `);
 }
 

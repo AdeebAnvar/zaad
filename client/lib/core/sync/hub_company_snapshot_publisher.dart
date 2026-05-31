@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -192,9 +193,10 @@ class HubCompanySnapshotPublisher {
           }
         }
         if ((bytes == null || bytes.isEmpty) && b.image.trim().isNotEmpty) {
+          // Same cache key as [BranchesDao._toCompanion] so a prior sync download is reused.
           final path = await ImageUtils.downloadImage(
             b.image,
-            'hub_snap_branch_${b.id}',
+            'Branch_${b.id}_${b.branchName}',
           );
           if (path != null && path.isNotEmpty) {
             final f = File(path);

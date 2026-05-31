@@ -100,24 +100,65 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(_openMemory());
 
   @override
-  int get schemaVersion => 55;
+  int get schemaVersion => 58;
+
+  /// After [beforeOpen] / [ensureLegacySchemaColumnsOnce]; avoids PRAGMA+ALTER on every branch/order read.
+  bool _legacySchemaRepairDone = false;
+
+  Future<void> _safeAlterAddColumn(String sql) async {
+    try {
+      await customStatement(sql);
+    } on SqliteException catch (e) {
+      final m = e.message.toLowerCase();
+      if (m.contains('duplicate column')) return;
+      rethrow;
+    }
+  }
+
+  bool _tableHasColumn(List<QueryRow> pragmaRows, String columnName) {
+    return pragmaRows.any((r) => r.read<String>('name') == columnName);
+  }
+
+  /// One-shot repair for recovered DBs (schema v57 in Drift but missing columns on disk).
+  /// v92 builds did not run this on every [BranchesDao.getBranchById] — that caused startup
+  /// ALTER noise and UI stalls on upgraded installs.
+  Future<void> ensureLegacySchemaColumnsOnce() async {
+    if (_legacySchemaRepairDone) return;
+
+    final branchInfo = await customSelect('PRAGMA table_info(branches)').get();
+    if (!_tableHasColumn(branchInfo, 'default_opening_cash')) {
+      await _safeAlterAddColumn(
+        'ALTER TABLE branches ADD COLUMN default_opening_cash INTEGER NOT NULL DEFAULT 0',
+      );
+      try {
+        await customStatement(
+          'UPDATE branches SET default_opening_cash = COALESCE(opening_cash, 0)',
+        );
+      } on SqliteException catch (_) {
+        /* opening_cash may be absent on very old rows */
+      }
+    }
+    final branchInfoAfter = await customSelect('PRAGMA table_info(branches)').get();
+    if (!_tableHasColumn(branchInfoAfter, 'last_token_no')) {
+      await _safeAlterAddColumn('ALTER TABLE branches ADD COLUMN last_token_no INTEGER');
+    }
+
+    await ensureOrdersPickupTokenColumn();
+    await ensureOrdersCustomerAddressColumn();
+    await ensureOrdersSalePushUuidColumn();
+    await _repairLegacyBranchRowData();
+
+    _legacySchemaRepairDone = true;
+  }
 
   /// Recovered / partially migrated DBs can have [schemaVersion] bumped without new columns.
-  /// Runs on every open so login sync does not crash on missing [Branches.defaultOpeningCash].
   Future<void> ensureBranchesDefaultOpeningCashColumn() async {
-    final rows = await customSelect('PRAGMA table_info(branches)').get();
-    final hasColumn = rows.any((r) => r.read<String>('name') == 'default_opening_cash');
-    if (hasColumn) return;
-    await customStatement(
-      'ALTER TABLE branches ADD COLUMN default_opening_cash INTEGER NOT NULL DEFAULT 0',
-    );
-    try {
-      await customStatement(
-        'UPDATE branches SET default_opening_cash = COALESCE(opening_cash, 0)',
-      );
-    } on SqliteException catch (_) {
-      /* opening_cash may be absent on very old rows */
-    }
+    await ensureLegacySchemaColumnsOnce();
+  }
+
+  /// Recovered DBs may lack [Branches.lastTokenNo] used for pickup token seeding on SUB.
+  Future<void> ensureBranchesLastTokenNoColumn() async {
+    await ensureLegacySchemaColumnsOnce();
   }
 
   /// Removes carts/orders seeded with TEXT [created_at] (Drift expects INTEGER ms).
@@ -146,11 +187,10 @@ class AppDatabase extends _$AppDatabase {
       final rows = await customSelect("PRAGMA table_info('orders')").get();
       final hasColumn = rows.any((r) => r.read<String>('name') == 'pickup_token');
       if (hasColumn) return;
-      await customStatement('ALTER TABLE orders ADD COLUMN pickup_token INTEGER');
+      await _safeAlterAddColumn('ALTER TABLE orders ADD COLUMN pickup_token INTEGER');
     } on SqliteException catch (e) {
       final m = e.message.toLowerCase();
       if (m.contains('no such table')) return;
-      if (m.contains('duplicate column')) return;
       rethrow;
     }
   }
@@ -159,19 +199,29 @@ class AppDatabase extends _$AppDatabase {
   Future<void> ensureOrdersCustomerAddressColumn() async {
     try {
       final rows = await customSelect("PRAGMA table_info('orders')").get();
-      final hasColumn = rows.any((r) => r.read<String>('name') == 'customer_address');
-      if (hasColumn) return;
-      await customStatement('ALTER TABLE orders ADD COLUMN customer_address TEXT');
+      if (_tableHasColumn(rows, 'customer_address')) return;
+      await _safeAlterAddColumn('ALTER TABLE orders ADD COLUMN customer_address TEXT');
     } on SqliteException catch (e) {
       final m = e.message.toLowerCase();
       if (m.contains('no such table')) return;
-      if (m.contains('duplicate column')) return;
       rethrow;
     }
   }
 
-  Future<void> repairLegacyBranchRows() async {
-    await ensureBranchesDefaultOpeningCashColumn();
+  /// Recovered DBs may have schema v57+ without [Orders.salePushUuid] on disk.
+  Future<void> ensureOrdersSalePushUuidColumn() async {
+    try {
+      final rows = await customSelect("PRAGMA table_info('orders')").get();
+      if (_tableHasColumn(rows, 'sale_push_uuid')) return;
+      await _safeAlterAddColumn('ALTER TABLE orders ADD COLUMN sale_push_uuid TEXT');
+    } on SqliteException catch (e) {
+      final m = e.message.toLowerCase();
+      if (m.contains('no such table')) return;
+      rethrow;
+    }
+  }
+
+  Future<void> _repairLegacyBranchRowData() async {
     try {
       await customStatement(
         'UPDATE branches SET default_opening_cash = COALESCE(default_opening_cash, opening_cash, 0) '
@@ -190,17 +240,39 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 
+  Future<void> repairLegacyBranchRows() async {
+    await ensureLegacySchemaColumnsOnce();
+  }
+
+  /// Speeds Recent Sales / logs — filters by branch + sort by created_at.
+  Future<void> ensureOrderListIndexes() async {
+    try {
+      await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_orders_branch_created_id '
+        'ON orders (branch_id, created_at DESC, id DESC)',
+      );
+    } on SqliteException catch (e) {
+      final m = e.message.toLowerCase();
+      if (m.contains('no such table')) return;
+      rethrow;
+    }
+  }
+
   @override
   MigrationStrategy get migration {
     return MigrationStrategy(
       onUpgrade: (m, from, to) async {
-        Future<void> safeAddColumn(dynamic table, dynamic column) async {
+        Future<void> safeAddColumn(dynamic table, GeneratedColumn column) async {
+          final tableName = table.actualTableName as String;
+          final columnName = column.name;
+          final info = await customSelect('PRAGMA table_info($tableName)').get();
+          if (_tableHasColumn(info, columnName)) return;
           try {
             await m.addColumn(table, column);
-          } on SqliteException catch (e) {
-            if (e.resultCode != 1 || !e.message.toLowerCase().contains('duplicate column')) {
-              rethrow;
-            }
+          } on Object catch (e) {
+            final msg = e.toString().toLowerCase();
+            if (msg.contains('duplicate column')) return;
+            rethrow;
           }
         }
 
@@ -393,8 +465,19 @@ class AppDatabase extends _$AppDatabase {
           await m.createTable(financialRecords);
         }
         if (from < 55) {
-          await repairLegacyBranchRows();
+          await _repairLegacyBranchRowData();
         }
+        if (from < 56) {
+          await safeAddColumn(branches, branches.lastTokenNo);
+        }
+        if (from < 57) {
+          await safeAddColumn(orders, orders.salePushUuid);
+        }
+        if (from < 58) {
+          await ensureOrderListIndexes();
+        }
+        // Align Drift version when columns were added by a prior partial open / hot-path repair.
+        await customStatement('PRAGMA user_version = $schemaVersion');
       },
       // Legacy rows (or partial inserts) can leave NULL in NOT NULL columns; Drift’s
       // generated Session.map would null-check and crash on read.
@@ -411,10 +494,8 @@ class AppDatabase extends _$AppDatabase {
           final m = e.message.toLowerCase();
           if (!m.contains('no such column')) rethrow;
         }
-        await ensureBranchesDefaultOpeningCashColumn();
-        await ensureOrdersPickupTokenColumn();
-        await ensureOrdersCustomerAddressColumn();
-        await repairLegacyBranchRows();
+        await ensureLegacySchemaColumnsOnce();
+        await ensureOrderListIndexes();
         // repairTextTimestampRows runs from ZaadDI.runDeferredBackgroundServices.
       },
     );

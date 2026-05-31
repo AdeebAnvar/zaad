@@ -29,6 +29,9 @@ class BackupRestorePolicy {
   /// Minimum completed backups to keep during purge (safety net).
   static const int minBackupsToRetain = 8;
 
+  /// Hard cap on snapshot count — prevents multi‑GB backup folders on busy counters.
+  static const int maxBackupsToRetain = 48;
+
   /// Reject a new backup if order count falls this much below best known snapshot.
   static const double maxDropVsBestBackup = 0.05;
 

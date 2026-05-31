@@ -630,4 +630,67 @@ class AppDirectories {
     }
     return dir;
   }
+
+  /// Resolved `…/ZaadPOS` path (creates folders if needed).
+  static Future<String> dataFolderPath() async => (await appRoot()).path;
+
+  /// Opens the data folder in the system file manager when supported.
+  static Future<bool> revealInFileManager() async {
+    final root = await appRoot();
+    if (Platform.isWindows) {
+      try {
+        await Process.run('explorer', [root.path], runInShell: true);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    if (Platform.isAndroid) {
+      try {
+        await Process.run(
+          'am',
+          ['start', '-a', 'android.intent.action.VIEW', '-d', 'file://${root.path}'],
+        );
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /// When Windows "Documents" in Explorer (often OneDrive) differs from where
+  /// Zaad POS stores data, leave a pointer file customers can find in Explorer.
+  static Future<void> ensureWindowsDocumentsPointerIfNeeded() async {
+    if (!Platform.isWindows) return;
+
+    Directory shellDocs;
+    try {
+      shellDocs = await getApplicationDocumentsDirectory();
+    } catch (_) {
+      return;
+    }
+
+    final dataRoot = await appRoot();
+    final dataParent = p.normalize(dataRoot.parent.path).toLowerCase();
+    if (p.normalize(shellDocs.path).toLowerCase() == dataParent) return;
+
+    final pointer = File(
+      p.join(shellDocs.path, 'ZaadPOS — open this file for your data folder location.txt'),
+    );
+    final body = 'Zaad POS stores its database, backups, and media here:\n\n'
+        '${dataRoot.path}\n\n'
+        'This file is here because your Windows Documents folder (often OneDrive) '
+        'is not the same path Zaad POS uses — to avoid sync problems with the database.\n\n'
+        'In Zaad POS: open the menu (☰) → "Open data folder".\n'
+        'Do not move this folder into OneDrive.\n';
+    try {
+      if (!await shellDocs.exists()) return;
+      if (await pointer.exists()) {
+        final existing = await pointer.readAsString();
+        if (existing.contains(dataRoot.path)) return;
+      }
+      await pointer.writeAsString(body, flush: true);
+    } catch (_) {}
+  }
 }

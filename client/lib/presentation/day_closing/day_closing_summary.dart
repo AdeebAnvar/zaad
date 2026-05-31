@@ -5,6 +5,7 @@ import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/utils/order_payment_utils.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/domain/models/branch_model.dart';
+import 'package:pos/domain/models/financial_record_type.dart';
 import 'package:pos/domain/models/user_model.dart';
 
 double _sumOrders(Iterable<Order> list, double Function(Order o) pick) =>
@@ -73,9 +74,12 @@ String _categoryLabelForLine(CartItem line, Item? item, Map<int, String> categor
   return cn.toUpperCase();
 }
 
-String _itemLabelForLine(CartItem line, Item? item) {
-  final n = (item?.name ?? line.itemName).trim();
-  return n.isNotEmpty ? n.toUpperCase() : 'UNKNOWN';
+/// True when the order still owes money (matches dine-in / delivery log pay rules).
+bool orderHasOutstandingBalance(Order o, {double tolerance = 0.02}) {
+  final payable = o.finalAmount > 0.009 ? o.finalAmount : o.totalAmount;
+  if (payable <= 0.009) return false;
+  final paid = o.cashAmount + o.cardAmount + o.creditAmount + o.onlineAmount;
+  return paid + tolerance < payable;
 }
 
 /// Open bill for day-close submit gate: not closed/cancelled and balance still owed.
@@ -126,6 +130,8 @@ class DayClosingSummary {
   final double openingCash;
   /// Branch default opening balance (from server / saved in drawer).
   final double defaultOpeningCash;
+  /// Net cash from settled orders after allocated discounts (same basis as [cashIn] minus [openingCash]).
+  final double cashSaleAfterDiscount;
   final double cashSale;
   final double cardSale;
   final double creditSale;
@@ -151,12 +157,14 @@ class DayClosingSummary {
   final double difference;
   final double excessAmount;
   final double shortAmount;
+  /// Per payment channel (CASH, CARD, CREDIT, ONLINE) before manual close reconciliation.
+  final List<DayClosingPaymentVariance> paymentVariances;
   final List<DayClosingTypeSummaryRow> typeRows;
   final List<DayClosingCategoryRow> categoryRows;
-  final List<DayClosingItemRow> itemRows;
   final List<DayClosingCancelledRow> cancelledRows;
   /// Open bills the user may review (same log permissions as [unsettledFromAccessibleLogs]).
   final List<DayClosingOpenBill> openBills;
+  final List<DayClosingOtherIncomeRow> otherIncomeRows;
 
   const DayClosingSummary({
     required this.generatedAt,
@@ -167,6 +175,7 @@ class DayClosingSummary {
     required this.netTotal,
     required this.openingCash,
     required this.defaultOpeningCash,
+    required this.cashSaleAfterDiscount,
     required this.cashSale,
     required this.cardSale,
     required this.creditSale,
@@ -188,11 +197,12 @@ class DayClosingSummary {
     required this.difference,
     required this.excessAmount,
     required this.shortAmount,
+    required this.paymentVariances,
     required this.typeRows,
     required this.categoryRows,
-    required this.itemRows,
     required this.cancelledRows,
     required this.openBills,
+    required this.otherIncomeRows,
   });
 
   factory DayClosingSummary.empty() => DayClosingSummary(
@@ -204,6 +214,7 @@ class DayClosingSummary {
         netTotal: 0,
         openingCash: 0,
         defaultOpeningCash: 0,
+        cashSaleAfterDiscount: 0,
         cashSale: 0,
         cardSale: 0,
         creditSale: 0,
@@ -225,12 +236,27 @@ class DayClosingSummary {
         difference: 0,
         excessAmount: 0,
         shortAmount: 0,
+        paymentVariances: const [],
         typeRows: const [],
         categoryRows: const [],
-        itemRows: const [],
         cancelledRows: const [],
         openBills: const [],
+        otherIncomeRows: const [],
       );
+}
+
+class DayClosingOtherIncomeRow {
+  final String description;
+  final String payment;
+  final double amount;
+  final DateTime createdAt;
+
+  const DayClosingOtherIncomeRow({
+    required this.description,
+    required this.payment,
+    required this.amount,
+    required this.createdAt,
+  });
 }
 
 class DayClosingOpenBill {
@@ -277,18 +303,6 @@ class DayClosingCategoryRow {
   });
 }
 
-class DayClosingItemRow {
-  final String item;
-  final int qty;
-  final double amount;
-
-  const DayClosingItemRow({
-    required this.item,
-    required this.qty,
-    required this.amount,
-  });
-}
-
 class DayClosingCancelledRow {
   final String receiptId;
   final String reason;
@@ -301,6 +315,161 @@ class DayClosingCancelledRow {
     required this.by,
     required this.amount,
   });
+}
+
+/// Excess or short for one payment channel (CASH, CARD, CREDIT, ONLINE).
+class DayClosingPaymentVariance {
+  const DayClosingPaymentVariance({
+    required this.channel,
+    required this.excess,
+    required this.short,
+  });
+
+  final String channel;
+  final double excess;
+  final double short;
+}
+
+/// Opening staff reconciliation: manual excess/short per channel at day close.
+class DayClosingCloseReconciliation {
+  const DayClosingCloseReconciliation({
+    required this.cashExpected,
+    required this.cashExcess,
+    required this.cashShort,
+    required this.cardExpected,
+    required this.cardExcess,
+    required this.cardShort,
+    required this.creditExpected,
+    required this.creditExcess,
+    required this.creditShort,
+    required this.onlineExpected,
+    required this.onlineExcess,
+    required this.onlineShort,
+  });
+
+  final double cashExpected;
+  final double cashExcess;
+  final double cashShort;
+  final double cardExpected;
+  final double cardExcess;
+  final double cardShort;
+  final double creditExpected;
+  final double creditExcess;
+  final double creditShort;
+  final double onlineExpected;
+  final double onlineExcess;
+  final double onlineShort;
+
+  double get actualCash => cashExpected + cashExcess - cashShort;
+  double get actualCard => cardExpected + cardExcess - cardShort;
+  double get actualCredit => creditExpected + creditExcess - creditShort;
+  double get actualOnline => onlineExpected + onlineExcess - onlineShort;
+
+  double get totalExcess => cashExcess + cardExcess + creditExcess + onlineExcess;
+  double get totalShort => cashShort + cardShort + creditShort + onlineShort;
+
+  List<DayClosingPaymentVariance> get paymentVariances => <DayClosingPaymentVariance>[
+        DayClosingPaymentVariance(channel: 'CASH', excess: cashExcess, short: cashShort),
+        DayClosingPaymentVariance(channel: 'CARD', excess: cardExcess, short: cardShort),
+        DayClosingPaymentVariance(channel: 'CREDIT', excess: creditExcess, short: creditShort),
+        DayClosingPaymentVariance(channel: 'ONLINE', excess: onlineExcess, short: onlineShort),
+      ];
+}
+
+/// UI / print tolerance for rounding “non-zero” excess or short rows.
+const double kDayCloseAmountTolerance = 0.009;
+
+double effectiveDayClosingCashIn(
+  DayClosingSummary summary, {
+  DayClosingCloseReconciliation? closeReconciliation,
+}) {
+  final recon = closeReconciliation;
+  if (recon == null) return summary.cashIn;
+  return summary.openingCash + recon.actualCash + summary.otherIncome;
+}
+
+double effectiveDayClosingCashDrawer(
+  DayClosingSummary summary, {
+  DayClosingCloseReconciliation? closeReconciliation,
+}) {
+  final recon = closeReconciliation;
+  if (recon == null) return summary.cashDrawer;
+  final cashIn = effectiveDayClosingCashIn(summary, closeReconciliation: recon);
+  return cashIn - summary.cashOut;
+}
+
+double effectiveDayClosingDifference(
+  DayClosingSummary summary, {
+  DayClosingCloseReconciliation? closeReconciliation,
+}) {
+  final section3Total =
+      summary.purchase + summary.salary + summary.unpaidAmount - summary.otherIncome;
+  final drawer =
+      effectiveDayClosingCashDrawer(summary, closeReconciliation: closeReconciliation);
+  return section3Total - drawer;
+}
+
+List<DayClosingPaymentVariance> effectiveDayClosingPaymentVariances(
+  DayClosingSummary summary, {
+  DayClosingCloseReconciliation? closeReconciliation,
+}) {
+  if (closeReconciliation != null) {
+    return closeReconciliation.paymentVariances;
+  }
+  return summary.paymentVariances;
+}
+
+List<DayClosingPaymentVariance> orderedDayClosingPaymentVariances(
+  DayClosingSummary summary, {
+  DayClosingCloseReconciliation? closeReconciliation,
+}) {
+  final vs =
+      effectiveDayClosingPaymentVariances(summary, closeReconciliation: closeReconciliation);
+  const order = ['CASH', 'CARD', 'CREDIT', 'ONLINE'];
+  final idx = {for (var i = 0; i < order.length; i++) order[i]: i};
+  final out = [...vs];
+  out.sort((a, b) => (idx[a.channel] ?? 99).compareTo(idx[b.channel] ?? 99));
+  return out;
+}
+
+const _varianceTol = 0.009;
+
+/// Splits collected-vs-net variance across payment channels proportionally.
+List<DayClosingPaymentVariance> computeSystemPaymentVariances({
+  required double cashExpected,
+  required double cardExpected,
+  required double creditExpected,
+  required double onlineExpected,
+  required double netTotal,
+}) {
+  final channels = <(String, double)>[
+    ('CASH', cashExpected),
+    ('CARD', cardExpected),
+    ('CREDIT', creditExpected),
+    ('ONLINE', onlineExpected),
+  ];
+  final collected =
+      cashExpected + cardExpected + creditExpected + onlineExpected;
+  if (collected <= _varianceTol) {
+    return channels
+        .map(
+          (c) => DayClosingPaymentVariance(channel: c.$1, excess: 0, short: 0),
+        )
+        .toList();
+  }
+  return [
+    for (final c in channels)
+      () {
+        final share = c.$2 / collected;
+        final allocatedNet = share * netTotal;
+        final delta = c.$2 - allocatedNet;
+        return DayClosingPaymentVariance(
+          channel: c.$1,
+          excess: delta > _varianceTol ? delta : 0,
+          short: delta < -_varianceTol ? -delta : 0,
+        );
+      }(),
+  ];
 }
 
 List<Order> _ordersForCashierScope(List<Order> orders, int? cashierUserId) {
@@ -321,6 +490,9 @@ class _DayClosingComputeInput {
     required this.linesByOrderId,
     required this.counterAccess,
     required this.missingItemsById,
+    required this.purchase,
+    required this.salary,
+    required this.otherIncomeRows,
   });
 
   final List<Order> rawOrders;
@@ -332,6 +504,9 @@ class _DayClosingComputeInput {
   final Map<int, List<CartItem>> linesByOrderId;
   final CounterAccess counterAccess;
   final Map<int, Item> missingItemsById;
+  final double purchase;
+  final double salary;
+  final List<DayClosingOtherIncomeRow> otherIncomeRows;
 }
 
 DayClosingSummary _computeSummarySync(_DayClosingComputeInput i) {
@@ -437,13 +612,14 @@ DayClosingSummary _computeSummarySync(_DayClosingComputeInput i) {
   final openingCash = openingBalance;
   final defaultOpeningCash = openingBalance;
   const deliveryRecovery = 0.0;
-  const purchase = 0.0;
-  const salary = 0.0;
-  const otherIncome = 0.0;
+  final purchase = i.purchase;
+  final salary = i.salary;
+  final otherIncomeRows = i.otherIncomeRows;
+  final otherIncome =
+      otherIncomeRows.fold<double>(0, (double s, DayClosingOtherIncomeRow r) => s + r.amount);
   final expUnpaidTotal = purchase + salary + unpaidAmount - otherIncome;
-  // Modeled drawer per requirement:
-  // opening cash + cash sales (after discount) - expenses paid from cash.
-  final cashIn = openingCash + cashSaleAfterDiscount;
+  // Modeled drawer: opening + net cash sales + other income (cash in) − expenses from cash.
+  final cashIn = openingCash + cashSaleAfterDiscount + otherIncome;
   final cashOut = purchase + salary;
   final cashDrawer = cashIn - cashOut;
   final difference = expUnpaidTotal - cashDrawer;
@@ -485,13 +661,19 @@ DayClosingSummary _computeSummarySync(_DayClosingComputeInput i) {
     ),
   ];
 
-  final collected = cashSale + cardSale + creditSale + onlineSale;
-  final variance = collected - netTotal;
-  final excessAmount = variance > 0 ? variance : 0.0;
-  final shortAmount = variance < 0 ? -variance : 0.0;
+  final paymentVariances = computeSystemPaymentVariances(
+    cashExpected: cashSale,
+    cardExpected: cardSale,
+    creditExpected: creditSale,
+    onlineExpected: onlineSale,
+    netTotal: netTotal,
+  );
+  final excessAmount =
+      paymentVariances.fold<double>(0, (s, v) => s + v.excess);
+  final shortAmount =
+      paymentVariances.fold<double>(0, (s, v) => s + v.short);
 
   final categoryMap = <String, DayClosingCategoryRow>{};
-  final itemMap = <int, DayClosingItemRow>{};
   if (settled.isNotEmpty) {
     final itemByAny = {
       for (final i in visibleItems) i.id: i,
@@ -516,27 +698,11 @@ DayClosingSummary _computeSummarySync(_DayClosingComputeInput i) {
             amount: existingCat.amount + line.total,
           );
         }
-        final itemLabel = _itemLabelForLine(line, item);
-        final existingItem = itemMap[line.itemId];
-        if (existingItem == null) {
-          itemMap[line.itemId] = DayClosingItemRow(
-            item: itemLabel,
-            qty: line.quantity,
-            amount: line.total,
-          );
-        } else {
-          itemMap[line.itemId] = DayClosingItemRow(
-            item: existingItem.item,
-            qty: existingItem.qty + line.quantity,
-            amount: existingItem.amount + line.total,
-          );
-        }
       }
     }
   }
   final categoryRows = categoryMap.values.toList()
     ..sort((a, b) => b.amount.compareTo(a.amount));
-  final itemRows = itemMap.values.toList()..sort((a, b) => b.amount.compareTo(a.amount));
 
   final userById = {for (final u in users) u.id: u.name};
   final cancelledRows = cancelled
@@ -576,6 +742,7 @@ DayClosingSummary _computeSummarySync(_DayClosingComputeInput i) {
     netTotal: netTotal,
     openingCash: openingCash,
     defaultOpeningCash: defaultOpeningCash,
+    cashSaleAfterDiscount: cashSaleAfterDiscount,
     cashSale: cashSale,
     cardSale: cardSale,
     creditSale: creditSale,
@@ -597,11 +764,12 @@ DayClosingSummary _computeSummarySync(_DayClosingComputeInput i) {
     difference: difference,
     excessAmount: excessAmount,
     shortAmount: shortAmount,
+    paymentVariances: paymentVariances,
     typeRows: typeRows,
     categoryRows: categoryRows,
-    itemRows: itemRows,
     cancelledRows: cancelledRows,
     openBills: openBills,
+    otherIncomeRows: otherIncomeRows,
   );
 }
 
@@ -687,6 +855,32 @@ Future<DayClosingSummary> computeDayClosingSummary(
     }
   }
 
+  final purchase = await db.financialRecordsDao.sumFinalAmount(
+    branchId: branchId,
+    recordType: FinancialRecordType.expense.storageKey,
+    lastSettledAt: cutoff,
+  );
+  final salary = await db.financialRecordsDao.sumFinalAmount(
+    branchId: branchId,
+    recordType: FinancialRecordType.salary.storageKey,
+    lastSettledAt: cutoff,
+  );
+  final otherIncomeRecords = await db.financialRecordsDao.listSinceClose(
+    branchId: branchId,
+    recordType: FinancialRecordType.otherIncome.storageKey,
+    lastSettledAt: cutoff,
+  );
+  final otherIncomeRows = otherIncomeRecords
+      .map(
+        (r) => DayClosingOtherIncomeRow(
+          description: (r.description ?? '').trim().isEmpty ? '—' : r.description!.trim(),
+          payment: (r.paymentMethodName ?? '—').trim(),
+          amount: r.finalAmount,
+          createdAt: r.createdAt,
+        ),
+      )
+      .toList();
+
   // Offload all aggregation to a background isolate.
   return compute(
     _computeSummarySync,
@@ -700,6 +894,9 @@ Future<DayClosingSummary> computeDayClosingSummary(
       linesByOrderId: linesByOrderId,
       counterAccess: counterAccess,
       missingItemsById: missingItemsById,
+      purchase: purchase,
+      salary: salary,
+      otherIncomeRows: otherIncomeRows,
     ),
   );
 }

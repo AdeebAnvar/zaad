@@ -78,6 +78,16 @@ class ItemRepositoryImpl implements ItemRepository {
   }
 
   @override
+  Future<Set<int>> fetchToppingItemIds() async {
+    final bid = await _activeBranchIdOrNull();
+    if (bid == null) return {};
+    final visibleItemIds = (await db.itemDao.getVisibleForBranch(bid)).map((i) => i.id).toSet();
+    if (visibleItemIds.isEmpty) return {};
+    final all = await db.itemDao.getAllToppings();
+    return all.map((t) => t.itemId).where(visibleItemIds.contains).toSet();
+  }
+
+  @override
   Future<List<ItemVariant>> fetchVariantsByItem(int itemId) async {
     return await db.itemDao.getVariantsByItem(itemId);
   }

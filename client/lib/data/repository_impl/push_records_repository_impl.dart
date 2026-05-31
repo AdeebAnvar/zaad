@@ -9,10 +9,12 @@ import 'package:pos/core/sync/hub_company_snapshot_publisher.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/core/network/cloud_sync_prerequisites.dart';
 import 'package:pos/data/repository/push_records_repository.dart';
+import 'package:pos/data/repository_impl/expense_push_mapper.dart';
 import 'package:pos/data/repository_impl/push_local_to_push_records_mapper.dart';
 import 'package:pos/core/sync/company_bootstrap_persist.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
 import 'package:pos/domain/models/api/sync/sync_api.dart';
+import 'package:pos/core/utils/sale_push_uuid.dart';
 import 'package:pos/domain/models/item_model.dart';
 import 'package:uuid/uuid.dart';
 
@@ -39,30 +41,36 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
   static final Uuid _uuid = Uuid();
   static const bool _debugPrintSamplePayload = true;
 
-  /// RFC 4122 DNS namespace — used only as v5 seed (not transmitted).
-  static const String _v5NsDns = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+  String _deterministicCreditUuid(String saleUuid) =>
+      deterministicCreditPushUuid(saleUuid);
 
-  /// Same local order always maps to the same sale `uuid`, so retries do not duplicate in admin.
-  String _deterministicSaleUuid({
-    required int branchId,
-    required Map<String, dynamic> snap,
-  }) {
-    final oidRaw = snap['order_id'];
-    final orderId = oidRaw is int ? oidRaw : int.tryParse(oidRaw?.toString() ?? '') ?? 0;
+  /// Uses the uuid stored on [Orders.salePushUuid]; assigns once for legacy rows.
+  Future<String> _resolveSaleUuidForPush(Map<String, dynamic> snap) async {
+    final orderId = orderIdFromSnap(snap);
+    Order? order;
     if (orderId > 0) {
-      return _uuid.v5(_v5NsDns, 'pos_sale|$branchId|$orderId');
+      order = await _db.ordersDao.getOrderById(orderId);
     }
-    final inv = snap['invoice_number']?.toString().trim() ?? '';
-    final created = snap['created_at']?.toString().trim() ?? '';
-    final deviceToken = '${snap['device_uuid'] ?? snap['tenant_device_uuid'] ?? ''}'.trim();
-    return _uuid.v5(
-      _v5NsDns,
-      'pos_sale|$branchId|${deviceToken.isEmpty ? 'no_dev' : deviceToken}|$inv|$created',
-    );
-  }
 
-  /// One credit row per sale; stable whenever the sale uuid is stable.
-  String _deterministicCreditUuid(String saleUuid) => _uuid.v5(_v5NsDns, 'pos_credit|$saleUuid');
+    final stored = order?.salePushUuid?.trim();
+    if (stored != null && stored.isNotEmpty) {
+      return stored;
+    }
+
+    final fromSnap = readSalePushUuidFromSnap(snap);
+    if (fromSnap != null) {
+      if (orderId > 0) {
+        await _db.ordersDao.setSalePushUuidIfUnset(orderId, fromSnap);
+      }
+      return fromSnap;
+    }
+
+    final fresh = generateSalePushUuid();
+    if (orderId > 0) {
+      await _db.ordersDao.setSalePushUuidIfUnset(orderId, fresh);
+    }
+    return fresh;
+  }
 
   /// Snapshot JSON carries `branch_id` and `order_id`. Prefer JSON filter — no per-log order read.
   bool _orderLogMatchesBranch(OrderLog log, int branchId) {
@@ -91,6 +99,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         ordersPosted: 0,
         creditRowsPosted: 0,
         settleRowsPosted: 0,
+        expensesPosted: 0,
         httpStatus: null,
         message: '$e',
       );
@@ -111,9 +120,10 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       final customers = await _mapCustomersForPush(unsyncedCustomers);
       final settleSales = settlePending.maps;
       final settleIds = settlePending.ids;
+      final expenseBundle = await _pendingExpensesForBranch(branchId);
       // Always hit the push endpoint after pull so proxies / server logs show the call.
       final empty = <String, dynamic>{
-        'expenses': <dynamic>[],
+        'expenses': expenseBundle.maps,
         'customers': customers,
         'sales': <dynamic>[],
         'credit_sales': <dynamic>[],
@@ -122,7 +132,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       final cleanedEmpty = _removeNullsDeep(empty);
       if (kDebugMode) {
         debugPrint(
-          '[pushRecords] no unsynced order logs — ping with settle_sales=${settleSales.length}, customers=${customers.length}',
+          '[pushRecords] no unsynced order logs — ping expenses=${expenseBundle.maps.length}, settle_sales=${settleSales.length}, customers=${customers.length}',
         );
       }
       try {
@@ -132,11 +142,13 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         if (ok) {
           await _fetchBootstrapMirrorBestEffort();
           await _db.settleSalesOutboxDao.markSynced(settleIds);
+          await _db.financialRecordsDao.markSynced(expenseBundle.ids);
         }
         return PushRecordsOutcome(
           ordersPosted: 0,
           creditRowsPosted: 0,
           settleRowsPosted: settleSales.length,
+          expensesPosted: expenseBundle.maps.length,
           httpStatus: code,
           message: ok ? 'Push OK (no pending sales)' : 'Push failed (HTTP $code)',
         );
@@ -145,6 +157,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
           ordersPosted: 0,
           creditRowsPosted: 0,
           settleRowsPosted: settleSales.length,
+          expensesPosted: expenseBundle.maps.length,
           httpStatus: e.response?.statusCode,
           message: e.message ?? '$e',
         );
@@ -153,6 +166,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
           ordersPosted: 0,
           creditRowsPosted: 0,
           settleRowsPosted: settleSales.length,
+          expensesPosted: expenseBundle.maps.length,
           httpStatus: null,
           message: '$e',
         );
@@ -177,7 +191,11 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         continue;
       }
 
-      final saleUuid = _deterministicSaleUuid(branchId: branchId, snap: snap);
+      final saleUuid = await _resolveSaleUuidForPush(snap);
+      if (readSalePushUuidFromSnap(snap) != saleUuid) {
+        snap['sale_push_uuid'] = saleUuid;
+        await _db.ordersDao.updateOrderLogPayload(log.id, jsonEncode(snap));
+      }
       final phone = snap['customer_phone']?.toString().trim();
       final customerUuid = await _customerUuidForPhone(phone);
 
@@ -217,9 +235,10 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
 
     final settleSales = settlePending.maps;
     final settleIds = settlePending.ids;
+    final expenseBundle = await _pendingExpensesForBranch(branchId);
 
     final body = <String, dynamic>{
-      'expenses': <dynamic>[],
+      'expenses': expenseBundle.maps,
       'customers': customers,
       'sales': sales,
       'credit_sales': creditSales,
@@ -228,13 +247,13 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
     final cleanedBody = _removeNullsDeep(body);
     if (kDebugMode) {
       debugPrint(
-        '[pushRecords] prepared payload expenses=0, customers=${customers.length}, sales=${sales.length}, credit_sales=${creditSales.length}, settle_sales=${settleSales.length}',
+        '[pushRecords] prepared payload expenses=${expenseBundle.maps.length}, customers=${customers.length}, sales=${sales.length}, credit_sales=${creditSales.length}, settle_sales=${settleSales.length}',
       );
-      if (_debugPrintSamplePayload && sales.isNotEmpty) {
+      if (_debugPrintSamplePayload && (sales.isNotEmpty || expenseBundle.maps.isNotEmpty)) {
         final sample = {
-          'expenses': const <dynamic>[],
+          'expenses': expenseBundle.maps.isNotEmpty ? [expenseBundle.maps.first] : const <dynamic>[],
           'customers': customers.isNotEmpty ? [customers.first] : const <dynamic>[],
-          'sales': [sales.first],
+          'sales': sales.isNotEmpty ? [sales.first] : <Map<String, dynamic>>[],
           'credit_sales': creditSales.isNotEmpty ? [creditSales.first] : <Map<String, dynamic>>[],
           'settle_sales': settleSales.isNotEmpty ? [settleSales.first] : <Map<String, dynamic>>[],
         };
@@ -256,11 +275,13 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
           await _db.customersDao.markAsSyncedBatch(syncedCustomerIds);
         }
         await _db.settleSalesOutboxDao.markSynced(settleIds);
+        await _db.financialRecordsDao.markSynced(expenseBundle.ids);
       }
       return PushRecordsOutcome(
         ordersPosted: sales.length,
         creditRowsPosted: creditSales.length,
         settleRowsPosted: settleSales.length,
+        expensesPosted: expenseBundle.maps.length,
         httpStatus: code,
         message: ok ? 'Push accepted' : 'Push failed (HTTP $code)',
       );
@@ -269,6 +290,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         ordersPosted: sales.length,
         creditRowsPosted: creditSales.length,
         settleRowsPosted: settleSales.length,
+        expensesPosted: expenseBundle.maps.length,
         httpStatus: e.response?.statusCode,
         message: e.message ?? '$e',
       );
@@ -277,6 +299,7 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
         ordersPosted: sales.length,
         creditRowsPosted: creditSales.length,
         settleRowsPosted: settleSales.length,
+        expensesPosted: expenseBundle.maps.length,
         httpStatus: null,
         message: '$e',
       );
@@ -301,6 +324,14 @@ class PushRecordsRepositoryImpl implements PushRecordsRepository {
       }
     }
     return (maps: maps, ids: ids);
+  }
+
+  Future<({List<Map<String, dynamic>> maps, List<int> ids})> _pendingExpensesForBranch(
+    int branchId,
+  ) async {
+    final rows = await _db.financialRecordsDao.getUnsyncedForBranch(branchId);
+    final maps = ExpensePushMapper.mapRecords(rows);
+    return (maps: maps, ids: rows.map((r) => r.id).toList());
   }
 
   Future<List<Map<String, dynamic>>> _mapCustomersForPush(

@@ -16,6 +16,7 @@ import 'package:pos/core/sync/outbound_push_coordinator.dart';
 import 'package:pos/data/repository/push_records_repository.dart';
 import 'package:pos/data/repository_impl/settle_sale_push_mapper.dart';
 import 'package:pos/features/day_closing/data/day_closing_live_sync.dart';
+import 'package:pos/presentation/day_closing/day_closing_reconciliation_dialog.dart';
 import 'package:pos/presentation/day_closing/day_closing_settlement.dart';
 import 'package:pos/presentation/day_closing/day_closing_summary.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
@@ -187,6 +188,11 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         );
         return;
       }
+      final closeReconciliation = await showDayClosingReconciliationDialog(
+        context,
+        summary: summary,
+      );
+      if (!mounted || closeReconciliation == null) return;
       final branchId = session?.branchId ?? 1;
       final userId = session?.userId ?? 1;
       final uuid = const Uuid().v4();
@@ -197,6 +203,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
         branchId: branchId,
         userId: userId,
         at: at,
+        closeReconciliation: closeReconciliation,
       );
 
       await db.settleSalesOutboxDao.insertPending(
@@ -374,21 +381,7 @@ class _DayClosingScreenState extends State<DayClosingScreen> {
                       ),
                       const SizedBox(height: 14),
                       _sectionCard(
-                        title: '6. Item Wise Product List',
-                        headers: const ['ITEM', 'QTY', 'AMOUNT'],
-                        rows: [
-                          ..._summary.itemRows.map((r) => [
-                                r.item,
-                                r.qty.toString(),
-                                RuntimeAppSettings.money(r.amount),
-                              ]),
-                        ],
-                        footerLabel: 'GRAND TOTAL',
-                        footerValue: RuntimeAppSettings.money(_summary.netTotal),
-                      ),
-                      const SizedBox(height: 14),
-                      _sectionCard(
-                        title: '7. Cancelled Bills Summary',
+                        title: '6. Cancelled Bills Summary',
                         headers: const ['RECEIPT ID', 'REASON', 'BY', 'AMOUNT'],
                         rows: _summary.cancelledRows.isEmpty
                             ? [

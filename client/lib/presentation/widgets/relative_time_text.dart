@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pos/core/utils/relative_time.dart';
 
-/// Shows [formatRelativeTimeAgo] for [at] and rebuilds every second so the label stays live.
+/// Shows [formatRelativeTimeAgo] for [at].
+///
+/// [liveUpdates] — when false (log tables with many rows), skips per-cell timers that
+/// rebuild the whole table every second and can freeze Windows UI.
 class RelativeTimeText extends StatefulWidget {
   const RelativeTimeText({
     super.key,
@@ -11,12 +14,14 @@ class RelativeTimeText extends StatefulWidget {
     this.style,
     this.textAlign,
     this.maxLines,
+    this.liveUpdates = true,
   });
 
   final DateTime at;
   final TextStyle? style;
   final TextAlign? textAlign;
   final int? maxLines;
+  final bool liveUpdates;
 
   @override
   State<RelativeTimeText> createState() => _RelativeTimeTextState();
@@ -28,15 +33,27 @@ class _RelativeTimeTextState extends State<RelativeTimeText> {
   @override
   void initState() {
     super.initState();
-    _startTicker();
+    if (widget.liveUpdates) _startTicker();
   }
 
   @override
   void didUpdateWidget(RelativeTimeText oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.at != widget.at) {
-      _startTicker();
+      if (widget.liveUpdates) {
+        _startTicker();
+      } else {
+        _timer?.cancel();
+        _timer = null;
+      }
       if (mounted) setState(() {});
+    } else if (oldWidget.liveUpdates != widget.liveUpdates) {
+      if (widget.liveUpdates) {
+        _startTicker();
+      } else {
+        _timer?.cancel();
+        _timer = null;
+      }
     }
   }
 

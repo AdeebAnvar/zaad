@@ -48,6 +48,7 @@ class ItemsCubit extends Cubit<ItemState> {
   List<Item> _allItems = [];
   List<Category> _allCategories = [];
   Set<int> _variantItemIds = {};
+  Set<int> _toppingItemIds = {};
   StreamSubscription<List<Item>>? _itemsSub;
   StreamSubscription<List<Category>>? _categoriesSub;
   StreamSubscription<List<ItemVariant>>? _variantsSub;
@@ -73,10 +74,12 @@ class ItemsCubit extends Cubit<ItemState> {
       _repo.fetchItemsFromLocal(),
       _repo.fetchCategoriesFromLocal(),
       _repo.fetchAllVariants(),
+      _repo.fetchToppingItemIds(),
     ]);
     _allItems = trio[0] as List<Item>;
     _allCategories = trio[1] as List<Category>;
     _variantItemIds = (trio[2] as List<ItemVariant>).map((v) => v.itemId).toSet();
+    _toppingItemIds = trio[3] as Set<int>;
     await _resolveDeliveryFilterToken();
     // #region agent log
     agentDebugLog(
@@ -252,6 +255,7 @@ class ItemsCubit extends Cubit<ItemState> {
         items: filtered,
         categories: _allCategories,
         variantItemIds: _variantItemIds,
+        toppingItemIds: _toppingItemIds,
         searchQuery: _searchQuery,
       ),
     );

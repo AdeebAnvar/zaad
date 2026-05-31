@@ -19,6 +19,23 @@ class AppDialogLayout {
     return EdgeInsets.symmetric(horizontal: hPad, vertical: vPad);
   }
 
+  /// [insetPadding] plus keyboard height so dialog actions stay visible on mobile.
+  static EdgeInsets insetPaddingWithKeyboard(BuildContext context) {
+    final base = insetPadding(context);
+    final kb = MediaQuery.viewInsetsOf(context).bottom;
+    if (kb <= 0) return base;
+    return EdgeInsets.fromLTRB(
+      base.left,
+      base.top,
+      base.right,
+      base.bottom + kb,
+    );
+  }
+
+  /// Bottom padding for dialog body/footer when the soft keyboard is open.
+  static double keyboardBottomPadding(BuildContext context) =>
+      MediaQuery.viewInsetsOf(context).bottom;
+
   /// Max width for standard dialogs (confirm, message, simple forms).
   static double maxContentWidth(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
@@ -64,7 +81,7 @@ class AppStandardDialog extends StatelessWidget {
     return Dialog(
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.white,
-      insetPadding: AppDialogLayout.insetPadding(context),
+      insetPadding: AppDialogLayout.insetPaddingWithKeyboard(context),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: SizedBox(
         width: maxW,
@@ -188,12 +205,12 @@ Future<bool?> showAppConfirmDialog(
       return Dialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
-        insetPadding: AppDialogLayout.insetPadding(context),
+        insetPadding: AppDialogLayout.insetPaddingWithKeyboard(ctx),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: AppDialogLayout.maxContentWidth(context)),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+            padding: EdgeInsets.fromLTRB(24, 24, 24, 20 + AppDialogLayout.keyboardBottomPadding(ctx)),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -248,12 +265,12 @@ Future<void> showAppMessageDialog(
       return Dialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
-        insetPadding: AppDialogLayout.insetPadding(context),
+        insetPadding: AppDialogLayout.insetPaddingWithKeyboard(ctx),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: AppDialogLayout.maxContentWidth(context)),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+            padding: EdgeInsets.fromLTRB(24, 24, 24, 20 + AppDialogLayout.keyboardBottomPadding(ctx)),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,

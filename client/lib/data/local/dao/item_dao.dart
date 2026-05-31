@@ -323,6 +323,8 @@ class ItemDao extends DatabaseAccessor<AppDatabase> with _$ItemDaoMixin {
     return (select(itemToppings)..where((t) => t.itemId.equals(itemId))).get();
   }
 
+  Future<List<ItemTopping>> getAllToppings() => select(itemToppings).get();
+
   Future<void> deleteToppingsByItem(int itemId) async {
     await (delete(itemToppings)..where((t) => t.itemId.equals(itemId))).go();
   }

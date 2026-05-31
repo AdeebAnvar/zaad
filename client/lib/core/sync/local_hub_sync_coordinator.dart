@@ -474,8 +474,10 @@ class LocalHubSyncCoordinator {
       if (inner == null) continue;
       final effMs = PosSyncJournalReplay.watermarkMs(item, inner);
       final encoded = inner.encode();
-      await _persistInboxAndApply(inner, encoded);
-      await _maybeAdvanceWatermark(effMs);
+      final applied = await _persistInboxAndApply(inner, encoded);
+      if (applied) {
+        await _maybeAdvanceWatermark(effMs);
+      }
       if (inner.type == PosSyncEventTypes.dayClosingSettled) {
         dayClosingTouched = true;
       }
@@ -489,17 +491,17 @@ class LocalHubSyncCoordinator {
     }
   }
 
-  Future<void> _persistInboxAndApply(PosSyncEnvelope env, String raw) async {
+  Future<bool> _persistInboxAndApply(PosSyncEnvelope env, String raw) async {
     final existing = await _db.syncQueueDao.inboxRowByEventId(env.eventId);
     if (existing != null) {
-      if (existing.applied) return;
+      if (existing.applied) return true;
       try {
         await _applier.apply(existing.id, env, env.payload);
         await _db.syncQueueDao.markInboxApplied(existing.id);
+        return true;
       } catch (_) {
-        /* keep applied=false; next replay retries */
+        return false;
       }
-      return;
     }
 
     final inboxPk = _uuid.v4();
@@ -516,8 +518,9 @@ class LocalHubSyncCoordinator {
     try {
       await _applier.apply(inboxPk, env, env.payload);
       await _db.syncQueueDao.markInboxApplied(inboxPk);
+      return true;
     } catch (_) {
-      /* Leave applied=false for crash recovery inspection; optional retry hooks later */
+      return false;
     }
   }
 

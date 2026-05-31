@@ -163,6 +163,9 @@ Future<ColdStartBootstrapResult> coldStartBootstrap({
     await AppDirectories.prepareAndroidStorageBeforeDatabaseOpen();
   }
   await AppDirectories.local();
+  if (Platform.isWindows) {
+    await AppDirectories.ensureWindowsDocumentsPointerIfNeeded();
+  }
   await yieldUi();
 
   status('Opening database…');

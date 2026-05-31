@@ -387,8 +387,10 @@ class LocalHubPrimaryInboundCoordinator {
       }
 
       final encoded = inner.encode();
-      await _persistInboxAndApply(inner, encoded);
-      await _maybeAdvanceWatermark(effMs);
+      final applied = await _persistInboxAndApply(inner, encoded);
+      if (applied) {
+        await _maybeAdvanceWatermark(effMs);
+      }
       if (inner.type == PosSyncEventTypes.dayClosingSettled) {
         _dayClosingLive?.notifyDayClosingChanged();
       }
@@ -416,22 +418,23 @@ class LocalHubPrimaryInboundCoordinator {
     );
   }
 
-  Future<void> _persistInboxAndApply(PosSyncEnvelope env, String raw) async {
+  Future<bool> _persistInboxAndApply(PosSyncEnvelope env, String raw) async {
     final existing = await _db.syncQueueDao.inboxRowByEventId(env.eventId);
     if (existing != null) {
-      if (existing.applied) return;
+      if (existing.applied) return true;
       try {
         await _applier.apply(existing.id, env, env.payload);
         await _db.syncQueueDao.markInboxApplied(existing.id);
         if (kDebugMode && _orderIngestTypes.contains(env.type)) {
           debugPrint('[LocalHubPrimaryInbound] reapplied ${env.type} ${env.eventId}');
         }
+        return true;
       } catch (e, st) {
         if (kDebugMode) {
           debugPrint('[LocalHubPrimaryInbound] reapply failed ${env.type} ${env.eventId}: $e\n$st');
         }
+        return false;
       }
-      return;
     }
 
     final inboxPk = _uuid.v4();
@@ -451,10 +454,12 @@ class LocalHubPrimaryInboundCoordinator {
       if (kDebugMode && _orderIngestTypes.contains(env.type)) {
         debugPrint('[LocalHubPrimaryInbound] applied ${env.type} ${env.eventId}');
       }
+      return true;
     } catch (e, st) {
       if (kDebugMode) {
         debugPrint('[LocalHubPrimaryInbound] apply failed ${env.type} ${env.eventId}: $e\n$st');
       }
+      return false;
     }
   }
 }

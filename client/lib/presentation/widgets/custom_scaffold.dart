@@ -128,7 +128,9 @@ class _CustomScaffoldState extends State<CustomScaffold> {
       ),
       floatingActionButton: widget.floatingActionButton,
       floatingActionButtonLocation: widget.floatingActionButtonLocation,
-      body: widget.body,
+      body: SafeArea(
+        child: widget.body,
+      ),
     );
   }
 }

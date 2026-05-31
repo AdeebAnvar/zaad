@@ -1,10 +1,11 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:pos/core/services/backup_restore_policy.dart';
 import 'package:pos/core/utils/app_directories.dart';
+import 'package:pos/core/utils/backup_snapshot_file.dart';
 import 'package:pos/core/utils/sqlite_file_backup.dart';
 import 'package:pos/core/utils/sqlite_file_backup_async.dart';
 import 'package:pos/data/local/drift_database.dart';
@@ -14,9 +15,9 @@ class BackupService {
   BackupService._();
   static final BackupService instance = BackupService._();
 
-  static const int _orderThreshold = 10;
-  static const Duration _timeThreshold = Duration(minutes: 2);
-  static const Duration _retention = Duration(days: 7);
+  static const int _orderThreshold = 30;
+  static const Duration _timeThreshold = Duration(minutes: 15);
+  static const Duration _retention = Duration(days: 3);
   /// Only compare against recent snapshots when validating order counts (avoids opening every `.db`).
   static const int _maxBackupsForOrderCountScan = 12;
 
@@ -125,6 +126,7 @@ class BackupService {
 
       _pendingOrderMutations = 0;
       _lastBackupAt = DateTime.now();
+      await BackupSnapshotFile.compressInPlace(target);
       // Purge opens every backup file — defer so checkout/KOT UI can paint first.
       Future<void>.delayed(const Duration(seconds: 2), () {
         if (_preparingExit) return;
@@ -137,8 +139,9 @@ class BackupService {
     }
   }
 
-  /// Removes old SQLite copies when safe; always keeps [BackupRestorePolicy.minBackupsToRetain]
-  /// and never deletes the snapshot with the highest order count.
+  /// Removes old SQLite copies when safe; always keeps [BackupRestorePolicy.minBackupsToRetain],
+  /// never exceeds [BackupRestorePolicy.maxBackupsToRetain], and never deletes the snapshot
+  /// with the highest order count.
   Future<void> purgeExpiredBackups() async {
     try {
       final backupDir = await _backupDir();
@@ -156,16 +159,18 @@ class BackupService {
       files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
       final cutoff = DateTime.now().subtract(_retention);
 
-      var kept = 0;
-      for (final file in files) {
-        if (kept < BackupRestorePolicy.minBackupsToRetain) {
-          kept++;
-          continue;
-        }
-        if (file.path == bestPath) continue;
+      final protected = <String>{bestPath};
+      for (var i = 0; i < files.length && protected.length < BackupRestorePolicy.minBackupsToRetain; i++) {
+        protected.add(files[i].path);
+      }
 
-        final modified = file.statSync().modified;
-        if (!modified.isBefore(cutoff)) continue;
+      for (var i = 0; i < files.length; i++) {
+        final file = files[i];
+        if (protected.contains(file.path)) continue;
+
+        final overCap = i >= BackupRestorePolicy.maxBackupsToRetain;
+        final tooOld = file.statSync().modified.isBefore(cutoff);
+        if (!overCap && !tooOld) continue;
 
         if (await _backupFileIsFullySynced(file)) {
           await _deleteIfExists(file);
@@ -176,16 +181,30 @@ class BackupService {
     }
   }
 
-  Future<bool> _backupFileIsFullySynced(File backupFile) async {
-    sqlite.Database? database;
+  Future<T> _withReadableSnapshot<T>(
+    File snapshot,
+    Future<T> Function(File readable) action,
+  ) async {
+    final readable = await BackupSnapshotFile.materializeForSqlite(snapshot);
     try {
-      database = sqlite.sqlite3.open(backupFile.path);
-      return _sqliteSnapshotIsFullySynced(database);
-    } catch (_) {
-      return false;
+      return await action(readable);
     } finally {
-      database?.dispose();
+      await BackupSnapshotFile.deleteMaterialization(readable, snapshot);
     }
+  }
+
+  Future<bool> _backupFileIsFullySynced(File backupFile) async {
+    return _withReadableSnapshot(backupFile, (readable) async {
+      sqlite.Database? database;
+      try {
+        database = sqlite.sqlite3.open(readable.path);
+        return _sqliteSnapshotIsFullySynced(database);
+      } catch (_) {
+        return false;
+      } finally {
+        database?.dispose();
+      }
+    });
   }
 
   static bool _sqliteSnapshotIsFullySynced(sqlite.Database database) {
@@ -307,26 +326,31 @@ class BackupService {
       final target = File(p.join(localDir.path, 'pos.sqlite'));
 
       for (final source in files.take(maxCandidates)) {
-        if (!SqliteFileBackup.quickCheckOk(source)) continue;
+        final readable = await BackupSnapshotFile.materializeForSqlite(source);
+        try {
+          if (!SqliteFileBackup.quickCheckOk(readable)) continue;
 
-        if (corruptLiveFile != null && await corruptLiveFile.exists()) {
-          await _quarantineFile(corruptLiveFile, prefix: 'pos.sqlite.corrupt_');
-        } else if (await target.exists()) {
-          await _quarantineFile(target, prefix: 'pos.sqlite.before_restore_');
-        }
+          if (corruptLiveFile != null && await corruptLiveFile.exists()) {
+            await _quarantineFile(corruptLiveFile, prefix: 'pos.sqlite.corrupt_');
+          } else if (await target.exists()) {
+            await _quarantineFile(target, prefix: 'pos.sqlite.before_restore_');
+          }
 
-        await SqliteFileBackup.deleteWalSidecars(target);
-        if (await target.exists()) {
-          await target.delete();
-        }
-        await source.copy(target.path);
-        await SqliteFileBackup.deleteWalSidecars(target);
+          await SqliteFileBackup.deleteWalSidecars(target);
+          if (await target.exists()) {
+            await target.delete();
+          }
+          await readable.copy(target.path);
+          await SqliteFileBackup.deleteWalSidecars(target);
 
-        if (SqliteFileBackup.quickCheckOk(target)) {
-          _log('quick restore from ${p.basename(source.path)}');
-          return true;
+          if (SqliteFileBackup.quickCheckOk(target)) {
+            _log('quick restore from ${p.basename(source.path)}');
+            return true;
+          }
+          await _quarantineFile(target, prefix: 'pos.sqlite.bad_restore_');
+        } finally {
+          await BackupSnapshotFile.deleteMaterialization(readable, source);
         }
-        await _quarantineFile(target, prefix: 'pos.sqlite.bad_restore_');
       }
       return false;
     } catch (e, st) {
@@ -377,17 +401,22 @@ class BackupService {
         await _quarantineFile(target, prefix: 'pos.sqlite.before_restore_');
       }
 
-      await SqliteFileBackup.deleteWalSidecars(target);
-      if (await target.exists()) {
-        await target.delete();
-      }
-      await source.copy(target.path);
-      await SqliteFileBackup.deleteWalSidecars(target);
+      final readable = await BackupSnapshotFile.materializeForSqlite(source);
+      try {
+        await SqliteFileBackup.deleteWalSidecars(target);
+        if (await target.exists()) {
+          await target.delete();
+        }
+        await readable.copy(target.path);
+        await SqliteFileBackup.deleteWalSidecars(target);
 
-      if (!SqliteFileBackup.quickCheckOk(target)) {
-        _log('Restore failed integrity check — quarantining restored file');
-        await _quarantineFile(target, prefix: 'pos.sqlite.bad_restore_');
-        return false;
+        if (!SqliteFileBackup.quickCheckOk(target)) {
+          _log('Restore failed integrity check — quarantining restored file');
+          await _quarantineFile(target, prefix: 'pos.sqlite.bad_restore_');
+          return false;
+        }
+      } finally {
+        await BackupSnapshotFile.deleteMaterialization(readable, source);
       }
 
       _log(
@@ -404,7 +433,7 @@ class BackupService {
   Future<List<File>> _listBackupDbFiles(Directory backupDir) async {
     return backupDir
         .list()
-        .where((e) => e is File && p.extension(e.path).toLowerCase() == '.db')
+        .where((e) => e is File && BackupSnapshotFile.isSnapshot(e.path))
         .cast<File>()
         .toList();
   }
@@ -413,13 +442,19 @@ class BackupService {
     final out = <BackupSnapshotInfo>[];
     for (final file in files) {
       final stat = file.statSync();
+      final inspected = await _withReadableSnapshot(file, (readable) async {
+        return (
+          orderCount: await SqliteFileBackupAsync.countOrders(readable),
+          integrityOk: await SqliteFileBackupAsync.quickCheckOk(readable),
+        );
+      });
       out.add(
         BackupSnapshotInfo(
           path: file.path,
-          orderCount: await SqliteFileBackupAsync.countOrders(file),
+          orderCount: inspected.orderCount,
           fileBytes: stat.size,
           modifiedMs: stat.modified.millisecondsSinceEpoch,
-          integrityOk: await SqliteFileBackupAsync.quickCheckOk(file),
+          integrityOk: inspected.integrityOk,
         ),
       );
     }
@@ -434,9 +469,11 @@ class BackupService {
     var max = 0;
     for (final file in files.take(_maxBackupsForOrderCountScan)) {
       if (exclude != null && file.path == exclude) continue;
-      if (!await SqliteFileBackupAsync.quickCheckOk(file)) continue;
-      final n = await SqliteFileBackupAsync.countOrders(file);
-      if (n > max) max = n;
+      final count = await _withReadableSnapshot(file, (readable) async {
+        if (!await SqliteFileBackupAsync.quickCheckOk(readable)) return -1;
+        return await SqliteFileBackupAsync.countOrders(readable);
+      });
+      if (count > max) max = count;
     }
     return max;
   }

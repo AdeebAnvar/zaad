@@ -53,6 +53,8 @@ class HubOrderLanPublisher {
       'cart_id': order.cartId,
       'branch_id': order.branchId,
       'invoice_number': order.invoiceNumber,
+      if (order.salePushUuid != null && order.salePushUuid!.trim().isNotEmpty)
+        'sale_push_uuid': order.salePushUuid!.trim(),
       'created_at': order.createdAt.toIso8601String(),
       // LAN Drift mirror uses local lifecycle words (kot / placed / pending), not tenant push enums.
       'status': order.status,
