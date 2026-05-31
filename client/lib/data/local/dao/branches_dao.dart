@@ -35,6 +35,9 @@ class Branches extends Table {
   /// Branch-wide default opening balance (from server / user edit); survives day close.
   IntColumn get defaultOpeningCash => integer().withDefault(const Constant(0))();
 
+  /// Last pickup token from server bootstrap / COMPANY_SNAPSHOT (`last_token_no`).
+  IntColumn get lastTokenNo => integer().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -124,7 +127,8 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
     final existingRow = await customSelect(
       '''
       SELECT COALESCE(default_opening_cash, 0) AS default_opening_cash,
-             COALESCE(opening_cash, 0) AS opening_cash
+             COALESCE(opening_cash, 0) AS opening_cash,
+             last_token_no
       FROM branches WHERE id = ?
       ''',
       variables: [Variable.withInt(b.id)],
@@ -157,6 +161,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
       openingCash: Value(resolvedBalance),
       defaultOpeningCash: Value(resolvedBalance),
       localImage: Value(localImage),
+      lastTokenNo: Value(resolvedToken > 0 ? resolvedToken : null),
     );
   }
 
@@ -179,6 +184,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin 
       expiryDate: b.expiryDate,
       openingCash: b.openingCash,
       defaultOpeningCash: b.defaultOpeningCash,
+      lastTokenNo: b.lastTokenNo,
     );
   }
 }
