@@ -28,7 +28,6 @@ class CommonLogCard extends StatefulWidget {
     this.leadingHeader,
     this.extraContent,
     this.orderTakerName,
-    this.pickupToken,
   });
 
   final String tag;
@@ -41,8 +40,6 @@ class CommonLogCard extends StatefulWidget {
   final Widget? leadingHeader;
   final Widget? extraContent;
   final String? orderTakerName;
-  /// Pickup / queue token (e.g. take-away counter); shown when non-null.
-  final int? pickupToken;
 
   @override
   State<CommonLogCard> createState() => _CommonLogCardState();
@@ -80,19 +77,6 @@ class _CommonLogCardState extends State<CommonLogCard> {
               _header(),
               const SizedBox(height: 4),
               _userNameLine(),
-              if (widget.pickupToken != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'Token No.',
-                  style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: AppColors.hintFontColor)
-                      .copyWith(letterSpacing: 0.9),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '#${widget.pickupToken}',
-                  style: AppStyles.getBoldTextStyle(fontSize: 26, color: AppColors.primaryColor),
-                ),
-              ],
               const SizedBox(height: 6),
               Row(
                 children: [

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -18,7 +17,6 @@ import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_ui.dart';
-import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 
 class CounterHome extends StatefulWidget {
@@ -30,41 +28,6 @@ class CounterHome extends StatefulWidget {
 }
 
 class _CounterHomeState extends State<CounterHome> {
-  StreamSubscription<Order?>? _tokenBoardSub;
-  int? _lastPickupToken;
-
-  @override
-  void initState() {
-    super.initState();
-    _bindPickupTokenStream();
-  }
-
-  Future<void> _bindPickupTokenStream() async {
-    await _tokenBoardSub?.cancel();
-    final db = locator<AppDatabase>();
-    final session = await db.sessionDao.getActiveSession();
-    final bid = session?.branchId ?? 1;
-    if (!mounted) return;
-    _tokenBoardSub = db.dayClosingCheckpointDao
-        .watchLastSettledAtForBranch(bid)
-        .asyncExpand(
-          (cutoff) => db.ordersDao.watchLatestOrderWithPickupToken(
-            branchId: bid,
-            createdAfterExclusive: cutoff,
-          ),
-        )
-        .listen((order) {
-      if (!mounted) return;
-      setState(() => _lastPickupToken = order?.pickupToken);
-    });
-  }
-
-  @override
-  void dispose() {
-    _tokenBoardSub?.cancel();
-    super.dispose();
-  }
-
   List<_DashboardTile> _tilesForAccess(CounterAccess access) {
     final list = <_DashboardTile>[];
     if (access.canTakeAwayCounter) {
@@ -200,54 +163,29 @@ class _CounterHomeState extends State<CounterHome> {
           final horizontalPad = width >= 760 ? 200.0 : 10.0;
           final verticalPad = width >= 760 ? 29.0 : 12.0;
 
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(horizontalPad, verticalPad, horizontalPad, 16),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: SizedBox(
-                width: contentWidth,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Container(
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Center(
-                          child: Text(
-                            'Token no.: ${_lastPickupToken ?? '—'}',
-                            textAlign: TextAlign.center,
-                            style: AppStyles.getSemiBoldTextStyle(fontSize: 20, color: AppColors.textColor),
-                          ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: gap),
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: tiles.length,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: crossAxisCount,
-                        crossAxisSpacing: gap,
-                        mainAxisSpacing: gap,
-                        mainAxisExtent: 112,
-                      ),
-                      itemBuilder: (context, index) {
-                        final t = tiles[index];
-                        return _DashboardCard(
-                          title: t.title,
-                          icon: t.icon,
-                          onTap: () => t.onTap(context),
-                        );
-                      },
-                    ),
-                  ],
+          return Center(
+            child: SizedBox(
+              width: contentWidth,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(horizontalPad, verticalPad, horizontalPad, 12),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: tiles.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossAxisCount,
+                    crossAxisSpacing: gap,
+                    mainAxisSpacing: gap,
+                    mainAxisExtent: 112,
+                  ),
+                  itemBuilder: (context, index) {
+                    final t = tiles[index];
+                    return _DashboardCard(
+                      title: t.title,
+                      icon: t.icon,
+                      onTap: () => t.onTap(context),
+                    );
+                  },
                 ),
               ),
             ),
@@ -312,7 +250,6 @@ class _DeliveryServiceDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: AppDialogLayout.insetPaddingWithKeyboard(context),
       child: Container(
         constraints: const BoxConstraints(maxWidth: 320),
         decoration: BoxDecoration(

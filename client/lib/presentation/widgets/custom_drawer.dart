@@ -6,15 +6,11 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/isolate/app_isolate_service.dart';
-import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/core/utils/app_update_cache_clear.dart';
-import 'package:flutter/services.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/settings_repository.dart';
 import 'package:pos/domain/models/user_model.dart';
-import 'package:pos/presentation/financial/financial_create_launcher.dart';
-import 'package:pos/presentation/financial/financial_records_state.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
 import '../../core/constants/colors.dart';
 import '../../core/constants/styles.dart';
@@ -88,42 +84,6 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
           visibleWhen: (_) => true,
         ),
         DrawerMenuItem(
-          icon: Icons.receipt_long_outlined,
-          title: 'Expense',
-          route: _Routes.createExpense,
-          visibleWhen: (a) => a.canExpense,
-        ),
-        DrawerMenuItem(
-          icon: Icons.list_alt_outlined,
-          title: 'Expense Log',
-          route: Routes.expenseLog,
-          visibleWhen: (a) => a.canExpense,
-        ),
-        DrawerMenuItem(
-          icon: Icons.payments_outlined,
-          title: 'Salary',
-          route: _Routes.createSalary,
-          visibleWhen: (a) => a.canExpense,
-        ),
-        DrawerMenuItem(
-          icon: Icons.list_alt_outlined,
-          title: 'Salary Log',
-          route: Routes.salaryLog,
-          visibleWhen: (a) => a.canExpense,
-        ),
-        DrawerMenuItem(
-          icon: Icons.trending_up_outlined,
-          title: 'Other Income',
-          route: _Routes.createOtherIncome,
-          visibleWhen: (a) => a.canExpense,
-        ),
-        DrawerMenuItem(
-          icon: Icons.list_alt_outlined,
-          title: 'Other Income Log',
-          route: Routes.otherIncomeLog,
-          visibleWhen: (a) => a.canExpense,
-        ),
-        DrawerMenuItem(
           icon: Icons.event_available_rounded,
           title: 'Day Closing',
           route: Routes.dayClosing,
@@ -189,11 +149,11 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
         backgroundColor: Colors.white,
         child: Column(
           children: [
+            _header(),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 children: [
-                  _header(),
                   if (access.canOpeningBalance) _openingBalanceTile(),
                   if (access.canOpenDrawer) _openCashDrawerTile(),
                   for (var i = 0; i < menus.length; i++) ...[
@@ -205,49 +165,42 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
                       color: menus[i].color ?? AppColors.textColor,
                     ),
                   ],
+                  if (_appVersionLabel != null || _dbSchemaLabel != null) ...[
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                      child: Column(
+                        children: [
+                          if (_appVersionLabel != null)
+                            Text(
+                              'v$_appVersionLabel',
+                              textAlign: TextAlign.center,
+                              style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
+                            ),
+                          if (_dbSchemaLabel != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              _dbSchemaLabel!,
+                              textAlign: TextAlign.center,
+                              style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                  const Divider(),
+                  _menuItem(
+                    icon: Icons.logout,
+                    title: 'Logout',
+                    color: Colors.red,
+                    onTap: _logout,
+                  ),
+                  const SizedBox(height: 12),
                 ],
               ),
             ),
-            if (_appVersionLabel != null || _dbSchemaLabel != null) ...[
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
-                child: Column(
-                  children: [
-                    if (_appVersionLabel != null)
-                      Text(
-                        'v$_appVersionLabel',
-                        textAlign: TextAlign.center,
-                        style: AppStyles.getRegularTextStyle(fontSize: 12, color: AppColors.hintFontColor),
-                      ),
-                    if (_dbSchemaLabel != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        _dbSchemaLabel!,
-                        textAlign: TextAlign.center,
-                        style: AppStyles.getRegularTextStyle(fontSize: 11, color: AppColors.hintFontColor),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-            if (Platform.isWindows || Platform.isAndroid) ...[
-              const Divider(height: 1),
-              _menuItem(
-                icon: Icons.folder_outlined,
-                title: 'Open data folder',
-                onTap: _openDataFolder,
-              ),
-            ],
-            const Divider(),
-            _menuItem(
-              icon: Icons.logout,
-              title: 'Logout',
-              color: Colors.red,
-              onTap: _logout,
-            ),
-            const SizedBox(height: 12),
           ],
         ),
       ),
@@ -386,33 +339,12 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
       _showOpeningBalanceDialog();
       return;
     }
-    if (route == _Routes.createExpense) {
-      _openFinancialCreate(FinancialFormConfig.expense);
-      return;
-    }
-    if (route == _Routes.createSalary) {
-      _openFinancialCreate(FinancialFormConfig.salary);
-      return;
-    }
-    if (route == _Routes.createOtherIncome) {
-      _openFinancialCreate(FinancialFormConfig.otherIncome);
-      return;
-    }
     AppNavigator.pop(); // close drawer
 
     // Same route without args (e.g. dashboard): avoid redundant replace.
     if (arguments == null && AppNavigator.currentRoute == route) return;
 
     AppNavigator.pushReplacementNamed(route, args: arguments);
-  }
-
-  void _openFinancialCreate(FinancialFormConfig config) {
-    final host = context;
-    AppNavigator.pop();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!host.mounted) return;
-      unawaited(showFinancialCreatePopup(host, config));
-    });
   }
 
   Future<void> _showOpeningBalanceDialog() async {
@@ -520,22 +452,6 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
     if (drawerHostContext.mounted) Navigator.pop(drawerHostContext);
 
     await locator<PrintService>().openCashDrawer();
-  }
-
-  Future<void> _openDataFolder() async {
-    AppNavigator.pop();
-    final path = await AppDirectories.dataFolderPath();
-    final opened = await AppDirectories.revealInFileManager();
-    if (!mounted) return;
-    if (opened) {
-      CustomSnackBar.showSuccess(message: 'Opened data folder');
-      return;
-    }
-    await Clipboard.setData(ClipboardData(text: path));
-    if (!mounted) return;
-    CustomSnackBar.showSuccess(
-      message: 'Data folder path copied to clipboard:\n$path',
-    );
   }
 
   void _logout() async {
@@ -836,13 +752,6 @@ class _CashDrawerPasswordDialogContentState extends State<_CashDrawerPasswordDia
       ),
     );
   }
-}
-
-/// Drawer-only routes that open overlays instead of [Routes.map] screens.
-class _Routes {
-  static const createExpense = '__create_expense__';
-  static const createSalary = '__create_salary__';
-  static const createOtherIncome = '__create_other_income__';
 }
 
 class DrawerMenuItem {

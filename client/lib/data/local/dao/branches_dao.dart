@@ -35,9 +35,6 @@ class Branches extends Table {
   /// Branch-wide default opening balance (from server / user edit); survives day close.
   IntColumn get defaultOpeningCash => integer().withDefault(const Constant(0))();
 
-  /// Last pickup token from server bootstrap / COMPANY_SNAPSHOT (`last_token_no`).
-  IntColumn get lastTokenNo => integer().nullable()();
-
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -46,16 +43,13 @@ class Branches extends Table {
 /// DAO
 /// =========================
 @DriftAccessor(tables: [Branches])
-class BranchesDao extends DatabaseAccessor<AppDatabase>
-    with _$BranchesDaoMixin {
+class BranchesDao extends DatabaseAccessor<AppDatabase> with _$BranchesDaoMixin {
   BranchesDao(super.db);
 
   /// UPSERT (sync safe)
-  Future<void> insertBranches(List<BranchModel> list,
-      {bool downloadRemoteImages = true}) async {
+  Future<void> insertBranches(List<BranchModel> list, {bool downloadRemoteImages = true}) async {
     final companions = await Future.wait(
-      list.map(
-          (b) => _toCompanion(b, downloadRemoteImages: downloadRemoteImages)),
+      list.map((b) => _toCompanion(b, downloadRemoteImages: downloadRemoteImages)),
     );
     await batch((batch) {
       batch.insertAllOnConflictUpdate(
@@ -67,6 +61,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
 
   /// Preserved opening balances without Drift row mapping (safe on legacy NULL columns).
   Future<Map<int, int>> getPreservedOpeningCashByBranchId() async {
+    await attachedDatabase.repairLegacyBranchRows();
     final rows = await customSelect(
       '''
       SELECT id,
@@ -84,33 +79,21 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
 
   /// GET ALL
   Future<List<BranchModel>> getAllBranches() async {
+    await attachedDatabase.repairLegacyBranchRows();
     final data = await select(branches).get();
     return data.map(_toModel).toList();
   }
 
   /// GET ONE by [branchId] (server id / primary key)
   Future<BranchModel?> getBranchById(int branchId) async {
-    final row = await (select(branches)..where((b) => b.id.equals(branchId)))
-        .getSingleOrNull();
+    await attachedDatabase.repairLegacyBranchRows();
+    final row = await (select(branches)..where((b) => b.id.equals(branchId))).getSingleOrNull();
     return row == null ? null : _toModel(row);
   }
 
   /// DELETE (sync)
   Future<void> deleteBranches(List<int> ids) async {
     await (delete(branches)..where((b) => b.id.isIn(ids))).go();
-  }
-
-  /// Keeps the highest known pickup token for LAN SUB seeding via COMPANY_SNAPSHOT.
-  Future<void> setLastTokenNoIfHigher(int branchId, int tokenNo) async {
-    if (tokenNo <= 0) return;
-    final row = await (select(branches)..where((b) => b.id.equals(branchId)))
-        .getSingleOrNull();
-    if (row == null) return;
-    final existing = row.lastTokenNo ?? 0;
-    if (tokenNo <= existing) return;
-    await (update(branches)..where((b) => b.id.equals(branchId))).write(
-      BranchesCompanion(lastTokenNo: Value(tokenNo)),
-    );
   }
 
   /// Save opening cash and keep it as the branch default (drawer + day closing).
@@ -130,21 +113,18 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
   /// MAPPERS
   /// =========================
 
-  Future<BranchesCompanion> _toCompanion(BranchModel b,
-      {required bool downloadRemoteImages}) async {
+  Future<BranchesCompanion> _toCompanion(BranchModel b, {required bool downloadRemoteImages}) async {
     String localImage = '';
     if (downloadRemoteImages && b.image.trim().isNotEmpty) {
-      localImage = await _downloadBranchImage(
-              b.image, 'Branch_${b.id}_${b.branchName}') ??
-          '';
+      localImage = await _downloadBranchImage(b.image, 'Branch_${b.id}_${b.branchName}') ?? '';
     } else {
       localImage = b.localImage;
     }
+    await attachedDatabase.ensureBranchesDefaultOpeningCashColumn();
     final existingRow = await customSelect(
       '''
       SELECT COALESCE(default_opening_cash, 0) AS default_opening_cash,
-             COALESCE(opening_cash, 0) AS opening_cash,
-             last_token_no
+             COALESCE(opening_cash, 0) AS opening_cash
       FROM branches WHERE id = ?
       ''',
       variables: [Variable.withInt(b.id)],
@@ -152,15 +132,10 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
     ).getSingleOrNull();
     final existingDefault = existingRow?.read<int>('default_opening_cash') ?? 0;
     final existingOpening = existingRow?.read<int>('opening_cash') ?? 0;
-    final resolvedBalance = existingDefault > 0
-        ? existingDefault
-        : (existingOpening > 0
-            ? existingOpening
-            : (b.defaultOpeningCash ?? b.openingCash ?? 0));
+    final resolvedBalance = existingDefault > 0 ? existingDefault : (existingOpening > 0 ? existingOpening : (b.defaultOpeningCash ?? b.openingCash ?? 0));
     final incomingToken = b.lastTokenNo ?? 0;
     final existingToken = existingRow?.read<int?>('last_token_no') ?? 0;
-    final resolvedToken =
-        incomingToken > existingToken ? incomingToken : existingToken;
+    final resolvedToken = incomingToken > existingToken ? incomingToken : existingToken;
 
     return BranchesCompanion(
       id: Value(b.id),
@@ -182,7 +157,6 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
       openingCash: Value(resolvedBalance),
       defaultOpeningCash: Value(resolvedBalance),
       localImage: Value(localImage),
-      lastTokenNo: resolvedToken > 0 ? Value(resolvedToken) : const Value.absent(),
     );
   }
 
@@ -205,7 +179,6 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
       expiryDate: b.expiryDate,
       openingCash: b.openingCash,
       defaultOpeningCash: b.defaultOpeningCash,
-      lastTokenNo: b.lastTokenNo,
     );
   }
 }

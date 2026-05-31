@@ -146,7 +146,6 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
-    int? pickupToken,
   }) async {
     if (deliveryPartner != null && deliveryPartner.trim().isNotEmpty) {
       _selectedPartner = deliveryPartner.trim();
@@ -159,7 +158,6 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
       startDate: startDate,
       endDate: endDate,
       userId: _scopedUserId(uiUserId: userId),
-      pickupToken: pickupToken,
     );
   }
 
@@ -171,7 +169,6 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
-    int? pickupToken,
   }) async {
     final prior = state;
     try {
@@ -189,12 +186,10 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
         startDate: startDate,
         endDate: endDate,
         userId: userId,
-        pickupToken: pickupToken,
         limit: orderLogDefaultQueryLimit(
           invoiceNumber: invoiceNumber,
           referenceNumber: referenceNumber,
           customerPhone: customerPhone,
-          pickupToken: pickupToken,
           startDate: startDate,
           endDate: endDate,
         ),
@@ -257,11 +252,17 @@ class DeliveryLogCubit extends Cubit<DeliveryLogState> {
     if (order == null) return 'Order not found.';
     if (_isNormalOrder(order)) {
       final s = newStatus.toLowerCase();
-      if ((s == 'out_of_delivery' || s == 'assigned' || s == 'dispatched') && !_hasDriver(order)) {
+      if ((s == 'out_of_delivery' || s == 'assigned' || s == 'dispatched') &&
+          !_hasDriver(order)) {
         return 'Assign a driver before marking out for delivery.';
       }
       final cur = order.status.toLowerCase();
-      if (s == 'pending' && (cur == 'assigned' || cur == 'out_of_delivery' || cur == 'dispatched' || cur == 'delivered' || cur == 'completed')) {
+      if (s == 'pending' &&
+          (cur == 'assigned' ||
+              cur == 'out_of_delivery' ||
+              cur == 'dispatched' ||
+              cur == 'delivered' ||
+              cur == 'completed')) {
         return 'Cannot change status back to Pending after dispatch.';
       }
     }

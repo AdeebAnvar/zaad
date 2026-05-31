@@ -33,11 +33,11 @@ import 'package:pos/presentation/widgets/order_log_details_dialog.dart';
 import 'package:pos/presentation/sale/desktop/desktop_cart_panel.dart';
 import 'package:pos/presentation/widgets/qty_password_guard.dart';
 
-/// Table / seat routing (hub metadata); dine-in does not use `Order.referenceNumber` for this.
+/// Optional KOT / staff reference only (not floor–table routing from hub metadata).
 String _dineInLogReferenceLabel(Order order) {
-  final anchor = DineInRefParser.dineInAnchorForMatching(order);
-  if (anchor == null || anchor.isEmpty) return '';
-  return DineInRefParser.stripLeadingFloorId(anchor);
+  final raw = (order.referenceNumber ?? '').trim();
+  if (raw.isEmpty) return '';
+  return DineInRefParser.stripLeadingFloorId(raw);
 }
 
 class DineInLogScreen extends StatelessWidget {
@@ -328,7 +328,6 @@ class _DineInLogCardState extends State<DineInLogCard> {
       referenceNumber: _dineInLogReferenceLabel(order),
       createdAt: order.createdAt,
       orderTakerName: _orderUserName,
-      pickupToken: order.pickupToken,
       onDelete: access.canDineInLogDelete ? () => _handleDelete(context, order) : null,
       actions: [
         LogCardAction(
@@ -404,12 +403,7 @@ class _DineInLogCardState extends State<DineInLogCard> {
     }
     final others = state.orders.where((o) {
       if (o.id == order.id) return false;
-      if (!DineInRefParser.sameTableRouting(
-        DineInRefParser.dineInRoutingAnchorForMatching(o),
-        DineInRefParser.dineInRoutingAnchorForMatching(order),
-      )) {
-        return false;
-      }
+      if (DineInRefParser.dineInRoutingAnchorForMatching(o)?.trim() != ref) return false;
       return dineInBillIsSplittable(o);
     }).toList();
     showDineInMergeBillUi(context, order, others);

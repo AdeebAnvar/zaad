@@ -5,10 +5,12 @@ import 'package:pos/app/navigation.dart';
 import 'package:pos/app/routes.dart';
 import 'package:pos/core/constants/colors.dart';
 import 'package:pos/core/constants/styles.dart';
+import 'package:pos/core/settings/app_settings_prefs.dart';
 import 'package:pos/core/settings/runtime_app_settings.dart';
 import 'package:pos/core/utils/order_list_sort.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/order_repository.dart';
+import 'package:pos/core/debug/agent_debug_log.dart';
 import 'package:pos/presentation/dine_in_log/dine_in_reference_utils.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 import 'package:pos/presentation/widgets/custom_toast.dart';
@@ -53,8 +55,8 @@ class _DineInScreenState extends State<DineInScreen> {
 
   bool _loading = true;
 
-  /// Chair-level allocation is disabled; floor plan shows order counts / loose capacity only.
-  static const bool _seatHandlingEnabled = false;
+  /// When false, Dine In does not allocate seats or cap orders by chair count.
+  bool _seatHandlingEnabled = true;
   int _selectedFloorIndex = 0;
   List<DiningFloor> _floors = [];
   List<DiningTable> _tables = [];
@@ -64,10 +66,7 @@ class _DineInScreenState extends State<DineInScreen> {
   Map<String, Set<int>> _tableCodeToFloorIds = {};
   Map<String, int> _activeOrdersPerTable = {};
 
-  /// When seat handling on: exact 1-based seats in use on this floor.
-  Map<String, Set<int>> _blockedSeatsPerTable = {};
-
-  /// When seat handling off: sum of pax strings per table (for capacity display).
+  /// Sum of pax from active orders on each table (from `CODE | N pax` ref).
   Map<String, int> _occupiedPaxPerTable = {};
 
   void Function()? _detachHubOrdersLive;
@@ -96,6 +95,7 @@ class _DineInScreenState extends State<DineInScreen> {
       setState(() => _loading = true);
     }
     final priorFloorIndex = _selectedFloorIndex;
+    final seatHandling = await AppSettingsPrefs.getDineInSeatHandlingEnabled();
     final session = await _db.sessionDao.getActiveSession();
     final branchId = session?.branchId ?? 1;
     final triple = await Future.wait([
@@ -125,6 +125,7 @@ class _DineInScreenState extends State<DineInScreen> {
 
     if (!mounted) return;
     setState(() {
+      _seatHandlingEnabled = seatHandling;
       _floors = floors;
       _tables = tables;
       _activeDineInOrders = active;
@@ -133,100 +134,111 @@ class _DineInScreenState extends State<DineInScreen> {
       _loading = false;
       _rebuildAllocationMaps();
     });
-  }
-
-  /// `floorId|rest` prefix from counter; strip before parsing table code / pax.
-  int? _extractLeadingFloorId(String? referenceNumber) {
-    final v = (referenceNumber ?? '').trim();
-    final m = RegExp(r'^(\d+)\|(.+)$').firstMatch(v);
-    if (m == null) return null;
-    return int.tryParse(m.group(1)!);
-  }
-
-  String _stripLeadingFloorId(String? referenceNumber) {
-    final v = (referenceNumber ?? '').trim();
-    final m = RegExp(r'^(\d+)\|(.+)$').firstMatch(v);
-    if (m != null) return m.group(2)!.trim();
-    return v;
+    // #region agent log
+    final floorIds = floors.map((f) => f.id).toList();
+    final tableCodes = tables.map((t) => '${t.floorId}:${t.code}').toList();
+    final orderDiag = <Map<String, Object?>>[];
+    for (final o in active.take(12)) {
+      final routing = DineInRefParser.dineInRoutingAnchorForMatching(o);
+      orderDiag.add(<String, Object?>{
+        'id': o.id,
+        'invoice': o.invoiceNumber,
+        'status': o.status,
+        'orderType': o.orderType,
+        'staffRef': o.referenceNumber,
+        'routingAnchor': routing,
+        'routingTableCode': routing == null
+            ? null
+            : DineInRefParser.tableKey(
+                DineInRefParser.extractTableCode(DineInRefParser.stripLeadingFloorId(routing)),
+              ),
+        'hubHasAnchor': DineInRefParser.dineInAnchorFromHubMetadata(o.hubMetadata) != null,
+      });
+    }
+    agentDebugLog(
+      hypothesisId: 'H_load',
+      location: 'dine_in_screen.dart:_load',
+      message: 'floor_plan_reload',
+      data: <String, Object?>{
+        'branchId': branchId,
+        'activeCount': active.length,
+        'floorIds': floorIds,
+        'selectedFloorId': floors.isNotEmpty ? floors.first.id : null,
+        'tableCodesOnFloor': tableCodes,
+        'allocationKeys': _activeOrdersPerTable.keys.toList(),
+        'allocationCounts': _activeOrdersPerTable,
+        'orders': orderDiag,
+      },
+    );
+    // #endregion
   }
 
   void _rebuildAllocationMaps() {
     final counts = <String, int>{};
     final paxPerTable = <String, int>{};
-    final blockedSeats = <String, Set<int>>{};
     if (_floors.isEmpty || _selectedFloorIndex < 0 || _selectedFloorIndex >= _floors.length) {
       _activeOrdersPerTable = counts;
       _occupiedPaxPerTable = paxPerTable;
-      _blockedSeatsPerTable = blockedSeats;
       return;
     }
     final floorId = _floors[_selectedFloorIndex].id;
-    final keysOnFloor = _tables.map((t) => _tableKey(t.code)).toSet();
-    final codeToChairs = {for (final t in _tables) _tableKey(t.code): t.chairs};
 
-    for (final o in _activeDineInOrders) {
-      final ref = DineInRefParser.dineInAnchorForMatching(o);
-      if (ref == null || ref.isEmpty) continue;
-      final leadFloor = _extractLeadingFloorId(ref);
-      final normalized = _stripLeadingFloorId(ref);
-      final tableCode = _tableKey(_extractTableCode(normalized));
-      if (tableCode.isEmpty || !keysOnFloor.contains(tableCode)) continue;
-
-      if (leadFloor != null) {
-        if (leadFloor != floorId) continue;
-      } else {
-        final floorsForCode = _tableCodeToFloorIds[tableCode];
-        if (floorsForCode == null || floorsForCode.length != 1 || floorsForCode.first != floorId) {
+    for (final t in _tables) {
+      final tableCode = _tableKey(t.code);
+      for (final o in _activeDineInOrders) {
+        if (!DineInRefParser.orderMatchesFloorTable(o, floorId, tableCode, _tableCodeToFloorIds)) {
           continue;
         }
-      }
-
-      counts[tableCode] = (counts[tableCode] ?? 0) + 1;
-      var pax = _extractPaxFromReference(normalized);
-      if (pax <= 0) pax = 1;
-      paxPerTable[tableCode] = (paxPerTable[tableCode] ?? 0) + pax;
-    }
-
-    for (final code in keysOnFloor) {
-      final chairCap = codeToChairs[code] ?? 4;
-      final ordersHere = _activeDineInOrders.where((o) {
-        final ref = DineInRefParser.dineInAnchorForMatching(o);
-        if (ref == null || ref.isEmpty) return false;
-        final leadFloor = _extractLeadingFloorId(ref);
-        final normalized = _stripLeadingFloorId(ref);
-        final c = _tableKey(_extractTableCode(normalized));
-        if (c != code || !keysOnFloor.contains(c)) return false;
-        if (leadFloor != null) {
-          if (leadFloor != floorId) return false;
-        } else {
-          final floorsForCode = _tableCodeToFloorIds[c];
-          if (floorsForCode == null || floorsForCode.length != 1 || floorsForCode.first != floorId) {
-            return false;
-          }
-        }
-        return true;
-      }).toList();
-      if (_seatHandlingEnabled) {
-        blockedSeats[code] = DineInRefParser.computeBlockedSeatsForTable(
-          chairCapacity: chairCap,
-          ordersOnTable: ordersHere,
-        );
-      } else {
-        blockedSeats[code] = {};
+        counts[tableCode] = (counts[tableCode] ?? 0) + 1;
+        final ref = DineInRefParser.dineInRoutingAnchorForMatching(o);
+        var pax = DineInRefParser.extractPaxFromReference(ref);
+        if (pax <= 0) pax = 1;
+        paxPerTable[tableCode] = (paxPerTable[tableCode] ?? 0) + pax;
       }
     }
 
     _activeOrdersPerTable = counts;
     _occupiedPaxPerTable = paxPerTable;
-    _blockedSeatsPerTable = blockedSeats;
+
+    // #region agent log
+    if (_activeDineInOrders.isNotEmpty && counts.isEmpty) {
+      final failSamples = <Map<String, Object?>>[];
+      for (final o in _activeDineInOrders.take(6)) {
+        final anchor = DineInRefParser.dineInRoutingAnchorForMatching(o);
+        final lead = anchor == null ? null : DineInRefParser.extractLeadingFloorId(anchor);
+        final code = anchor == null
+            ? null
+            : DineInRefParser.tableKey(
+                DineInRefParser.extractTableCode(DineInRefParser.stripLeadingFloorId(anchor)),
+              );
+        failSamples.add(<String, Object?>{
+          'id': o.id,
+          'invoice': o.invoiceNumber,
+          'anchor': anchor,
+          'leadFloor': lead,
+          'parsedTableCode': code,
+          'floorsForCode': code == null ? null : _tableCodeToFloorIds[code]?.toList(),
+          'viewFloorId': floorId,
+        });
+      }
+      agentDebugLog(
+        hypothesisId: 'H_match',
+        location: 'dine_in_screen.dart:_rebuildAllocationMaps',
+        message: 'orders_loaded_but_no_table_match',
+        data: <String, Object?>{
+          'floorId': floorId,
+          'activeOrders': _activeDineInOrders.length,
+          'tablesOnFloor': _tables.map((t) => t.code).toList(),
+          'failSamples': failSamples,
+        },
+      );
+    }
+    // #endregion
   }
 
   /// Matches floor-plan occupancy (same as grid cards).
   int _occupiedPaxForTable(DiningTable t) {
     final tableCode = _tableKey(t.code);
-    if (_seatHandlingEnabled) {
-      return (_blockedSeatsPerTable[tableCode]?.length ?? 0).clamp(0, t.chairs);
-    }
     final activeOrders = _activeOrdersPerTable[tableCode] ?? 0;
     final rawPax = _occupiedPaxPerTable[tableCode] ?? 0;
     var occupiedPax = rawPax.clamp(0, t.chairs);
@@ -234,27 +246,6 @@ class _DineInScreenState extends State<DineInScreen> {
       occupiedPax = activeOrders.clamp(1, t.chairs);
     }
     return occupiedPax;
-  }
-
-  String _extractTableCode(String? referenceNumber) {
-    final v = _stripLeadingFloorId(referenceNumber);
-    if (v.isEmpty) return '';
-    if (v.contains('|')) {
-      return v.split('|').first.trim().toUpperCase();
-    }
-    return v.toUpperCase();
-  }
-
-  /// Parses `T1 | 3 pax` → 3; avoids matching digits inside `T1` when possible.
-  int _extractPaxFromReference(String? referenceNumber) {
-    final v = _stripLeadingFloorId(referenceNumber);
-    if (v.isEmpty || !v.contains('|')) return 0;
-    final after = v.split('|').skip(1).join('|').trim();
-    final paxM = RegExp(r'(\d+)\s*pax', caseSensitive: false).firstMatch(after);
-    if (paxM != null) return int.tryParse(paxM.group(1)!) ?? 0;
-    final m = RegExp(r'(\d+)').firstMatch(after);
-    if (m == null) return 0;
-    return int.tryParse(m.group(1)!) ?? 0;
   }
 
   Future<void> _changeFloor(int index) async {
@@ -272,17 +263,26 @@ class _DineInScreenState extends State<DineInScreen> {
   }
 
   Future<void> _openCounterForTable(DiningTable table) async {
+    late final String reference;
     if (_seatHandlingEnabled) {
-      final blocked = _blockedSeatsPerTable[_tableKey(table.code)] ?? {};
-      if (blocked.length >= table.chairs) {
+      final occupiedPax = _occupiedPaxForTable(table);
+      if (occupiedPax >= table.chairs) {
         CustomSnackBar.showWarning(
           message: 'All seats are occupied. Complete or clear orders before adding a new one.',
           context: context,
         );
         return;
       }
+      final pax = await _showChairAssignmentDialog(
+        chairs: table.chairs,
+        occupiedSeats: occupiedPax,
+        tableLabel: table.code,
+      );
+      if (pax == null || pax < 1 || !mounted) return;
+      reference = '${table.floorId}|${table.code} | $pax pax';
+    } else {
+      reference = '${table.floorId}|${table.code}';
     }
-    final reference = DineInRefParser.buildTableOnlyReference(table.floorId, table.code);
     AppNavigator.pushNamed(
       Routes.counter,
       args: {
@@ -299,33 +299,33 @@ class _DineInScreenState extends State<DineInScreen> {
       return [];
     }
     final floorId = _floors[_selectedFloorIndex].id;
-    final keysOnFloor = _tables.map((t) => _tableKey(t.code)).toSet();
     final tableCode = _tableKey(table.code);
 
-    final list = _activeDineInOrders.where((o) {
-      final ref = DineInRefParser.dineInAnchorForMatching(o);
-      if (ref == null || ref.isEmpty) return false;
-      final leadFloor = _extractLeadingFloorId(ref);
-      final normalized = _stripLeadingFloorId(ref);
-      final code = _tableKey(_extractTableCode(normalized));
-      if (code != tableCode || !keysOnFloor.contains(code)) return false;
-
-      if (leadFloor != null) {
-        if (leadFloor != floorId) return false;
-      } else {
-        final floorsForCode = _tableCodeToFloorIds[tableCode];
-        if (floorsForCode == null || floorsForCode.length != 1 || floorsForCode.first != floorId) {
-          return false;
-        }
-      }
-      return true;
-    }).toList();
+    final list = _activeDineInOrders
+        .where((o) => DineInRefParser.orderMatchesFloorTable(o, floorId, tableCode, _tableCodeToFloorIds))
+        .toList();
     list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
   }
 
   Future<void> _showTableOrders(DiningTable table) async {
     final orders = _ordersForTable(table);
+    // #region agent log
+    final floorId = _floors.isNotEmpty ? _floors[_selectedFloorIndex].id : null;
+    agentDebugLog(
+      hypothesisId: 'H_view',
+      location: 'dine_in_screen.dart:_showTableOrders',
+      message: 'view_table_orders',
+      data: <String, Object?>{
+        'tableCode': table.code,
+        'floorId': floorId,
+        'matchedCount': orders.length,
+        'matchedInvoices': orders.map((o) => o.invoiceNumber).toList(),
+        'activeOrdersTotal': _activeDineInOrders.length,
+        'allocationForTable': _activeOrdersPerTable[_tableKey(table.code)],
+      },
+    );
+    // #endregion
     final useBottomSheet = MediaQuery.sizeOf(context).width < 900;
 
     Future<void> openOrder(Order order) async {
@@ -377,6 +377,22 @@ class _DineInScreenState extends State<DineInScreen> {
     }
   }
 
+  Future<int?> _showChairAssignmentDialog({
+    required int chairs,
+    required int occupiedSeats,
+    required String tableLabel,
+  }) {
+    return showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _ChairAssignmentDialog(
+        chairs: chairs,
+        occupiedSeats: occupiedSeats,
+        tableLabel: tableLabel,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return CustomScaffold(
@@ -424,18 +440,16 @@ class _DineInScreenState extends State<DineInScreen> {
                               final t = _tables[i];
                               final tableCode = _tableKey(t.code);
                               final activeOrders = _activeOrdersPerTable[tableCode] ?? 0;
-                              final blocked = _blockedSeatsPerTable[tableCode] ?? {};
                               final occupiedPax = _occupiedPaxForTable(t);
-                              final canAddOrder = _seatHandlingEnabled ? blocked.length < t.chairs : true;
+                              final canAddOrder = _seatHandlingEnabled ? occupiedPax < t.chairs : true;
                               return _TableCard(
-                                key: ValueKey('dine_table_${t.id}_${blocked.length}'),
+                                key: ValueKey('dine_table_${t.id}_$occupiedPax'),
                                 code: t.code,
                                 chairs: t.chairs,
-                                seatHandlingEnabled: _seatHandlingEnabled,
-                                blockedSeatNumbers: blocked,
-                                contiguousOccupiedWhenNoSeatHandling: occupiedPax,
+                                occupiedPax: occupiedPax,
                                 activeOrders: activeOrders,
                                 canAddOrder: canAddOrder,
+                                seatHandlingEnabled: _seatHandlingEnabled,
                                 onViewOrders: () => _showTableOrders(t),
                                 onAdd: () => _openCounterForTable(t),
                               );
@@ -599,27 +613,208 @@ class _DineInTableOrdersPanel extends StatelessWidget {
   }
 }
 
+/// Modal: one chair asset per seat, checkboxes on free seats, "select all available".
+class _ChairAssignmentDialog extends StatefulWidget {
+  const _ChairAssignmentDialog({
+    required this.chairs,
+    required this.occupiedSeats,
+    required this.tableLabel,
+  });
+
+  final int chairs;
+  final int occupiedSeats;
+  final String tableLabel;
+
+  @override
+  State<_ChairAssignmentDialog> createState() => _ChairAssignmentDialogState();
+}
+
+class _ChairAssignmentDialogState extends State<_ChairAssignmentDialog> {
+  late List<bool> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = List<bool>.filled(widget.chairs, false);
+  }
+
+  bool _isOccupied(int index) => index < widget.occupiedSeats;
+
+  int get _freeCount {
+    var n = 0;
+    for (var i = 0; i < widget.chairs; i++) {
+      if (!_isOccupied(i)) n++;
+    }
+    return n;
+  }
+
+  int get _selectedPax {
+    var n = 0;
+    for (var i = 0; i < widget.chairs; i++) {
+      if (!_isOccupied(i) && _selected[i]) n++;
+    }
+    return n;
+  }
+
+  bool? get _selectAllValue {
+    if (_freeCount == 0) return false;
+    var on = 0;
+    for (var i = 0; i < widget.chairs; i++) {
+      if (!_isOccupied(i) && _selected[i]) on++;
+    }
+    if (on == 0) return false;
+    if (on == _freeCount) return true;
+    return null;
+  }
+
+  void _applySelectAll(bool on) {
+    setState(() {
+      for (var i = 0; i < widget.chairs; i++) {
+        if (!_isOccupied(i)) _selected[i] = on;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text('Assign seats', style: AppStyles.getSemiBoldTextStyle(fontSize: 18)),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Table ${widget.tableLabel} — choose seats for this order (red = already in use).',
+                style: AppStyles.getRegularTextStyle(fontSize: 13, color: AppColors.hintFontColor),
+              ),
+              const SizedBox(height: 12),
+              if (_freeCount > 0)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text('Select all available seats', style: AppStyles.getMediumTextStyle(fontSize: 14)),
+                  tristate: true,
+                  value: _selectAllValue,
+                  onChanged: (v) {
+                    if (v == true) {
+                      _applySelectAll(true);
+                    } else {
+                      _applySelectAll(false);
+                    }
+                  },
+                ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 14,
+                alignment: WrapAlignment.center,
+                children: List.generate(widget.chairs, (i) {
+                  final occ = _isOccupied(i);
+                  return _ChairPickTile(
+                    seatNumber: i + 1,
+                    occupied: occ,
+                    selected: occ ? false : _selected[i],
+                    onChanged: occ
+                        ? null
+                        : (v) => setState(() {
+                              _selected[i] = v ?? false;
+                            }),
+                  );
+                }),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ElevatedButton(
+          onPressed: _selectedPax < 1 ? null : () => Navigator.pop(context, _selectedPax),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primaryColor,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Open counter'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChairPickTile extends StatelessWidget {
+  const _ChairPickTile({
+    required this.seatNumber,
+    required this.occupied,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final int seatNumber;
+  final bool occupied;
+  final bool selected;
+  final ValueChanged<bool?>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const imgSize = 36.0;
+    final tint = occupied ? _chairSeatOrdered : (selected ? AppColors.primaryColor : _chairSeatAvailable);
+    return SizedBox(
+      width: 86,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Opacity(
+            opacity: occupied ? 0.85 : 1,
+            child: ColorFiltered(
+              colorFilter: ColorFilter.mode(tint, BlendMode.srcIn),
+              child: Image.asset(_kChairAsset, width: imgSize, height: imgSize, fit: BoxFit.contain),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            occupied ? 'In use' : 'Seat $seatNumber',
+            style: AppStyles.getRegularTextStyle(fontSize: 10, color: occupied ? _chairSeatOrdered : AppColors.hintFontColor),
+          ),
+          if (occupied)
+            const SizedBox(height: 20)
+          else
+            Checkbox(
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              value: selected,
+              onChanged: onChanged,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TableCard extends StatelessWidget {
   const _TableCard({
     super.key,
     required this.code,
     required this.chairs,
-    required this.seatHandlingEnabled,
-    required this.blockedSeatNumbers,
-    required this.contiguousOccupiedWhenNoSeatHandling,
+    required this.occupiedPax,
     required this.activeOrders,
     required this.canAddOrder,
+    required this.seatHandlingEnabled,
     required this.onViewOrders,
     required this.onAdd,
   });
 
   final String code;
   final int chairs;
-  final bool seatHandlingEnabled;
-  final Set<int> blockedSeatNumbers;
-  final int contiguousOccupiedWhenNoSeatHandling;
+
+  /// Guests / pax from orders (clamped to [chairs]); first N seats show as ordered (red), rest available (green).
+  final int occupiedPax;
   final int activeOrders;
   final bool canAddOrder;
+  final bool seatHandlingEnabled;
   final VoidCallback onViewOrders;
   final VoidCallback onAdd;
 
@@ -627,15 +822,10 @@ class _TableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tableFullyOccupied = chairs > 0 &&
-        (seatHandlingEnabled
-            ? blockedSeatNumbers.length >= chairs
-            : contiguousOccupiedWhenNoSeatHandling >= chairs);
+    final showOccupiedOnTable = activeOrders > 0;
     final (topCount, bottomCount) = _chairRowsSplit(chairs);
-    final contiguousN = contiguousOccupiedWhenNoSeatHandling.clamp(0, chairs);
+    final occupiedSeats = occupiedPax.clamp(0, chairs);
     final tableW = _tableWidthForChairs(chairs);
-
-    final hasActiveOrders = activeOrders > 0;
 
     return Material(
       color: Colors.transparent,
@@ -673,119 +863,113 @@ class _TableCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        if (hasActiveOrders) ...[
-                          Text(
-                            '$activeOrders active order${activeOrders > 1 ? 's' : ''}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: AppStyles.getSemiBoldTextStyle(fontSize: 12, color: AppColors.primaryColor),
+              Row(
+                children: [
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: _cardAccentFree.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        code,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: _cardAccentFree),
+                      ),
+                    ),
+                  ),
+                  Tooltip(
+                    message: 'Orders on this table',
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      icon: Icon(Icons.receipt_long_outlined, size: 17, color: AppColors.primaryColor),
+                      onPressed: onViewOrders,
+                    ),
+                  ),
+                  Tooltip(
+                    message: !seatHandlingEnabled ? 'Add customer order' : (canAddOrder ? 'Add customer order' : 'All seats occupied'),
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      icon: Icon(canAddOrder ? Icons.add_circle_outline : Icons.block, size: 17),
+                      color: canAddOrder ? AppColors.primaryColor : AppColors.hintFontColor,
+                      onPressed: canAddOrder
+                          ? () {
+                              onAdd();
+                            }
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              if (topCount > 0)
+                _ChairRow(
+                  startSeatIndex: 0,
+                  count: topCount,
+                  occupiedSeats: occupiedSeats,
+                  facingDown: true,
+                ),
+              if (topCount > 0) const SizedBox(height: 4),
+              Container(
+                height: 44,
+                width: tableW,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: showOccupiedOnTable ? AppColors.danger : _cardAccentFree.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: showOccupiedOnTable ? AppColors.danger.withValues(alpha: 0.85) : _cardAccentFree.withValues(alpha: 0.35),
+                    width: showOccupiedOnTable ? 1.5 : 1,
+                  ),
+                ),
+                child: showOccupiedOnTable
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Occupied',
+                                maxLines: 1,
+                                softWrap: false,
+                                style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: Colors.white),
+                              ),
+                              Text(
+                                '$activeOrders active',
+                                maxLines: 1,
+                                softWrap: false,
+                                style: AppStyles.getMediumTextStyle(fontSize: 10, color: Colors.white),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 6),
-                        ],
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: _cardAccentFree.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  code,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppStyles.getSemiBoldTextStyle(fontSize: 11, color: _cardAccentFree),
-                                ),
-                              ),
-                            ),
-                            Tooltip(
-                              message: 'Orders on this table',
-                              child: IconButton(
-                                visualDensity: VisualDensity.compact,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                                icon: Icon(Icons.receipt_long_outlined, size: 17, color: AppColors.primaryColor),
-                                onPressed: onViewOrders,
-                              ),
-                            ),
-                            Tooltip(
-                              message: !seatHandlingEnabled ? 'Add customer order' : (canAddOrder ? 'Add customer order' : 'All seats occupied'),
-                              child: IconButton(
-                                visualDensity: VisualDensity.compact,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                                icon: Icon(canAddOrder ? Icons.add_circle_outline : Icons.block, size: 17),
-                                color: canAddOrder ? AppColors.primaryColor : AppColors.hintFontColor,
-                                onPressed: canAddOrder
-                                    ? () {
-                                        onAdd();
-                                      }
-                                    : null,
-                              ),
-                            ),
-                          ],
                         ),
-                        const SizedBox(height: 4),
-                        if (topCount > 0)
-                          _ChairRow(
-                            startSeatIndex: 0,
-                            count: topCount,
-                            seatHandlingEnabled: seatHandlingEnabled,
-                            occupiedSeatNumbers: blockedSeatNumbers,
-                            contiguousOccupiedCount: contiguousN,
-                            facingDown: true,
-                          ),
-                        if (topCount > 0) const SizedBox(height: 4),
-                        Container(
-                          height: 32,
-                          width: tableW,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: tableFullyOccupied
-                                ? AppColors.danger
-                                : (hasActiveOrders
-                                    ? AppColors.primaryColor.withValues(alpha: 0.14)
-                                    : _cardAccentFree.withValues(alpha: 0.13)),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: tableFullyOccupied
-                                  ? AppColors.danger.withValues(alpha: 0.85)
-                                  : (hasActiveOrders
-                                      ? AppColors.primaryColor.withValues(alpha: 0.45)
-                                      : _cardAccentFree.withValues(alpha: 0.35)),
-                              width: (tableFullyOccupied || hasActiveOrders) ? 2 : 1,
-                            ),
-                          ),
-                          child: (hasActiveOrders || tableFullyOccupied)
-                              ? Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: Text(
-                                      'OCCUPIED',
-                                      maxLines: 1,
-                                      softWrap: false,
-                                      style: AppStyles.getSemiBoldTextStyle(
-                                        fontSize: 11,
-                                        color: tableFullyOccupied ? Colors.white : AppColors.primaryColor,
-                                      ).copyWith(letterSpacing: 0.6),
-                                    ),
-                                  ),
-                                )
-                              : null,
-                        ),
-                        if (bottomCount > 0) const SizedBox(height: 4),
-                        if (bottomCount > 0)
-                          _ChairRow(
-                            startSeatIndex: topCount,
-                            count: bottomCount,
-                            seatHandlingEnabled: seatHandlingEnabled,
-                            occupiedSeatNumbers: blockedSeatNumbers,
-                            contiguousOccupiedCount: contiguousN,
-                            facingDown: false,
-                          ),
+                      )
+                    : null,
+              ),
+              if (bottomCount > 0) const SizedBox(height: 4),
+              if (bottomCount > 0)
+                _ChairRow(
+                  startSeatIndex: topCount,
+                  count: bottomCount,
+                  occupiedSeats: occupiedSeats,
+                  facingDown: false,
+                ),
+              if (seatHandlingEnabled && activeOrders > 0 && canAddOrder)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    '${chairs - occupiedPax} seat${chairs - occupiedPax == 1 ? '' : 's'} free',
+                    style: AppStyles.getRegularTextStyle(fontSize: 10, color: AppColors.hintFontColor),
+                  ),
+                ),
                       ],
                     ),
                   ),
@@ -799,22 +983,18 @@ class _TableCard extends StatelessWidget {
   }
 }
 
-/// Chairs above/below the table. Seat numbers are 1-based globally (top row then bottom row).
+/// Chairs above/below the table. Seat indices are global: top row 0..top-1, then bottom row.
 class _ChairRow extends StatelessWidget {
   const _ChairRow({
     required this.startSeatIndex,
     required this.count,
-    required this.seatHandlingEnabled,
-    required this.occupiedSeatNumbers,
-    required this.contiguousOccupiedCount,
+    required this.occupiedSeats,
     required this.facingDown,
   });
 
   final int startSeatIndex;
   final int count;
-  final bool seatHandlingEnabled;
-  final Set<int> occupiedSeatNumbers;
-  final int contiguousOccupiedCount;
+  final int occupiedSeats;
   final bool facingDown;
 
   @override
@@ -830,12 +1010,10 @@ class _ChairRow extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               mainAxisSize: MainAxisSize.min,
               children: List.generate(count, (i) {
-                final globalIndex0 = startSeatIndex + i;
-                final seatNo = globalIndex0 + 1;
-                final ordered = seatHandlingEnabled
-                    ? occupiedSeatNumbers.contains(seatNo)
-                    : globalIndex0 < contiguousOccupiedCount;
-                return _ChairSeat(ordered: ordered, facingDown: facingDown);
+                final seatIndex = startSeatIndex + i;
+                final ordered = seatIndex < occupiedSeats;
+                final tint = ordered ? _chairSeatOrdered : _chairSeatAvailable;
+                return _ChairSeat(tint: tint, facingDown: facingDown);
               }),
             ),
           ),
@@ -846,17 +1024,16 @@ class _ChairRow extends StatelessWidget {
 }
 
 class _ChairSeat extends StatelessWidget {
-  const _ChairSeat({required this.ordered, required this.facingDown});
+  const _ChairSeat({required this.tint, required this.facingDown});
 
-  final bool ordered;
+  final Color tint;
   final bool facingDown;
 
   @override
   Widget build(BuildContext context) {
-    const size = 20.0;
-    final accent = ordered ? _chairSeatOrdered : _chairSeatAvailable;
+    const size = 22.0;
     Widget img = ColorFiltered(
-      colorFilter: ColorFilter.mode(accent, BlendMode.srcIn),
+      colorFilter: ColorFilter.mode(tint, BlendMode.srcIn),
       child: Image.asset(
         _kChairAsset,
         width: size,
@@ -867,17 +1044,7 @@ class _ChairSeat extends StatelessWidget {
     if (!facingDown) {
       img = Transform.rotate(angle: 3.14159, child: img);
     }
-    return Container(
-      width: size + 10,
-      height: size + 6,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: ordered ? 0.12 : 0.1),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: accent, width: ordered ? 2.5 : 2),
-      ),
-      child: img,
-    );
+    return SizedBox(width: size + 4, height: size, child: Center(child: img));
   }
 }
 
@@ -908,10 +1075,10 @@ class _LegendChip extends StatelessWidget {
         children: [
           if (showChairAsset)
             SizedBox(
-              width: 32,
-              height: 28,
+              width: 18,
+              height: 18,
               child: _ChairSeat(
-                ordered: chairOrdered,
+                tint: chairOrdered ? _chairSeatOrdered : _chairSeatAvailable,
                 facingDown: true,
               ),
             )

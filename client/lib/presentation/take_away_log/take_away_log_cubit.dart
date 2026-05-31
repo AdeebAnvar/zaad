@@ -87,7 +87,6 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
-    int? pickupToken,
   }) async {
     await _reloadOrders(
       invoiceNumber: invoiceNumber,
@@ -96,7 +95,6 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
       startDate: startDate,
       endDate: endDate,
       userId: _scopedUserId(uiUserId: userId),
-      pickupToken: pickupToken,
     );
   }
 
@@ -107,17 +105,9 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
     DateTime? startDate,
     DateTime? endDate,
     int? userId,
-    int? pickupToken,
   }) async {
     final prior = state;
     try {
-      final limit = orderLogDefaultQueryLimit(
-        invoiceNumber: invoiceNumber,
-        referenceNumber: referenceNumber,
-        pickupToken: pickupToken,
-        startDate: startDate,
-        endDate: endDate,
-      );
       var orders = await orderRepo.filterOrdersForList(
         invoiceNumber: invoiceNumber,
         referenceNumber: referenceNumber,
@@ -125,9 +115,13 @@ class TakeAwayLogCubit extends Cubit<TakeAwayLogState> {
         orderType: 'take_away',
         startDate: startDate,
         endDate: endDate,
-        userId: _scopedUserId(uiUserId: userId),
-        pickupToken: pickupToken,
-        limit: limit,
+        userId: userId,
+        limit: orderLogDefaultQueryLimit(
+          invoiceNumber: invoiceNumber,
+          referenceNumber: referenceNumber,
+          startDate: startDate,
+          endDate: endDate,
+        ),
       );
       if (status == null || status.isEmpty || status == 'All') {
         orders = orders.where(_takeAwayLogListVisible).toList();
