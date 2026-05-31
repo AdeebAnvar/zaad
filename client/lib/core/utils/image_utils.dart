@@ -147,6 +147,19 @@ class ImageUtils {
 
       await file.writeAsBytes(response.data!, flush: true);
       return outPath;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404 || code == 410) {
+        if (kDebugMode) {
+          debugPrint('ImageUtils: image not found (HTTP $code): ${e.requestOptions.uri}');
+        }
+        return null;
+      }
+      if (kDebugMode) {
+        debugPrint('ImageUtils downloadImage failed: $e');
+        debugPrintStack(stackTrace: e.stackTrace);
+      }
+      return null;
     } catch (e, st) {
       if (kDebugMode) {
         debugPrint('ImageUtils downloadImage failed: $e');

@@ -177,9 +177,20 @@ class _CustomTextFieldState extends State<CustomTextField> {
     return Theme.of(context).dividerColor.withOpacity(0.5);
   }
 
+  bool _externalControllerUsable() {
+    final c = widget.controller;
+    if (c == null) return true;
+    try {
+      c.value;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_disposed) {
+    if (_disposed || !_externalControllerUsable()) {
       return const SizedBox.shrink();
     }
     final theme = Theme.of(context);

@@ -13,6 +13,23 @@ double _parseNonNegativeAmount(String raw) {
   return v < 0 ? 0.0 : v;
 }
 
+String _prefillVarianceAmount(double amount) {
+  if (amount <= kDayCloseAmountTolerance) return '0';
+  final rounded = (amount * 100).roundToDouble() / 100;
+  return rounded == rounded.roundToDouble() ? '${rounded.toInt()}' : rounded.toStringAsFixed(2);
+}
+
+double _systemVariance(
+  List<DayClosingPaymentVariance> variances,
+  String channel, {
+  required bool excess,
+}) {
+  for (final v in variances) {
+    if (v.channel == channel) return excess ? v.excess : v.short;
+  }
+  return 0;
+}
+
 /// Day-close reconciliation: expected (system) + excess − short = actual, per payment channel.
 Future<DayClosingCloseReconciliation?> showDayClosingReconciliationDialog(
   BuildContext context, {
@@ -25,7 +42,7 @@ Future<DayClosingCloseReconciliation?> showDayClosingReconciliationDialog(
       return Dialog(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
-        insetPadding: AppDialogLayout.insetPadding(context),
+        insetPadding: AppDialogLayout.insetPaddingWithKeyboard(context),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: AppDialogLayout.maxContentWidth(context)),
@@ -73,30 +90,47 @@ class _DayClosingReconciliationBodyState extends State<_DayClosingReconciliation
   void initState() {
     super.initState();
     final s = widget.summary;
+    final variances = s.paymentVariances;
     _channels = [
       _ChannelFields(
         label: 'CASH',
         expected: s.cashSaleAfterDiscount,
-        excessCtrl: TextEditingController(text: '0'),
-        shortCtrl: TextEditingController(text: '0'),
+        excessCtrl: TextEditingController(
+          text: _prefillVarianceAmount(_systemVariance(variances, 'CASH', excess: true)),
+        ),
+        shortCtrl: TextEditingController(
+          text: _prefillVarianceAmount(_systemVariance(variances, 'CASH', excess: false)),
+        ),
       ),
       _ChannelFields(
         label: 'CARD',
         expected: s.cardSale,
-        excessCtrl: TextEditingController(text: '0'),
-        shortCtrl: TextEditingController(text: '0'),
+        excessCtrl: TextEditingController(
+          text: _prefillVarianceAmount(_systemVariance(variances, 'CARD', excess: true)),
+        ),
+        shortCtrl: TextEditingController(
+          text: _prefillVarianceAmount(_systemVariance(variances, 'CARD', excess: false)),
+        ),
       ),
       _ChannelFields(
         label: 'CREDIT',
         expected: s.creditSale,
-        excessCtrl: TextEditingController(text: '0'),
-        shortCtrl: TextEditingController(text: '0'),
+        excessCtrl: TextEditingController(
+          text: _prefillVarianceAmount(_systemVariance(variances, 'CREDIT', excess: true)),
+        ),
+        shortCtrl: TextEditingController(
+          text: _prefillVarianceAmount(_systemVariance(variances, 'CREDIT', excess: false)),
+        ),
       ),
       _ChannelFields(
         label: 'ONLINE',
         expected: s.onlineSale,
-        excessCtrl: TextEditingController(text: '0'),
-        shortCtrl: TextEditingController(text: '0'),
+        excessCtrl: TextEditingController(
+          text: _prefillVarianceAmount(_systemVariance(variances, 'ONLINE', excess: true)),
+        ),
+        shortCtrl: TextEditingController(
+          text: _prefillVarianceAmount(_systemVariance(variances, 'ONLINE', excess: false)),
+        ),
       ),
     ];
     for (final ch in _channels) {
@@ -253,8 +287,9 @@ class _DayClosingReconciliationBodyState extends State<_DayClosingReconciliation
 
   @override
   Widget build(BuildContext context) {
+    final kb = AppDialogLayout.keyboardBottomPadding(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      padding: EdgeInsets.fromLTRB(20, 16, 20, 20 + kb),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,

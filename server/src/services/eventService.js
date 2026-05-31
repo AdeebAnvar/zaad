@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('crypto');
 const { hubLog, trafficOutUnicast, trafficOutBroadcast } = require('../util/hubLog');
+const { bumpCountersFromOrderPayload } = require('./counterService');
 
 const DEVICE_MAIN = 'MAIN-HUB';
 
@@ -283,6 +284,10 @@ function handleEnvelope(db, ws, wss, data, rawStr) {
     }
 
     applyEventToDomain(db, data.type, data.payload, eff);
+
+    if (data.type === 'ORDER_CREATE' || data.type === 'ORDER_UPDATE') {
+      bumpCountersFromOrderPayload(db, data.payload);
+    }
 
     recordInbox(db, data, rawStr);
 

@@ -6,7 +6,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:pos/app/di.dart';
 import 'package:pos/core/auth/counter_access.dart';
 import 'package:pos/core/isolate/app_isolate_service.dart';
+import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/core/utils/app_update_cache_clear.dart';
+import 'package:flutter/services.dart';
 import 'package:pos/core/print/print_service.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/settings_repository.dart';
@@ -228,6 +230,14 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
                     ],
                   ],
                 ),
+              ),
+            ],
+            if (Platform.isWindows || Platform.isAndroid) ...[
+              const Divider(height: 1),
+              _menuItem(
+                icon: Icons.folder_outlined,
+                title: 'Open data folder',
+                onTap: _openDataFolder,
               ),
             ],
             const Divider(),
@@ -510,6 +520,22 @@ class _PosDrawerState extends State<PosDrawer> with SingleTickerProviderStateMix
     if (drawerHostContext.mounted) Navigator.pop(drawerHostContext);
 
     await locator<PrintService>().openCashDrawer();
+  }
+
+  Future<void> _openDataFolder() async {
+    AppNavigator.pop();
+    final path = await AppDirectories.dataFolderPath();
+    final opened = await AppDirectories.revealInFileManager();
+    if (!mounted) return;
+    if (opened) {
+      CustomSnackBar.showSuccess(message: 'Opened data folder');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: path));
+    if (!mounted) return;
+    CustomSnackBar.showSuccess(
+      message: 'Data folder path copied to clipboard:\n$path',
+    );
   }
 
   void _logout() async {

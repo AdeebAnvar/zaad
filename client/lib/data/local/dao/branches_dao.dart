@@ -35,6 +35,9 @@ class Branches extends Table {
   /// Branch-wide default opening balance (from server / user edit); survives day close.
   IntColumn get defaultOpeningCash => integer().withDefault(const Constant(0))();
 
+  /// Last pickup token from server bootstrap / COMPANY_SNAPSHOT (`last_token_no`).
+  IntColumn get lastTokenNo => integer().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -64,7 +67,6 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
 
   /// Preserved opening balances without Drift row mapping (safe on legacy NULL columns).
   Future<Map<int, int>> getPreservedOpeningCashByBranchId() async {
-    await attachedDatabase.repairLegacyBranchRows();
     final rows = await customSelect(
       '''
       SELECT id,
@@ -82,14 +84,12 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
 
   /// GET ALL
   Future<List<BranchModel>> getAllBranches() async {
-    await attachedDatabase.repairLegacyBranchRows();
     final data = await select(branches).get();
     return data.map(_toModel).toList();
   }
 
   /// GET ONE by [branchId] (server id / primary key)
   Future<BranchModel?> getBranchById(int branchId) async {
-    await attachedDatabase.repairLegacyBranchRows();
     final row = await (select(branches)..where((b) => b.id.equals(branchId)))
         .getSingleOrNull();
     return row == null ? null : _toModel(row);
@@ -98,6 +98,19 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
   /// DELETE (sync)
   Future<void> deleteBranches(List<int> ids) async {
     await (delete(branches)..where((b) => b.id.isIn(ids))).go();
+  }
+
+  /// Keeps the highest known pickup token for LAN SUB seeding via COMPANY_SNAPSHOT.
+  Future<void> setLastTokenNoIfHigher(int branchId, int tokenNo) async {
+    if (tokenNo <= 0) return;
+    final row = await (select(branches)..where((b) => b.id.equals(branchId)))
+        .getSingleOrNull();
+    if (row == null) return;
+    final existing = row.lastTokenNo ?? 0;
+    if (tokenNo <= existing) return;
+    await (update(branches)..where((b) => b.id.equals(branchId))).write(
+      BranchesCompanion(lastTokenNo: Value(tokenNo)),
+    );
   }
 
   /// Save opening cash and keep it as the branch default (drawer + day closing).
@@ -127,11 +140,11 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
     } else {
       localImage = b.localImage;
     }
-    await attachedDatabase.ensureBranchesDefaultOpeningCashColumn();
     final existingRow = await customSelect(
       '''
       SELECT COALESCE(default_opening_cash, 0) AS default_opening_cash,
-             COALESCE(opening_cash, 0) AS opening_cash
+             COALESCE(opening_cash, 0) AS opening_cash,
+             last_token_no
       FROM branches WHERE id = ?
       ''',
       variables: [Variable.withInt(b.id)],
@@ -144,6 +157,11 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
         : (existingOpening > 0
             ? existingOpening
             : (b.defaultOpeningCash ?? b.openingCash ?? 0));
+    final incomingToken = b.lastTokenNo ?? 0;
+    final existingToken = existingRow?.read<int?>('last_token_no') ?? 0;
+    final resolvedToken = incomingToken > (existingToken ?? 0)
+        ? incomingToken
+        : (existingToken ?? 0);
 
     return BranchesCompanion(
       id: Value(b.id),
@@ -165,6 +183,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
       openingCash: Value(resolvedBalance),
       defaultOpeningCash: Value(resolvedBalance),
       localImage: Value(localImage),
+      lastTokenNo: resolvedToken > 0 ? Value(resolvedToken) : const Value.absent(),
     );
   }
 
@@ -187,6 +206,7 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
       expiryDate: b.expiryDate,
       openingCash: b.openingCash,
       defaultOpeningCash: b.defaultOpeningCash,
+      lastTokenNo: b.lastTokenNo,
     );
   }
 }

@@ -10,6 +10,7 @@ const wsCfg = require('./config/wsConfig');
 const initWebSocket = require('./websocket/wsServer');
 const { openDatabase, acquireMainLock, releaseMainLock } = require('./db/sqlite');
 const { trafficHttp } = require('./util/hubLog');
+const { allocateCounters, seedCounters } = require('./services/counterService');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -46,7 +47,32 @@ function websocketClientsSnapshot(wss) {
   return { openSockets, peers };
 }
 
-const server = http.createServer((req, res) => {
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8').trim();
+        if (!raw) {
+          resolve({});
+          return;
+        }
+        resolve(JSON.parse(raw));
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function sendJson(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+const server = http.createServer(async (req, res) => {
   const ip = req.socket.remoteAddress || 'unknown';
 
   if (req.method === 'GET' && req.url === '/health') {
@@ -56,14 +82,30 @@ const server = http.createServer((req, res) => {
       body.ws = snap;
     }
     trafficHttp(ip, { method: 'GET', path: '/health', urlRaw: req.url }, 200, body);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(body));
+    sendJson(res, 200, body);
+    return;
+  }
+
+  if (req.method === 'POST' && (req.url === '/counters/allocate' || req.url === '/counters/seed')) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (_) {
+      trafficHttp(ip, { method: 'POST', path: req.url, urlRaw: req.url }, 400, { error: 'invalid_json' });
+      sendJson(res, 400, { ok: false, error: 'invalid_json' });
+      return;
+    }
+
+    const result =
+      req.url === '/counters/seed' ? seedCounters(db, body) : allocateCounters(db, body);
+    const status = result.ok === false ? 400 : 200;
+    trafficHttp(ip, { method: 'POST', path: req.url, urlRaw: req.url }, status, result);
+    sendJson(res, status, result);
     return;
   }
 
   trafficHttp(ip, { method: req.method || '?', urlRaw: req.url || '/' }, 404, { error: 'not_found' });
-  res.writeHead(404);
-  res.end();
+  sendJson(res, 404, { error: 'not_found' });
 });
 
 hub.wss = initWebSocket(server, db);

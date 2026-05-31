@@ -20,6 +20,7 @@ void completeKotSaveUi({
   void Function(bool closed)? onCloseCart,
 }) {
   if (dialogContext != null && dialogContext.mounted) {
+    FocusManager.instance.primaryFocus?.unfocus();
     Navigator.of(dialogContext, rootNavigator: true).pop();
   }
   if (!parentContext.mounted) return;

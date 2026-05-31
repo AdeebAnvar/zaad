@@ -22,6 +22,10 @@ Future<void> enqueueOrderLogSnapshotForCloudPush({
   final merged = Map<String, dynamic>.from(snapshotPayload)
     ..['order_id'] = order.id
     ..['cart_id'] = order.cartId;
+  final pushUuid = order.salePushUuid?.trim();
+  if (pushUuid != null && pushUuid.isNotEmpty) {
+    merged['sale_push_uuid'] = pushUuid;
+  }
 
   final jsonStr = jsonEncode(merged);
 

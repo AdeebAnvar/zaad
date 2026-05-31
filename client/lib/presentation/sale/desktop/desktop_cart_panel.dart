@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -48,6 +49,11 @@ bool _cartListStructureChanged(CartState prev, CartState curr) {
 }
 
 final Set<String> _autoPaymentShownKeys = <String>{};
+
+void _popDialogUnfocusing(BuildContext context, [Object? result]) {
+  FocusManager.instance.primaryFocus?.unfocus();
+  Navigator.of(context, rootNavigator: true).pop(result);
+}
 
 typedef PaymentDialogOnSave = Future<void> Function(
   Map<String, dynamic> customerDetails,
@@ -218,6 +224,7 @@ Future<void> showCartStylePaymentDialogForOrder(
   BuildContext context, {
   required Order order,
   VoidCallback? onPaymentRecorded,
+  bool fromDeliveryLog = false,
 }) async {
   Map<String, dynamic>? appliedOffer;
   try {
@@ -313,7 +320,9 @@ Future<void> showCartStylePaymentDialogForOrder(
             }
           }
 
-          final deliveryStatus = freshOrder.orderType == 'delivery' ? freshOrder.status : 'completed';
+          final deliveryStatus = freshOrder.orderType == 'delivery'
+              ? (fromDeliveryLog ? freshOrder.status : 'completed')
+              : 'completed';
 
           final updatedOrder = freshOrder.copyWith(
             referenceNumber: Value(updatedRef),
@@ -349,7 +358,7 @@ Future<void> showCartStylePaymentDialogForOrder(
           // #endregion
 
           if (dialogContext.mounted) {
-            Navigator.of(dialogContext, rootNavigator: true).pop(true);
+            _popDialogUnfocusing(dialogContext, true);
           }
 
           final printFuture = Future<List<String>>.delayed(
@@ -777,139 +786,18 @@ class CartPanel extends StatelessWidget {
   void showKOTDialog(BuildContext context) {
     final parentContext = context;
     final cartCubit = context.read<CartCubit>();
-    final currentReference = cartCubit.currentKOTReference;
-    final referenceController = TextEditingController(text: currentReference ?? '');
-
-    final suggestionsRef = <String>[
-      if (locator.isRegistered<SharedPreferences>()) ...KotReferenceRecents.loadSync(locator<SharedPreferences>()),
-    ];
-
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) {
-        return Dialog(
-          backgroundColor: Colors.white,
-          insetPadding: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final width = MediaQuery.of(context).size.width;
-
-              return ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: width > 600 ? 420 : width * 0.95,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: StatefulBuilder(
-                    builder: (context, setDialogState) {
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          /// Header
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  currentReference == null ? 'Add reference' : 'Edit reference',
-                                  style: AppStyles.getBoldTextStyle(fontSize: 20),
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close),
-                                onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          /// Input (saved refs only; use "Save to dropdown" to add the current text)
-                          _KotReferenceAutocompleteField(
-                            controller: referenceController,
-                            suggestions: List<String>.from(suggestionsRef),
-                          ),
-                          const SizedBox(height: 6),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton.icon(
-                              onPressed: () {
-                                final t = referenceController.text.trim();
-                                if (t.isEmpty) {
-                                  CustomSnackBar.showWarning(
-                                    context: context,
-                                    message: 'Enter a reference first, then save it to the list.',
-                                  );
-                                  return;
-                                }
-                                KotReferenceRecents.savePinnedReference(t);
-                                if (locator.isRegistered<SharedPreferences>()) {
-                                  suggestionsRef
-                                    ..clear()
-                                    ..addAll(KotReferenceRecents.loadSync(locator<SharedPreferences>()));
-                                }
-                                setDialogState(() {});
-                                CustomSnackBar.showSuccess(
-                                  context: context,
-                                  message: 'Saved to reference list',
-                                  duration: const Duration(milliseconds: 1600),
-                                );
-                              },
-                              icon: const Icon(Icons.bookmark_add_outlined, size: 18),
-                              label: Text('Save to dropdown', style: AppStyles.getMediumTextStyle(fontSize: 13)),
-                            ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          /// Actions
-                          Row(
-                            children: [
-                              TextButton(
-                                onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-                                child: const Text('Cancel'),
-                              ),
-                              const Spacer(),
-                              CustomButton(
-                                width: 80,
-                                text: 'Save',
-                                onPressed: () async {
-                                  final value = referenceController.text.trim();
-                                  try {
-                                    final result = await cartCubit.saveKOT(value);
-                                    if (!parentContext.mounted) return;
-                                    completeKotSaveUi(
-                                      parentContext: parentContext,
-                                      result: result,
-                                      dialogContext: context,
-                                      isModalBottomSheet: isModalBottomSheet,
-                                      closeOnComplete: closeOnComplete,
-                                      onCloseCart: onCloseCart,
-                                    );
-                                  } catch (e) {
-                                    if (context.mounted) {
-                                      showErrorDialog(context, e);
-                                    }
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      },
-    ).whenComplete(referenceController.dispose);
+      builder: (_) => _KotReferenceDialog(
+        parentContext: parentContext,
+        cartCubit: cartCubit,
+        currentReference: cartCubit.currentKOTReference,
+        isModalBottomSheet: isModalBottomSheet,
+        closeOnComplete: closeOnComplete,
+        onCloseCart: onCloseCart,
+      ),
+    );
   }
 
   Future<bool> _showPaymentDialog(
@@ -959,7 +847,7 @@ class CartPanel extends StatelessWidget {
             }
 
             if (dialogContext.mounted) {
-              Navigator.of(dialogContext, rootNavigator: true).pop(true);
+              _popDialogUnfocusing(dialogContext, true);
             }
 
             if (context.mounted) {
@@ -1584,10 +1472,11 @@ class _PaymentDialogState extends State<PaymentDialog> {
     final size = MediaQuery.of(context).size;
     final width = size.width;
     final height = size.height;
+    final kb = MediaQuery.viewInsetsOf(context).bottom;
 
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(16),
+      insetPadding: EdgeInsets.fromLTRB(16, 16, 16, 16 + kb),
       child: Center(
         child: Container(
           width: width > 1200
@@ -1597,7 +1486,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                   : width > 700
                       ? width * 0.9
                       : width * 0.92,
-          constraints: BoxConstraints(maxHeight: height * 0.88),
+          constraints: BoxConstraints(maxHeight: math.max(280.0, height * 0.88 - kb)),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
@@ -1612,7 +1501,12 @@ class _PaymentDialogState extends State<PaymentDialog> {
               children: [
                 _header(),
                 const Divider(height: 1),
-                _content(),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.only(bottom: kb > 0 ? 8 : 0),
+                    child: _content(),
+                  ),
+                ),
                 _footer(),
               ],
             ),
@@ -2232,7 +2126,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
               // CLOSE - light grey bg, dark blue border and text
               TextButton(
                 onPressed: () async {
-                  Navigator.of(context, rootNavigator: true).pop();
+                  _popDialogUnfocusing(context);
                   if (widget.closeSheetOnClose && widget.parentContext.mounted) {
                     await Navigator.maybePop(widget.parentContext);
                   }
@@ -2483,6 +2377,161 @@ class _PaymentDialogState extends State<PaymentDialog> {
     _discountByAmountController.dispose();
     _discountByPercentController.dispose();
     super.dispose();
+  }
+}
+
+class _KotReferenceDialog extends StatefulWidget {
+  const _KotReferenceDialog({
+    required this.parentContext,
+    required this.cartCubit,
+    required this.currentReference,
+    required this.isModalBottomSheet,
+    required this.closeOnComplete,
+    required this.onCloseCart,
+  });
+
+  final BuildContext parentContext;
+  final CartCubit cartCubit;
+  final String? currentReference;
+  final bool isModalBottomSheet;
+  final bool closeOnComplete;
+  final void Function(bool closed)? onCloseCart;
+
+  @override
+  State<_KotReferenceDialog> createState() => _KotReferenceDialogState();
+}
+
+class _KotReferenceDialogState extends State<_KotReferenceDialog> {
+  late final TextEditingController _referenceController;
+  late List<String> _suggestionsRef;
+
+  @override
+  void initState() {
+    super.initState();
+    _referenceController = TextEditingController(text: widget.currentReference ?? '');
+    _reloadSuggestions();
+  }
+
+  void _reloadSuggestions() {
+    _suggestionsRef = [
+      if (locator.isRegistered<SharedPreferences>()) ...KotReferenceRecents.loadSync(locator<SharedPreferences>()),
+    ];
+  }
+
+  @override
+  void dispose() {
+    _referenceController.dispose();
+    super.dispose();
+  }
+
+  void _closeDialog() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.of(context, rootNavigator: true).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return Dialog(
+      backgroundColor: Colors.white,
+      insetPadding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: width > 600 ? 420 : width * 0.95,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.currentReference == null ? 'Add reference' : 'Edit reference',
+                      style: AppStyles.getBoldTextStyle(fontSize: 20),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: _closeDialog,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              _KotReferenceAutocompleteField(
+                controller: _referenceController,
+                suggestions: List<String>.from(_suggestionsRef),
+              ),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () {
+                    final t = _referenceController.text.trim();
+                    if (t.isEmpty) {
+                      CustomSnackBar.showWarning(
+                        context: context,
+                        message: 'Enter a reference first, then save it to the list.',
+                      );
+                      return;
+                    }
+                    KotReferenceRecents.savePinnedReference(t);
+                    setState(_reloadSuggestions);
+                    CustomSnackBar.showSuccess(
+                      context: context,
+                      message: 'Saved to reference list',
+                      duration: const Duration(milliseconds: 1600),
+                    );
+                  },
+                  icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+                  label: Text('Save to dropdown', style: AppStyles.getMediumTextStyle(fontSize: 13)),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: _closeDialog,
+                    child: const Text('Cancel'),
+                  ),
+                  const Spacer(),
+                  CustomButton(
+                    width: 80,
+                    text: 'Save',
+                    onPressed: () async {
+                      final value = _referenceController.text.trim();
+                      try {
+                        final result = await widget.cartCubit.saveKOT(value);
+                        if (!widget.parentContext.mounted) return;
+                        completeKotSaveUi(
+                          parentContext: widget.parentContext,
+                          result: result,
+                          dialogContext: context,
+                          isModalBottomSheet: widget.isModalBottomSheet,
+                          closeOnComplete: widget.closeOnComplete,
+                          onCloseCart: widget.onCloseCart,
+                        );
+                      } catch (e) {
+                        if (context.mounted) {
+                          showErrorDialog(context, e);
+                        }
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

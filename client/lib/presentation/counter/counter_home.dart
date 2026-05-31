@@ -18,6 +18,7 @@ import 'package:pos/data/repository/order_repository.dart';
 import 'package:pos/presentation/delivery_log/delivery_log_ui.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_cubit.dart';
 import 'package:pos/presentation/take_away_log/take_away_log_ui.dart';
+import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:pos/presentation/widgets/custom_scaffold.dart';
 
 class CounterHome extends StatefulWidget {
@@ -190,22 +191,23 @@ class _CounterHomeState extends State<CounterHome> {
           }
 
           final width = constraints.maxWidth;
-          final height = constraints.maxHeight;
           final maxColsByWidth = width >= 1200 ? 3 : (width >= 760 ? 2 : 1);
           // Fewer tiles than columns left empty trailing cells — looks left-heavy on wide dashboards.
           final crossAxisCount = math.max(1, math.min(maxColsByWidth, tiles.length));
-          final gap = width >= 760 ? 14.0 : 10.0;
-          final horizontalPad = math.max(12.0, math.min(28.0, width * 0.03));
-          final verticalPad = math.max(10.0, math.min(24.0, height * 0.02));
+          final maxWidth = width >= 1400 ? 1120.0 : (width >= 760 ? 980.0 : width);
+          final contentWidth = math.min(maxWidth, width);
+          final gap = width >= 760 ? 12.0 : 10.0;
+          final horizontalPad = width >= 760 ? 200.0 : 10.0;
+          final verticalPad = width >= 760 ? 29.0 : 12.0;
 
-          return Align(
-            alignment: Alignment.topCenter,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(horizontalPad, verticalPad, horizontalPad, 12),
+          return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(horizontalPad, verticalPad, horizontalPad, 16),
+            child: Align(
+              alignment: Alignment.topCenter,
               child: SizedBox(
-                width: math.max(0, width - 2 * horizontalPad),
-                height: math.max(0, height - verticalPad - 12),
+                width: contentWidth,
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Container(
@@ -225,37 +227,25 @@ class _CounterHomeState extends State<CounterHome> {
                         ),
                       ),
                     ),
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, gridConstraints) {
-                          final rows = (tiles.length + crossAxisCount - 1) ~/ crossAxisCount;
-                          final innerH = gridConstraints.maxHeight;
-                          final tileH = rows > 0
-                              ? math.max(
-                                  72.0,
-                                  (innerH - (rows - 1) * gap) / rows,
-                                )
-                              : 100.0;
-                          return GridView.builder(
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: tiles.length,
-                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: crossAxisCount,
-                              crossAxisSpacing: gap,
-                              mainAxisSpacing: gap,
-                              mainAxisExtent: tileH,
-                            ),
-                            itemBuilder: (context, index) {
-                              final t = tiles[index];
-                              return _DashboardCard(
-                                title: t.title,
-                                icon: t.icon,
-                                onTap: () => t.onTap(context),
-                              );
-                            },
-                          );
-                        },
+                    SizedBox(height: gap),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: tiles.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        crossAxisSpacing: gap,
+                        mainAxisSpacing: gap,
+                        mainAxisExtent: 112,
                       ),
+                      itemBuilder: (context, index) {
+                        final t = tiles[index];
+                        return _DashboardCard(
+                          title: t.title,
+                          icon: t.icon,
+                          onTap: () => t.onTap(context),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -322,6 +312,7 @@ class _DeliveryServiceDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.transparent,
+      insetPadding: AppDialogLayout.insetPaddingWithKeyboard(context),
       child: Container(
         constraints: const BoxConstraints(maxWidth: 320),
         decoration: BoxDecoration(
@@ -438,53 +429,44 @@ class _DashboardCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        final h = constraints.maxHeight;
-        final compact = w < 560 || h < 72;
-        final iconSize = (h * 0.32).clamp(18.0, 32.0);
-        final fontSize = (h * 0.2).clamp(14.0, 24.0);
-        return InkWell(
+    final w = MediaQuery.sizeOf(context).width;
+    final compact = w < 560;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.primaryColor,
           borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.primaryColor,
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: compact ? 10 : math.max(10.0, w * 0.06)),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(icon, color: Colors.white.withValues(alpha: 0.96), size: iconSize),
-                  SizedBox(width: math.max(8.0, w * 0.04)),
-                  Flexible(
-                    child: Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: AppStyles.getSemiBoldTextStyle(
-                        fontSize: compact ? math.min(fontSize, 17) : fontSize,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
+          ],
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12, vertical: 10),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: Colors.white.withValues(alpha: 0.96), size: compact ? 22 : 24),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: AppStyles.getSemiBoldTextStyle(
+                  fontSize: compact ? 14 : 15,
+                  color: Colors.white,
+                ).copyWith(height: 1.2),
               ),
-            ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

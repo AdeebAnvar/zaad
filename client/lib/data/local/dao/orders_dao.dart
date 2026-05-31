@@ -48,6 +48,9 @@ class Orders extends Table {
 
   /// Daily pickup / queue number; resets after [DayClosingCheckpoint.lastSettledAt] for the branch.
   IntColumn get pickupToken => integer().nullable()();
+
+  /// Stable cloud `push_records` sale uuid — assigned once at order creation, never recomputed.
+  TextColumn get salePushUuid => text().nullable()();
 }
 
 class OrderLogs extends Table {
@@ -70,8 +73,27 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   /* ───────── ORDERS ───────── */
 
   Future<int> createOrder(OrdersCompanion order) async {
-    await attachedDatabase.ensureOrdersCustomerAddressColumn();
     return into(orders).insert(order);
+  }
+
+  Future<void> setSalePushUuid(int orderId, String uuid) async {
+    final trimmed = uuid.trim();
+    if (trimmed.isEmpty) return;
+    await (update(orders)..where((o) => o.id.equals(orderId))).write(
+      OrdersCompanion(salePushUuid: Value(trimmed)),
+    );
+  }
+
+  /// Writes [uuid] only when the row has no sale push uuid yet.
+  Future<bool> setSalePushUuidIfUnset(int orderId, String uuid) async {
+    final trimmed = uuid.trim();
+    if (trimmed.isEmpty) return false;
+    final row = await getOrderById(orderId);
+    if (row == null) return false;
+    final existing = row.salePushUuid?.trim();
+    if (existing != null && existing.isNotEmpty) return false;
+    await setSalePushUuid(orderId, trimmed);
+    return true;
   }
 
   Future<List<Order>> getAllOrders({int? branchId}) {
@@ -388,7 +410,6 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
   }
 
   Future<void> updateOrder(OrdersCompanion order) async {
-    await attachedDatabase.ensureOrdersCustomerAddressColumn();
     await (update(orders)..where((o) => o.id.equals(order.id.value))).write(order);
   }
 
@@ -465,7 +486,7 @@ class OrdersDao extends DatabaseAccessor<AppDatabase> with _$OrdersDaoMixin {
       );
       _hasPickupTokenColumnCache = hasColumn;
       if (!hasColumn) {
-        await attachedDatabase.ensureOrdersPickupTokenColumn();
+        await attachedDatabase.ensureLegacySchemaColumnsOnce();
         final retry = await customSelect("PRAGMA table_info('orders')").get();
         final repaired = retry.any(
           (r) => (r.read<String>('name')).toLowerCase() == 'pickup_token',

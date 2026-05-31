@@ -18,12 +18,15 @@ class ItemCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasVariants = context.select<ItemsCubit, bool>((cubit) {
+    final catalogFlags = context.select<ItemsCubit, ({bool hasVariants, bool hasToppings})>((cubit) {
       final state = cubit.state;
       if (state is ItemsLoadedState) {
-        return state.variantItemIds.contains(item.id);
+        return (
+          hasVariants: state.variantItemIds.contains(item.id),
+          hasToppings: state.toppingItemIds.contains(item.id),
+        );
       }
-      return false;
+      return (hasVariants: false, hasToppings: false);
     });
 
     return InkWell(
@@ -33,11 +36,27 @@ class ItemCard extends StatelessWidget {
         final itemsCubit = context.read<ItemsCubit>();
 
         try {
-          final variants = await itemsCubit.getVariants(item.id);
-          final toppings = await itemsCubit.getToppings(item.id);
-          final toppingGroups = await itemsCubit.getToppingGroups(item.id);
-          // If item has variants, show configuration dialog (variant required before add).
-          if (variants.isNotEmpty) {
+          if (!catalogFlags.hasVariants && !catalogFlags.hasToppings) {
+            await cartCubit.addItemToCart(item);
+            itemsCubit.clearSearch();
+            return;
+          }
+
+          final variantsFuture = catalogFlags.hasVariants
+              ? itemsCubit.getVariants(item.id)
+              : Future<List<ItemVariant>>.value(const []);
+          final toppingsFuture = catalogFlags.hasToppings
+              ? itemsCubit.getToppings(item.id)
+              : Future<List<ItemTopping>>.value(const []);
+          final groupsFuture = catalogFlags.hasToppings
+              ? itemsCubit.getToppingGroups(item.id)
+              : Future<List<ToppingGroup>>.value(const []);
+          final loaded = await Future.wait([variantsFuture, toppingsFuture, groupsFuture]);
+          final variants = loaded[0] as List<ItemVariant>;
+          final toppings = loaded[1] as List<ItemTopping>;
+          final toppingGroups = loaded[2] as List<ToppingGroup>;
+
+          if (variants.isNotEmpty || toppings.isNotEmpty) {
             if (!context.mounted) return;
             showItemConfigDialog(
               context,
@@ -138,7 +157,7 @@ class ItemCard extends StatelessWidget {
                           style: AppStyles.getRegularTextStyle(fontSize: 11, color: Colors.white70),
                         ),
                       const SizedBox(height: 4),
-                      if (!hasVariants)
+                      if (!catalogFlags.hasVariants)
                         Text(
                           RuntimeAppSettings.money(item.price),
                           style: AppStyles.getBoldTextStyle(fontSize: 15, color: Colors.white),

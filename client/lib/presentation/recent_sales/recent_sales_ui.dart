@@ -424,6 +424,7 @@ class _RecentSalesDesktopTable extends StatelessWidget {
                         DataCell(
                           RelativeTimeText(
                             at: order.createdAt,
+                            liveUpdates: false,
                             style: AppStyles.getRegularTextStyle(fontSize: 13),
                           ),
                         ),
@@ -595,6 +596,7 @@ class _RecentSaleCardState extends State<RecentSaleCard> {
             const SizedBox(height: 2),
             RelativeTimeText(
               at: order.createdAt,
+              liveUpdates: false,
               style: const TextStyle(fontSize: 11, color: Colors.grey),
             ),
           ],

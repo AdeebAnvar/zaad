@@ -14,6 +14,7 @@ import 'package:pos/core/utils/delivery_partner_catalog_signal.dart';
 import 'package:pos/core/utils/json_int_parse.dart';
 import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/core/utils/order_owner_display_utils.dart';
+import 'package:pos/core/utils/sale_push_uuid.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository/branch_repository.dart';
 import 'package:pos/data/repository/pull_data_repository.dart';
@@ -590,6 +591,14 @@ class SyncInboxApplier {
     return 0;
   }
 
+  String _mirroredSalePushUuid(Map<String, dynamic> snap, Order? existing) {
+    final fromSnap = readSalePushUuidFromSnap(snap);
+    if (fromSnap != null) return fromSnap;
+    final fromRow = existing?.salePushUuid?.trim();
+    if (fromRow != null && fromRow.isNotEmpty) return fromRow;
+    return generateSalePushUuid();
+  }
+
   Future<void> _upsertOrder(Map<String, dynamic> payload) async {
     final sid = payload['orderId']?.toString() ?? payload['serverOrderId']?.toString() ?? payload['id']?.toString();
     if (sid == null || sid.isEmpty) return;
@@ -717,6 +726,9 @@ class SyncInboxApplier {
       existingCartId: existing?.cartId,
     );
 
+    final mirroredSalePushUuid = _mirroredSalePushUuid(snap, existing);
+    snap['sale_push_uuid'] = mirroredSalePushUuid;
+
     if (existing != null) {
       final priorStatus = existing.status;
       if (stalePayload) {
@@ -739,6 +751,9 @@ class SyncInboxApplier {
             userId: mirroredUserId != null ? Value(mirroredUserId) : const Value.absent(),
             hubMetadata: Value(hubMeta),
             branchId: Value(branchBid),
+            salePushUuid: (existing.salePushUuid?.trim().isNotEmpty == true)
+                ? const Value.absent()
+                : Value(mirroredSalePushUuid),
           ),
         );
       }
@@ -793,6 +808,7 @@ class SyncInboxApplier {
               driverId: mirroredExtra.driverId,
               driverName: mirroredExtra.driverName,
               pickupToken: mirroredExtra.pickupToken,
+              salePushUuid: Value(mirroredSalePushUuid),
             ),
           );
     }

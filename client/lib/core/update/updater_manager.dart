@@ -461,7 +461,7 @@ class UpdaterManager {
     }
 
     try {
-      await BackupService.instance.backupNow(_db, force: true);
+      await BackupService.instance.backupNow(_db);
     } catch (e, st) {
       _log('integrated backup skipped: $e\n$st');
     }
