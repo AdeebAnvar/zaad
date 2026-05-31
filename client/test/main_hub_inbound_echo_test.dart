@@ -1,4 +1,3 @@
-import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pos/core/sync/pos_sync_wire.dart';
 import 'package:pos/data/local/drift_database.dart';

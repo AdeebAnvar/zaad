@@ -54,6 +54,7 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     int? limit,
     int offset = 0,
     /// Exclude KOT/unsettled mirrors [orderCountsAsRecentSale].
@@ -75,6 +76,7 @@ abstract class OrderRepository {
     DateTime? endDate,
     int? driverId,
     int? userId,
+    int? pickupToken,
     bool onlyRecentSaleSettled = false,
     String? paymentMethodKey,
     bool excludeKotStatus = false,

@@ -159,9 +159,8 @@ class BranchesDao extends DatabaseAccessor<AppDatabase>
             : (b.defaultOpeningCash ?? b.openingCash ?? 0));
     final incomingToken = b.lastTokenNo ?? 0;
     final existingToken = existingRow?.read<int?>('last_token_no') ?? 0;
-    final resolvedToken = incomingToken > (existingToken ?? 0)
-        ? incomingToken
-        : (existingToken ?? 0);
+    final resolvedToken =
+        incomingToken > existingToken ? incomingToken : existingToken;
 
     return BranchesCompanion(
       id: Value(b.id),

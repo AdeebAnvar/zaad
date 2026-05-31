@@ -5,7 +5,6 @@ import 'package:pos/core/utils/order_log_cart_fallback.dart';
 import 'package:pos/data/local/drift_database.dart';
 import 'package:pos/data/repository_impl/cart_repository_impl.dart';
 import 'package:pos/data/repository_impl/order_repository_impl.dart';
-import 'package:pos/presentation/day_closing/day_closing_summary.dart';
 import 'helpers/sales_integrity_fixtures.dart';
 
 /// Regression: Recent Sales / day close must not show another bill's lines when cart_id is shared.

@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:pos/core/utils/app_directories.dart';
 import 'package:pos/presentation/widgets/app_standard_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
